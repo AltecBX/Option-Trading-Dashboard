@@ -10087,6 +10087,22 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 _uw_send({"data": data})
                 return
 
+            if parsed.path == "/api/uw/hotlist":
+                # Options Hotlist (v5.36): the market's hottest contracts
+                # and its unusually rich and cheap volatility.
+                if uw is None:
+                    _uw_send({"data": None})
+                    return
+                try:
+                    import hotlist as _hotlist
+                    board = ((_wltable.get_board() if (_WLTABLE_AVAILABLE and _wltable is not None)
+                              else {}) or {})
+                    watch = [str(r.get("symbol") or r.get("ticker") or "") for r in (board.get("rows") or [])]
+                    _uw_send({"data": _hotlist.build(uw, watch)})
+                except Exception as exc:  # noqa: BLE001
+                    _uw_send({"error": str(exc)[:200]}, status=500)
+                return
+
             if parsed.path == "/api/uw/report_card":
                 # Worth Selling Today graded in real dollars (v5.36): each
                 # past pick priced with UW's daily history for its contracts.

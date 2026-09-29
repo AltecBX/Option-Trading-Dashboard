@@ -5427,3 +5427,87 @@ Codex on #421, both right and fixed:
   missing.
 
 Tests for both fail on the old code.
+
+## v5.36 — the rest of the Unusual Whales plan
+
+Jerry: "What else can my Unusual Whales plan do for me", then "Do all" to
+the eight things offered. Every path and field is from UW's published
+OpenAPI spec (api.unusualwhales.com/api/openapi). Every new call goes
+through the client's cache, and a section UW doesn't answer is named,
+never guessed.
+
+**Warnings before selling**
+1. **FDA dates** (`/api/market/fda-calendar`).
+   - Worth Selling Today makes one market-wide call over 75 days
+     (`money_map.board_risks`). A row whose stock has an undecided FDA
+     catalyst starting on or before its expiry gets a red "⚠ FDA …" line
+     and moves below the clean rows (`setup_board.attach_risks`, stable).
+   - The Big Money Map lists the next 180 days' events at the top.
+   - A vague target ("Q4") counts from the start of its range.
+2. **Squeeze risk** (`/api/shorts/{t}/interest-float/v2`, FINRA).
+   - HIGH at 20%+ of the float short or 7+ days to cover; elevated at
+     10% / 4 days.
+   - Only trades with a short call are asked (call spread, condor,
+     covered call). HIGH sinks the row; elevated warns in place.
+   - The map shows it for any stock.
+3. **Earnings, expected vs actual** (`/api/earnings/{t}`).
+   - Over the last 8 reports: the average move options expected against
+     the average next-day move.
+   - UNDERPRICED at 15%+ over, OVERPRICED at 15%+ under, FAIR otherwise.
+
+**Better strikes**
+4. **Open interest by strike** (`/api/stock/{t}/oi-per-strike`): the two
+   biggest call-OI strikes above the price and put-OI strikes below join
+   the map's ladder. A new **Friday walls** card on the Friday screen shows
+   those walls with max pain, the magnet and the call/put walls around
+   the price.
+5. **Seasonality** (`/api/seasonality/{t}/monthly`): this month's record
+   ("up 8 of the last 10 years, average +3.2%, worst −7.3%"), plus next
+   month from the 22nd.
+
+**The report card**
+6. **Report card in real dollars** (`report_card.py`,
+   `/api/option-contract/{id}/historic`, rows under `chains`, so the
+   client now peels a per-endpoint key).
+   - Every Worth Selling Today pick is written down the first day it
+     appears, and only from a scan dated today.
+   - Each leg is then priced from its exact contract's daily history:
+     NBBO mid, else the last trade, on expiry day for a finished trade,
+     today for an open one.
+   - Credit minus buy-back, ×100, is the profit or loss per contract if
+     held to expiry.
+   - Finished grades are kept and never refetched. Missing history stays
+     ungraded. Up to 40 contract histories per pass, fetched in parallel
+     outside the file lock.
+   - The board shows "Report card: 19/23 won · +$1,240" with the last 12
+     picks.
+
+**Market-wide scans**
+7–8. **Options Hotlist** (new Scan destination, now 33), `hotlist.py`:
+   - The screener ordered by premium, each contract tagged BOUGHT or SOLD
+     (60% at the ask or the bid) with ▲/▼ lean, volume against open
+     interest, sweeps and spreads.
+   - UW's volatility-anomaly screen: `short_vol` as "Expensive options"
+     (a seller's shortlist) and `long_vol` as "Cheap options".
+   - The spec doesn't list the anomaly rows' fields, so the reader takes
+     a symbol and whichever of the common score and volatility names are
+     present, and says nothing it doesn't have.
+   - A watchlist filter; refreshes every 2 minutes while showing.
+
+Tests:
+- `test_money_map` (+9): FDA windows and decided events, squeeze levels,
+  earnings expected vs actual, OI walls, seasonality, the map carrying
+  them, board risks with one FDA call and short calls only.
+- `test_setup_board` (+2): warned rows sink and say why.
+- `test_report_card` (11, new): OCC symbols, pick-once, a finished pick
+  priced at expiry and kept, an open one marked to market, missing
+  history ungraded, not graded on its pick day, the fetch budget, all
+  four condor legs, the server wiring.
+- `test_hotlist` (6, new).
+- Render tests on desktop and phone:
+  - the board's squeeze warning and report card;
+  - the map's warnings leading the card, with earnings, seasonality and
+    OI on the ladder;
+  - the Friday walls;
+  - the Options Hotlist.
+- Static guards cover the new destination and the Friday card.

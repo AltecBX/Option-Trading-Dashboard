@@ -15469,9 +15469,17 @@ body { overflow: hidden; overscroll-behavior: none; }
 .sb-meta { margin-top: 3px; display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--fg-3); }
 .sb-earn { color: var(--warn); font-weight: 600; }
 .sb-foot { margin: 12px 0 0; font-size: 12px; color: var(--fg-3); line-height: 1.45; }
+/* v5.36 — the Options Hotlist reuses the buying page's rows. */
+.hl-how { color: var(--fg); }
+.hl-bought { border-color: color-mix(in srgb, var(--up) 55%, transparent); background: color-mix(in srgb, var(--up) 14%, transparent); }
+.hl-sold { border-color: color-mix(in srgb, var(--down) 55%, transparent); background: color-mix(in srgb, var(--down) 14%, transparent); }
+.sb-tag.hl-rich { color: var(--fg); border-color: color-mix(in srgb, var(--up) 55%, transparent); background: color-mix(in srgb, var(--up) 18%, transparent); }
+.sb-tag.hl-cheap { color: var(--fg); border-color: color-mix(in srgb, var(--down) 55%, transparent); background: color-mix(in srgb, var(--down) 14%, transparent); }
+.hl-card .sb-bar { justify-content: space-between; }
 @media (max-width: 900px) {
   .sb-view .lv-seg-btn, .sb-bar .lv-seg-btn { flex: 1 1 0; font-size: 13px; }
   .sb-bar .lv-seg, .sb-view { display: flex; width: 100%; }
+  .hl-view .lv-seg-btn { font-size: 12px; padding-left: 6px; padding-right: 6px; }
 }
 
 /* ══════════════════════════════════════════════════════════════════════════

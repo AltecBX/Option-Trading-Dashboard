@@ -397,6 +397,13 @@ def report_card_payload():
     return RC.report(tmp, hist.get, _d(2026, 9, 25))
 
 
+def hotlist_payload():
+    """The Options Hotlist, built by the REAL hotlist module (test_hotlist)."""
+    import hotlist as HLM
+    from test_hotlist import FakeUW as _F
+    return HLM.build(_F(), watchlist=["AAPL"])
+
+
 def buyers_payload():
     """Insider & Congress buying, built by the REAL smart_buyers module
     from rows shaped like UW's spec examples (test_smart_buyers)."""
@@ -490,7 +497,7 @@ class TheFrameStaysOnScreen(unittest.TestCase):
     def _measure(self, width, height, tab="trade", init="", ticker_payload=None,
                  timezone=None, safe_area=None, starred=None, ytd_bases=None,
                  quotes=None, tab_order=None, setup_board=None, live=None, uw=None,
-                 buyers=None, report_card=None):
+                 buyers=None, report_card=None, hotlist=None):
         """Open the app with a production-sized news feed and measure the
         frame. Returns (geometry, page errors)."""
         from playwright.sync_api import sync_playwright
@@ -518,6 +525,7 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         self._buyers = buyers
         # v5.36: the board's report card.
         self._report_card = report_card
+        self._hotlist = hotlist
         pw = sync_playwright().start()
         kw = {"executable_path": CHROMIUM} if Path(CHROMIUM).exists() else {}
         browser = pw.chromium.launch(**kw)
@@ -634,6 +642,10 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                     r.fulfill(status=200, content_type="application/json",
                               body=json.dumps(self._live[key]))
                     return
+            if self._hotlist is not None and urllib.parse.urlsplit(url).path == "/api/uw/hotlist":
+                r.fulfill(status=200, content_type="application/json",
+                          body=json.dumps({"data": self._hotlist, "configured": True}))
+                return
             if self._report_card is not None and urllib.parse.urlsplit(url).path == "/api/uw/report_card":
                 r.fulfill(status=200, content_type="application/json",
                           body=json.dumps({"data": self._report_card, "configured": True}))
@@ -1837,6 +1849,45 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 else:
                     self.assertTrue(all(r["expLines"] <= 1 for r in rows),
                                     "the expiry wrapped onto more than one line")
+            finally:
+                self._close(handles)
+
+    def test_the_options_hotlist_reads_at_a_glance(self):
+        """v5.36: the market's hottest contracts with how they printed, and
+        UW's unusually expensive and cheap options, one tap apart; the
+        watchlist filter; nothing runs off a phone."""
+        hl = hotlist_payload()
+        for w, h in ((1440, 900), (440, 956)):
+            geo, errors, handles = self._measure(w, h, tab="hotlist", hotlist=hl)
+            page = handles[2]
+            try:
+                self.assertFalse(errors, f"page errors at {w}px: {errors[:3]}")
+                page.wait_for_selector(".hl-list .sb-row", timeout=15000)
+                read = """(() => { const c = document.querySelector('.hl-card'), cr = c.getBoundingClientRect();
+                  return {rows: [...c.querySelectorAll('.hl-list > .sb-row')].map(li => ({
+                            sym: li.querySelector('.sb-sym').innerText.trim(),
+                            tags: [...li.querySelectorAll('.sb-tag')].map(t => t.innerText.trim()),
+                            text: li.querySelector('.sb-text').innerText.trim(),
+                            past: Math.round(li.getBoundingClientRect().right - cr.right)})),
+                          btns: Math.round(Math.max(...[...c.querySelectorAll('.lv-seg-btn')].map(b => b.getBoundingClientRect().right - cr.right))),
+                          over: Math.max(0, document.querySelector('.main').scrollWidth - document.querySelector('.main').clientWidth)}; })()"""
+                got = page.evaluate(read)
+                self.assertEqual(["NVDA", "TSLA", "AAPL"], [r["sym"] for r in got["rows"]])
+                self.assertEqual(["BOUGHT puts"], got["rows"][0]["tags"])
+                self.assertEqual(["SOLD calls", "★ Watchlist"], got["rows"][2]["tags"])
+                self.assertEqual(hl["hottest"][0]["text"], got["rows"][0]["text"])
+                self.assertLessEqual(max(r["past"] for r in got["rows"]), 1, f"a row runs off at {w}px")
+                self.assertLessEqual(got["btns"], 1, f"a button runs off at {w}px")
+                self.assertLessEqual(got["over"], 2)
+                page.click(".hl-view .lv-seg-btn:nth-child(2)")
+                page.wait_for_timeout(150)
+                got = page.evaluate(read)
+                self.assertEqual(["PLTR", "IOVA", "BBBY"], [r["sym"] for r in got["rows"]])
+                self.assertEqual(["EXPENSIVE"], got["rows"][0]["tags"])
+                page.click(".hl-view .lv-seg-btn:nth-child(1)")
+                page.click(".sb-bar > .lv-seg:not(.hl-view) .lv-seg-btn:nth-child(2)")
+                page.wait_for_timeout(150)
+                self.assertEqual(["AAPL"], [r["sym"] for r in page.evaluate(read)["rows"]], "the watchlist filter")
             finally:
                 self._close(handles)
 
