@@ -6026,6 +6026,12 @@ function App() {
           </CardErrorBoundary>
         </TabPanel>
         <TabPanel tab="friday" active={activeTab}>
+          <CardErrorBoundary label="Friday walls">
+            <FridayWallsCard ticker={ticker} currentPrice={getLivePrice(ticker) ?? currentPrice}
+                             apiFetch={apiFetch} uwHealth={uwHealth} />
+          </CardErrorBoundary>
+        </TabPanel>
+        <TabPanel tab="friday" active={activeTab}>
           <CardErrorBoundary label="At the line">
             <LazyTab chunk="tab-stretch" component="StretchCard" label="At the line"
                      apiFetch={apiFetch}

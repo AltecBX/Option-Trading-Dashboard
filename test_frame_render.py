@@ -383,6 +383,20 @@ def money_map_payload(spot=100.0):
     return MM.build(uw, "AAPL", spot=spot, today=_d(2026, 9, 25))
 
 
+def report_card_payload():
+    """The report card, graded by the REAL report_card module from picks
+    and contract histories shaped like UW's (test_report_card)."""
+    import tempfile as _tf
+    from datetime import date as _d
+    import report_card as RC
+    from test_report_card import put_spread, day
+    tmp = _tf.mkdtemp()
+    RC.record(tmp, [put_spread(), put_spread(sym="MSFT", short=480.0, long_=470.0, credit=2.0)], _d(2026, 9, 1))
+    hist = {"GOOGL260918P00305000": [day("2026-09-18", 0.0, 0.02)], "GOOGL260918P00290000": [day("2026-09-18", 0.0, 0.01)],
+            "MSFT260918P00480000": [day("2026-09-18", 9.0, 9.2)], "MSFT260918P00470000": [day("2026-09-18", 0.5, 0.6)]}
+    return RC.report(tmp, hist.get, _d(2026, 9, 25))
+
+
 def buyers_payload():
     """Insider & Congress buying, built by the REAL smart_buyers module
     from rows shaped like UW's spec examples (test_smart_buyers)."""
@@ -476,7 +490,7 @@ class TheFrameStaysOnScreen(unittest.TestCase):
     def _measure(self, width, height, tab="trade", init="", ticker_payload=None,
                  timezone=None, safe_area=None, starred=None, ytd_bases=None,
                  quotes=None, tab_order=None, setup_board=None, live=None, uw=None,
-                 buyers=None):
+                 buyers=None, report_card=None):
         """Open the app with a production-sized news feed and measure the
         frame. Returns (geometry, page errors)."""
         from playwright.sync_api import sync_playwright
@@ -502,6 +516,8 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         self._uw = uw
         # v5.34: the Insider & Congress page's answer (implies UW connected).
         self._buyers = buyers
+        # v5.36: the board's report card.
+        self._report_card = report_card
         pw = sync_playwright().start()
         kw = {"executable_path": CHROMIUM} if Path(CHROMIUM).exists() else {}
         browser = pw.chromium.launch(**kw)
@@ -618,6 +634,10 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                     r.fulfill(status=200, content_type="application/json",
                               body=json.dumps(self._live[key]))
                     return
+            if self._report_card is not None and urllib.parse.urlsplit(url).path == "/api/uw/report_card":
+                r.fulfill(status=200, content_type="application/json",
+                          body=json.dumps({"data": self._report_card, "configured": True}))
+                return
             if self._buyers is not None and urllib.parse.urlsplit(url).path == "/api/uw/buyers":
                 r.fulfill(status=200, content_type="application/json",
                           body=json.dumps({"data": self._buyers, "configured": True}))
@@ -1764,7 +1784,8 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 "MSFT": ("CALL SPREAD", "Sell 530 call · Buy 555 call", "$210", "$2,290"),
                 "AMD": ("IRON CONDOR", "Sell 150 put · Buy 142 put", "$305", "$495")}
         for w, h in ((1440, 900), (440, 956)):
-            geo, errors, handles = self._measure(w, h, setup_board=board_payload())
+            rc = report_card_payload()
+            geo, errors, handles = self._measure(w, h, setup_board=board_payload(), report_card=rc)
             page = handles[2]
             try:
                 self.assertFalse(errors, f"page errors at {w}px: {errors[:3]}")
@@ -1793,6 +1814,10 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 self.assertEqual(["MSFT", "GOOGL", "AMD"], [r["sym"] for r in rows])
                 uw = page.evaluate("[...document.querySelectorAll('.su-brow .su-uw')].map(b => b.innerText.trim())")
                 self.assertEqual(["RICH", "FAIR", "THIN"], uw, f"UW check at {w}px")
+                # v5.36: the report card sits under the trades, in real dollars.
+                page.wait_for_selector(".su-rc", timeout=8000)
+                self.assertEqual(rc["text"], page.evaluate("document.querySelector('.su-rc-text').innerText.trim()"))
+                self.assertIn("1/2 won", page.evaluate("document.querySelector('.su-rc-head').innerText"))
                 warns = page.evaluate("[...document.querySelectorAll('.su-brow')].map(tr => [...tr.querySelectorAll('.su-warn')].map(x => x.innerText.trim()))")
                 self.assertEqual([["⚠ Squeeze risk elevated: 12.0% of the float is sold short, 4.2 days to cover"], [], []],
                                  warns, f"the squeeze warning sits on MSFT's row at {w}px")
@@ -1857,6 +1882,30 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 got = page.evaluate(read)
                 self.assertEqual(["BIGCO"], [r["sym"] for r in got["ins"]], "the watchlist filter")
                 self.assertEqual([], got["both"])
+            finally:
+                self._close(handles)
+
+    def test_friday_shows_the_walls_into_expiry(self):
+        """v5.36: the open-interest walls, max pain and the gamma magnet on
+        the Friday screen, around the price; dark pool levels and the flip
+        stay on the Big Money Map."""
+        mm = money_map_payload()
+        for w, h in ((1440, 900), (440, 956)):
+            geo, errors, handles = self._measure(w, h, tab="friday", uw=mm)
+            page = handles[2]
+            try:
+                self.assertFalse(errors, f"page errors at {w}px: {errors[:3]}")
+                page.wait_for_selector(".fw-card .mm-ladder", timeout=15000)
+                names = page.evaluate("[...document.querySelectorAll('.fw-card .mm-name')].map(e => e.innerText.trim())")
+                self.assertIn("Price now", names)
+                self.assertIn("Big call OI", names[:names.index("Price now")])
+                self.assertIn("Big put OI", names[names.index("Price now"):])
+                self.assertTrue(any(n.startswith("Max pain") for n in names))
+                self.assertNotIn("Dark pool", names)
+                self.assertNotIn("Gamma flip", names)
+                past = page.evaluate("""(() => { const c = document.querySelector('.fw-card').getBoundingClientRect();
+                  return Math.max(...[...document.querySelectorAll('.fw-card .mm-lv')].map(li => li.getBoundingClientRect().right - c.right)); })()""")
+                self.assertLessEqual(past, 1, f"a wall runs off the card at {w}px")
             finally:
                 self._close(handles)
 

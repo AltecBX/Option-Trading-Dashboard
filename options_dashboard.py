@@ -10087,6 +10087,18 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 _uw_send({"data": data})
                 return
 
+            if parsed.path == "/api/uw/report_card":
+                # Worth Selling Today graded in real dollars (v5.36): each
+                # past pick priced with UW's daily history for its contracts.
+                try:
+                    import report_card as _report_card
+                    _today = datetime.now(_ET).date() if _ET is not None else date.today()
+                    hist = (lambda sym: uw.option_historic(sym)) if uw is not None else (lambda sym: None)
+                    _uw_send({"data": _report_card.report(_STABLE_DIR, hist, _today)})
+                except Exception as exc:  # noqa: BLE001
+                    _uw_send({"error": str(exc)[:200]}, status=500)
+                return
+
             if parsed.path == "/api/uw/buyers":
                 # Insider & Congress buying (v5.34): the whole market's
                 # open-market insider purchases and congressional buys,
@@ -12943,6 +12955,17 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 out["as_of"] = (snap or {}).get("as_of")
                 out["scanning"] = bool((snap or {}).get("scanning"))
                 out["measured"] = len(rows)
+                # v5.36: write down today's picks for the report card, but
+                # only from a scan that is today's. A board read off a
+                # days-old scan is not a pick anyone could have made today.
+                try:
+                    import report_card as _report_card
+                    _today = datetime.now(_ET).date() if _ET is not None else date.today()
+                    _asof = str(out.get("as_of") or "")[:10]
+                    if out.get("rows") and _asof == _today.isoformat():
+                        _report_card.record(_STABLE_DIR, out["rows"], _today)
+                except Exception as exc:  # noqa: BLE001
+                    _log_warn("*", "report_card record", exc)
                 self._send_json(out, no_store=True)
             except Exception as exc:  # noqa: BLE001
                 _log_warn("*", "api/setup_board", exc)

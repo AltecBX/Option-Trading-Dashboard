@@ -7525,6 +7525,16 @@ function App() {
     tab: "friday",
     active: activeTab
   }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
+    label: "Friday walls"
+  }, /*#__PURE__*/React.createElement(FridayWallsCard, {
+    ticker: ticker,
+    currentPrice: getLivePrice(ticker) ?? currentPrice,
+    apiFetch: apiFetch,
+    uwHealth: uwHealth
+  }))), /*#__PURE__*/React.createElement(TabPanel, {
+    tab: "friday",
+    active: activeTab
+  }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
     label: "At the line"
   }, /*#__PURE__*/React.createElement(LazyTab, {
     chunk: "tab-stretch",

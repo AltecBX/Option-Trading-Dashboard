@@ -136,6 +136,7 @@ const SU_TIP = {
   iv30: "Constant-maturity 30-day implied volatility — what the market is charging.",
   erv: "The volatility this stock is forecast to actually realize. The gap between this and implied volatility is where premium selling makes money.",
   vrp: "Implied volatility minus expected realized volatility, in points. Positive means options are priced above what the stock is likely to do.",
+  report_card: "Every trade this board has shown is written down the first day it appears. Later, each leg is priced with Unusual Whales' real daily history for that exact option: on the expiry day for a finished trade, today for one still open. Credit taken in minus the cost to buy it back, per contract, if held to expiry.",
   uw_check: "Unusual Whales' second opinion: its 30-day implied volatility against how much the stock actually moved over the last 21 trading days. RICH means options are priced for more than the stock has been doing, so sellers are overpaid; THIN means underpaid. Rows where UW agrees it is RICH lead the board; THIN rows drop to the bottom because the two measurements disagree.",
   measured: "How often price actually travelled each distance within the life of this option — in this state, and from any ordinary bar for comparison. The keep rate is shown on its conservative lower bound.",
   baseline: "The same question asked of every ordinary bar. The conditional rate has to beat this, or the state is not special.",
@@ -617,6 +618,54 @@ function SuTrade({ r }) {
   );
 }
 
+// v5.36 — the board's report card, in real dollars: every past pick
+// priced with Unusual Whales' daily history for its exact contracts.
+function SuReportCard({ apiFetch, nonce }) {
+  const [rc, setRc] = useState(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await apiFetch("/api/uw/report_card");
+        const j = await r.json();
+        if (!cancelled && j && j.data) setRc(j.data);
+      } catch (_) { /* the board stands on its own without it */ }
+    })();
+    return () => { cancelled = true; };
+  }, [apiFetch, nonce]);
+  if (!rc || !rc.recorded) return null;
+  const money = (v) => `${v >= 0 ? "+" : "−"}$${Math.abs(Math.round(v)).toLocaleString()}`;
+  return (
+    <div className="su-rc" title={SU_TIP.report_card}>
+      <div className="su-rc-head">
+        <b>Report card</b>
+        {rc.closed ? <span className={`su-rc-big ${rc.total_pnl >= 0 ? "up" : "down"}`}>
+          {rc.wins}/{rc.closed} won · {money(rc.total_pnl)}</span> : null}
+      </div>
+      <p className="su-rc-text">{rc.text}</p>
+      {(rc.recent || []).length ? (
+        <>
+          <button className="su-more-btn" onClick={() => setOpen(o => !o)}>
+            {open ? "Hide the picks" : `Show the last ${rc.recent.length} picks`}
+          </button>
+          {open ? (
+            <ul className="su-rc-list">
+              {rc.recent.map((p, i) => (
+                <li key={i}>
+                  <span className={`su-rc-pnl ${p.pnl >= 0 ? "up" : "down"}`}>{money(p.pnl)}</span>
+                  <span><b>{p.symbol}</b> {p.trade || ""} · {p.legs.map(l => `${l.action === "sell" ? "Sell" : "Buy"} ${l.strike} ${l.right}`).join(" · ")}</span>
+                  <span className="su-rc-when">{p.final ? `expired ${p.expiry}` : `open, priced ${p.on}`}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 function SuBoardRow({ r, onPick }) {
   const rich = r.richness;
   const tone = rich >= 80 ? "up" : rich >= 50 ? "" : "muted";
@@ -803,6 +852,8 @@ function SellBoardCard({ apiFetch, onPickTicker }) {
           </table>
         </div>
       ) : null}
+
+      {data ? <SuReportCard apiFetch={apiFetch} nonce={data.as_of} /> : null}
 
       {/* Below the trades, not above them: the rows are what a glance is
           for (v5.27). Why the list is short. "0 qualified" reads the same whether the

@@ -13611,6 +13611,17 @@ a.tabsheet-btn.site { text-decoration: none; }
            padding: 2px 7px; border-radius: 6px; border-left: 3px solid var(--warn);
            background: color-mix(in srgb, var(--warn) 12%, transparent); white-space: normal; }
 .su-warn-high { border-left-color: var(--down); background: color-mix(in srgb, var(--down) 14%, transparent); }
+/* v5.36 — the report card, in real dollars. */
+.su-rc { margin: 12px 0 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-2); }
+.su-rc-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; font-size: 13px; }
+.su-rc-big { font-family: var(--font-mono); font-weight: 700; }
+.su-rc-big.up, .su-rc-pnl.up { color: var(--up); }
+.su-rc-big.down, .su-rc-pnl.down { color: var(--down); }
+.su-rc-text { margin: 4px 0 6px; font-size: 13px; color: var(--fg-2); line-height: 1.45; }
+.su-rc-list { list-style: none; margin: 6px 0 0; padding: 0; font-size: 12.5px; }
+.su-rc-list li { display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 5px 0; border-bottom: 1px solid var(--line); color: var(--fg-2); }
+.su-rc-pnl { font-family: var(--font-mono); font-weight: 700; min-width: 64px; }
+.su-rc-when { color: var(--fg-3); }
 /* On a phone each row is a small block, not a table row to scroll: the
    symbol and expiry on top, the trade under them, then the three numbers
    that decide it — collect, can lose, return — each naming itself. The

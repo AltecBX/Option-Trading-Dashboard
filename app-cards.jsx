@@ -15866,6 +15866,69 @@ function MoneyMapCard({ ticker, currentPrice, apiFetch, uwHealth }) {
 }
 
 
+// v5.36 — the walls into Friday, on the Friday screen: where the most
+// open contracts sit either side of the price, max pain and the gamma
+// magnet. Same answer as the Big Money Map (one cached route), cut down
+// to what pins a stock into expiry.
+const FW_KINDS = ["oi_call", "call_wall", "gamma_magnet", "max_pain", "put_wall", "oi_put"];
+function FridayWallsCard({ ticker, currentPrice, apiFetch, uwHealth }) {
+  const [map, setMap] = useState(null);
+  const [error, setError] = useState(null);
+  useEffect(() => { setMap(null); setError(null); }, [ticker]);
+  useEffect(() => {
+    if (!ticker || !uwHealth?.connected) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const r = await apiFetch(`/api/uw/money_map?symbol=${encodeURIComponent(ticker)}`
+                                 + (currentPrice ? `&price=${currentPrice}` : ""));
+        const j = await r.json();
+        if (cancelled) return;
+        if (j.error) setError(j.error); else if (j.data) { setMap(j.data); setError(null); }
+      } catch (e) { if (!cancelled) setError(String(e.message || e)); }
+    };
+    load();
+    const id = setInterval(skipWhenHidden(load), 60000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [ticker, uwHealth?.connected]);
+  if (!uwHealth?.configured) return null;
+  const lv = ((map && map.levels) || []).filter(l => FW_KINDS.includes(l.kind));
+  const spot = map && map.spot;
+  return (
+    <div className="card mm-card fw-card">
+      <div className="card-head">
+        <div>
+          <div className="kicker">Unusual Whales · into Friday's expiry</div>
+          <div className="card-title">Friday walls · {ticker}</div>
+        </div>
+      </div>
+      {error && !map ? <CardNote kind="error">{error}</CardNote> : null}
+      {!map && !error ? <CardNote kind="loading">Reading open interest…</CardNote> : null}
+      {map && !lv.length ? <p className="mm-missing">No open-interest walls came back for {ticker}.</p> : null}
+      {lv.length ? (
+        <ul className="mm-ladder">
+          {lv.filter(l => spot == null || l.price > spot).map((l, i) => (
+            <li key={`a${i}`} className={`mm-lv mm-k-${l.kind}`}>
+              <span className="mm-px">{mmPx(l.price)}</span><span className="mm-name">{l.label}</span>
+              <span className="mm-dist">{mmPct(l.pct)}</span><span className="mm-why">{l.meaning}</span>
+            </li>
+          ))}
+          {spot != null ? (
+            <li className="mm-lv mm-now"><span className="mm-px">{mmPx(spot)}</span>
+              <span className="mm-name">Price now</span><span className="mm-dist"></span><span className="mm-why"></span></li>
+          ) : null}
+          {lv.filter(l => spot != null && l.price <= spot).map((l, i) => (
+            <li key={`b${i}`} className={`mm-lv mm-k-${l.kind}`}>
+              <span className="mm-px">{mmPx(l.price)}</span><span className="mm-name">{l.label}</span>
+              <span className="mm-dist">{mmPct(l.pct)}</span><span className="mm-why">{l.meaning}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 const _memo = React.memo;
 Object.assign(window, { TickerLogo, MarketBreadthCard: _memo(MarketBreadthCard),
   FridayCard: _memo(FridayCard),
@@ -15896,7 +15959,7 @@ Object.assign(window, { TickerLogo, MarketBreadthCard: _memo(MarketBreadthCard),
   StrategyReferenceCard: _memo(StrategyReferenceCard), WatchlistManager, QuickAddRow,
   WatchlistRow, FlashOnChange, SortableTh, PercentCalc: _memo(PercentCalc),
   RollManagerCard: _memo(RollManagerCard),
-  FlowScoreCard: _memo(FlowScoreCard), MoneyMapCard: _memo(MoneyMapCard), PullbackBacktest,
+  FlowScoreCard: _memo(FlowScoreCard), MoneyMapCard: _memo(MoneyMapCard), FridayWallsCard: _memo(FridayWallsCard), PullbackBacktest,
   TradeBuilderCard: _memo(TradeBuilderCard), AnalystCard: _memo(AnalystCard),
   PullbackProfileCard: _memo(PullbackProfileCard), BasingCard: _memo(BasingCard),
   Recommendation, RecommendationPair, StrategyCard: _memo(StrategyCard),
