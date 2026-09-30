@@ -166,8 +166,12 @@ def grade(picks: list, history: Callable[[str], Optional[list]], today: date,
           budget: int = FETCH_BUDGET) -> tuple:
     """Grade what can be graded. Returns (picks, fetched). A finished pick
     keeps its grade; an open one is re-priced each pass. Up to `budget`
-    contract histories are fetched, in parallel, oldest picks first."""
-    due = sorted(_due(picks, today), key=lambda p: (p["expiry"], p["date"]))
+    contract histories are fetched, in parallel. The picks tried longest
+    ago go first and each pick tried is stamped, so a pass that runs out
+    of budget starts where the last one stopped: without that, open picks
+    kept taking the same budget and newer ones were never priced
+    (Codex, #423)."""
+    due = sorted(_due(picks, today), key=lambda p: (p.get("tried") or "", p["expiry"], p["date"]))
     want: list = []
     for p in due:
         syms = [occ(p["symbol"], p["expiry"], l["right"], l["strike"]) for l in p["legs"]]
@@ -177,6 +181,10 @@ def grade(picks: list, history: Callable[[str], Optional[list]], today: date,
         want.extend(new)
     cache = _fetch_all(want, history)
     fetched = len(want)
+    stamp = datetime.now().isoformat(timespec="microseconds")
+    for p in due:
+        if all(occ(p["symbol"], p["expiry"], l["right"], l["strike"]) in want for l in p["legs"]):
+            p["tried"] = stamp
     for p in due:
         g = p.get("grade") or {}
         if g.get("final"):
@@ -242,12 +250,15 @@ def report(data_dir, history: Callable[[str], Optional[list]], today: Optional[d
         out["error"] = str(exc)[:200]
         return out
     by = {p["key"]: p["grade"] for p in graded if p.get("grade")}
+    tried = {p["key"]: p["tried"] for p in graded if p.get("tried")}
     with _LOCK:
         picks = load(data_dir)
         for p in picks:
             if p["key"] in by:
                 p["grade"] = by[p["key"]]
-        if by:
+            if p["key"] in tried:
+                p["tried"] = tried[p["key"]]
+        if by or tried:
             save(data_dir, picks)
     out = summary(picks)
     out["fetched"] = fetched

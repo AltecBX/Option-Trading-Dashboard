@@ -379,8 +379,15 @@ def money_map_payload(spot=100.0):
     # v5.36 sections, from the same UW-shaped rows the unit tests use.
     from test_money_map import FDA, SI, EARN, OIPS, SEAS
     uw.data.update({"fda_calendar": [dict(r, ticker="AAPL") for r in FDA], "short_interest": SI,
-                    "earnings_history": EARN, "oi_per_strike": OIPS, "seasonality_monthly": SEAS})
-    return MM.build(uw, "AAPL", spot=spot, today=_d(2026, 9, 25))
+                    "earnings_history": EARN, "oi_per_strike": OIPS, "seasonality_monthly": SEAS,
+                    # This Friday's contracts, for the Friday walls (v5.36).
+                    "option_contracts": [{"option_symbol": "AAPL261002C00104000", "open_interest": 90000},
+                                         {"option_symbol": "AAPL261002P00097000", "open_interest": 70000}]})
+    out = MM.build(uw, "AAPL", spot=spot, today=_d(2026, 9, 25))
+    # The Friday after, 2 October, with its own max pain.
+    uw.data["max_pain"] = uw.data["max_pain"] + [{"expiry": "2026-10-02", "max_pain": "100.5"}]
+    out["_friday"] = MM.friday_walls(uw, "AAPL", spot=spot, today=_d(2026, 9, 28))
+    return out
 
 
 def report_card_payload():
@@ -656,6 +663,10 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 return
             if self._uw is not None and "/api/uw/" in url:
                 path = urllib.parse.urlsplit(url).path
+                if path == "/api/uw/friday_walls":
+                    r.fulfill(status=200, content_type="application/json",
+                              body=json.dumps({"data": self._uw.get("_friday"), "configured": True}))
+                    return
                 if path == "/api/uw/health":
                     body = {"configured": True, "connected": True, "rate": {}}
                 elif path == "/api/uw/money_map":
@@ -1949,8 +1960,9 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 page.wait_for_selector(".fw-card .mm-ladder", timeout=15000)
                 names = page.evaluate("[...document.querySelectorAll('.fw-card .mm-name')].map(e => e.innerText.trim())")
                 self.assertIn("Price now", names)
-                self.assertIn("Big call OI", names[:names.index("Price now")])
-                self.assertIn("Big put OI", names[names.index("Price now"):])
+                self.assertIn("Friday call OI", names[:names.index("Price now")])
+                self.assertIn("Friday put OI", names[names.index("Price now"):])
+                self.assertNotIn("Big call OI", names, "every-expiry OI is not a Friday wall (Codex, #423)")
                 self.assertTrue(any(n.startswith("Max pain") for n in names))
                 self.assertNotIn("Dark pool", names)
                 self.assertNotIn("Gamma flip", names)

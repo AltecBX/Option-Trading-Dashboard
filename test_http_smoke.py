@@ -348,6 +348,7 @@ for p in [
     "/api/uw/buyers",
     "/api/uw/report_card",
     "/api/uw/hotlist",
+    f"/api/uw/friday_walls?symbol={S}&price=100",
     f"/api/uw/flow_trades?symbol={S}",
     f"/api/uw/greek_exposure?symbol={S}",
     "/api/uw/market_dashboard",

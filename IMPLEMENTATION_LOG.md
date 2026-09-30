@@ -5511,3 +5511,21 @@ Tests:
   - the Friday walls;
   - the Options Hotlist.
 - Static guards cover the new destination and the Friday card.
+
+Codex on #423, all three right and fixed:
+- **The Friday walls added every expiry together.** `oi_per_strike` sums
+  all expiries, so a monthly or LEAPS strike could show as a Friday pin.
+  The walls now come from `/api/uw/friday_walls`, built from that one
+  expiry's contracts (`/api/stock/{t}/option-contracts?expiry=`, new
+  client call) and that expiry's own max pain; if there is none, there is
+  no max pain row. The card says when no options expire that Friday. The
+  map's ladder keeps the every-expiry OI, now labelled as such.
+- **The Friday walls kept the first price they saw.** A card mounted
+  before the quote kept requesting without one. It now reads the latest
+  price through a ref and refetches when the first price lands.
+- **The report card's budget starved newer picks.** Open picks kept
+  taking the same 40 fetches every pass, so newer ones were never priced.
+  Each pick tried is now stamped, and a pass starts with the ones tried
+  longest ago.
+
+The tests for these fail on the old code.

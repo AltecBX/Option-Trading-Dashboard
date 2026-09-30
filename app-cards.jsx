@@ -15870,18 +15870,24 @@ function MoneyMapCard({ ticker, currentPrice, apiFetch, uwHealth }) {
 // open contracts sit either side of the price, max pain and the gamma
 // magnet. Same answer as the Big Money Map (one cached route), cut down
 // to what pins a stock into expiry.
-const FW_KINDS = ["oi_call", "call_wall", "gamma_magnet", "max_pain", "put_wall", "oi_put"];
+const FW_KINDS = ["fri_call", "call_wall", "gamma_magnet", "max_pain", "put_wall", "fri_put"];
 function FridayWallsCard({ ticker, currentPrice, apiFetch, uwHealth }) {
   const [map, setMap] = useState(null);
   const [error, setError] = useState(null);
+  // The latest price via a ref, and a refetch the moment the first price
+  // arrives: without one the walls cannot be placed either side of it,
+  // and a card mounted before the quote stayed empty (Codex, #423).
+  const priceRef = React.useRef(currentPrice);
+  priceRef.current = currentPrice;
+  const hasPrice = currentPrice != null && currentPrice > 0;
   useEffect(() => { setMap(null); setError(null); }, [ticker]);
   useEffect(() => {
     if (!ticker || !uwHealth?.connected) return;
     let cancelled = false;
     const load = async () => {
       try {
-        const r = await apiFetch(`/api/uw/money_map?symbol=${encodeURIComponent(ticker)}`
-                                 + (currentPrice ? `&price=${currentPrice}` : ""));
+        const r = await apiFetch(`/api/uw/friday_walls?symbol=${encodeURIComponent(ticker)}`
+                                 + (priceRef.current ? `&price=${priceRef.current}` : ""));
         const j = await r.json();
         if (cancelled) return;
         if (j.error) setError(j.error); else if (j.data) { setMap(j.data); setError(null); }
@@ -15890,7 +15896,7 @@ function FridayWallsCard({ ticker, currentPrice, apiFetch, uwHealth }) {
     load();
     const id = setInterval(skipWhenHidden(load), 60000);
     return () => { cancelled = true; clearInterval(id); };
-  }, [ticker, uwHealth?.connected]);
+  }, [ticker, uwHealth?.connected, hasPrice]);
   if (!uwHealth?.configured) return null;
   const lv = ((map && map.levels) || []).filter(l => FW_KINDS.includes(l.kind));
   const spot = map && map.spot;
@@ -15898,13 +15904,13 @@ function FridayWallsCard({ ticker, currentPrice, apiFetch, uwHealth }) {
     <div className="card mm-card fw-card">
       <div className="card-head">
         <div>
-          <div className="kicker">Unusual Whales · into Friday's expiry</div>
+          <div className="kicker">Unusual Whales · into the {map && map.expiry ? mmDay(map.expiry) : "Friday"} expiry</div>
           <div className="card-title">Friday walls · {ticker}</div>
         </div>
       </div>
       {error && !map ? <CardNote kind="error">{error}</CardNote> : null}
       {!map && !error ? <CardNote kind="loading">Reading open interest…</CardNote> : null}
-      {map && !lv.length ? <p className="mm-missing">No open-interest walls came back for {ticker}.</p> : null}
+      {map && !lv.length ? <p className="mm-missing">No walls came back for {ticker}{map.has_weekly === false ? `: no options expiring ${mmDay(map.expiry)} carry open interest` : ""}.</p> : null}
       {lv.length ? (
         <ul className="mm-ladder">
           {lv.filter(l => spot == null || l.price > spot).map((l, i) => (

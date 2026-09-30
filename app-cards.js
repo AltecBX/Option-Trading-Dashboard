@@ -20417,7 +20417,7 @@ function MoneyMapCard({
 // open contracts sit either side of the price, max pain and the gamma
 // magnet. Same answer as the Big Money Map (one cached route), cut down
 // to what pins a stock into expiry.
-const FW_KINDS = ["oi_call", "call_wall", "gamma_magnet", "max_pain", "put_wall", "oi_put"];
+const FW_KINDS = ["fri_call", "call_wall", "gamma_magnet", "max_pain", "put_wall", "fri_put"];
 function FridayWallsCard({
   ticker,
   currentPrice,
@@ -20426,6 +20426,12 @@ function FridayWallsCard({
 }) {
   const [map, setMap] = useState(null);
   const [error, setError] = useState(null);
+  // The latest price via a ref, and a refetch the moment the first price
+  // arrives: without one the walls cannot be placed either side of it,
+  // and a card mounted before the quote stayed empty (Codex, #423).
+  const priceRef = React.useRef(currentPrice);
+  priceRef.current = currentPrice;
+  const hasPrice = currentPrice != null && currentPrice > 0;
   useEffect(() => {
     setMap(null);
     setError(null);
@@ -20435,7 +20441,7 @@ function FridayWallsCard({
     let cancelled = false;
     const load = async () => {
       try {
-        const r = await apiFetch(`/api/uw/money_map?symbol=${encodeURIComponent(ticker)}` + (currentPrice ? `&price=${currentPrice}` : ""));
+        const r = await apiFetch(`/api/uw/friday_walls?symbol=${encodeURIComponent(ticker)}` + (priceRef.current ? `&price=${priceRef.current}` : ""));
         const j = await r.json();
         if (cancelled) return;
         if (j.error) setError(j.error);else if (j.data) {
@@ -20452,7 +20458,7 @@ function FridayWallsCard({
       cancelled = true;
       clearInterval(id);
     };
-  }, [ticker, uwHealth?.connected]);
+  }, [ticker, uwHealth?.connected, hasPrice]);
   if (!uwHealth?.configured) return null;
   const lv = (map && map.levels || []).filter(l => FW_KINDS.includes(l.kind));
   const spot = map && map.spot;
@@ -20462,7 +20468,7 @@ function FridayWallsCard({
     className: "card-head"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "kicker"
-  }, "Unusual Whales \xB7 into Friday's expiry"), /*#__PURE__*/React.createElement("div", {
+  }, "Unusual Whales \xB7 into the ", map && map.expiry ? mmDay(map.expiry) : "Friday", " expiry"), /*#__PURE__*/React.createElement("div", {
     className: "card-title"
   }, "Friday walls \xB7 ", ticker))), error && !map ? /*#__PURE__*/React.createElement(CardNote, {
     kind: "error"
@@ -20470,7 +20476,7 @@ function FridayWallsCard({
     kind: "loading"
   }, "Reading open interest\u2026") : null, map && !lv.length ? /*#__PURE__*/React.createElement("p", {
     className: "mm-missing"
-  }, "No open-interest walls came back for ", ticker, ".") : null, lv.length ? /*#__PURE__*/React.createElement("ul", {
+  }, "No walls came back for ", ticker, map.has_weekly === false ? `: no options expiring ${mmDay(map.expiry)} carry open interest` : "", ".") : null, lv.length ? /*#__PURE__*/React.createElement("ul", {
     className: "mm-ladder"
   }, lv.filter(l => spot == null || l.price > spot).map((l, i) => /*#__PURE__*/React.createElement("li", {
     key: `a${i}`,

@@ -107,6 +107,17 @@ class Grading(Harness):
         RC.report(self.dir, self.history, date(2026, 9, 25), budget=4)
         self.assertEqual(4, len(self.asked), "two picks' legs, no more")
 
+    def test_the_budget_rotates_so_every_pick_is_priced_in_turn(self):
+        """Codex, #423: open picks kept taking the same budget and newer ones
+        were never priced. Each pass now starts where the last one stopped."""
+        RC.record(self.dir, [put_spread(sym=f"S{i}", expiry="2026-10-16") for i in range(5)], PICK_DAY)
+        seen = []
+        for _ in range(3):
+            self.asked.clear()
+            RC.report(self.dir, self.history, date(2026, 9, 25), budget=4)
+            seen.append(sorted({s[:2] for s in self.asked}))
+        self.assertEqual([["S0", "S1"], ["S2", "S3"], ["S0", "S4"]], seen)
+
     def test_a_condor_counts_all_four_legs(self):
         condor = {"symbol": "AMD", "kind": "iron_condor", "trade": "Iron condor", "expiration": "2026-09-18",
                   "credit": 3.05, "legs": [{"action": "sell", "right": "put", "strike": 150.0},

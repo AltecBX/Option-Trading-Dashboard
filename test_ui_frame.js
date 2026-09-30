@@ -451,6 +451,10 @@ ok("the Friday head card says which Friday and whether today is the day",
      && /function MoneyMapCard[\s\S]{0,2400}if \(!uwHealth\?\.configured\) return null;/.test(cards));
   ok("a failed refresh is shown over the last good answer, never hidden behind it",
      /\{error \? \(\s*<p className="mm-stale">/.test(cards) && /setLoadedAt\(new Date\(\)\)/.test(cards));
+  ok("the Friday walls read their own route, the latest price, and refetch when the first price lands (Codex, #423)",
+     /\/api\/uw\/friday_walls\?symbol=/.test(cards)
+     && /function FridayWallsCard[\s\S]{0,1500}priceRef\.current = currentPrice;/.test(cards)
+     && /\}, \[ticker, uwHealth\?\.connected, hasPrice\]\);/.test(cards));
   ok("the Friday screen carries the walls into expiry (v5.36)",
      /<CardErrorBoundary label="Friday walls">\s*<FridayWallsCard /.test(app)
      && /FridayWallsCard: _memo\(FridayWallsCard\)/.test(cards));

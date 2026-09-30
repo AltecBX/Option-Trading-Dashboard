@@ -404,6 +404,48 @@ class EarningsAndStrikes(unittest.TestCase):
         self.assertIn("open call contracts", oi["meaning"])
 
 
+class FridayWalls(unittest.TestCase):
+    """Codex, #423: the Friday walls read ONE expiry's open interest, and
+    that expiry's own max pain, not every expiry added together."""
+
+    def contracts(self):
+        return [{"option_symbol": "SPY261002C00580000", "open_interest": 90000},
+                {"option_symbol": "SPY261002C00575000", "open_interest": 20000},
+                {"option_symbol": "SPY261002C00590000", "open_interest": 50000},
+                {"option_symbol": "SPY261002P00560000", "open_interest": 70000},
+                {"option_symbol": "SPY261002P00550000", "open_interest": 1000},
+                {"option_symbol": "SPY261002P00570000", "open_interest": 999999},   # above spot: not a floor
+                {"option_symbol": "junk", "open_interest": 5}]
+
+    def test_this_fridays_contracts_and_max_pain(self):
+        uw = FakeUW(option_contracts=self.contracts(),
+                    max_pain=[{"expiry": "2026-10-02", "max_pain": "566"}, {"expiry": "2026-09-26", "max_pain": "570"},
+                              {"expiry": "2026-10-16", "max_pain": "560"}])
+        w = MM.friday_walls(uw, "spy", spot=568.0, today=date(2026, 9, 29))
+        self.assertEqual("2026-10-02", w["expiry"])
+        asked = [c for c in uw.calls if c[0] == "option_contracts"][0]
+        self.assertEqual(("SPY", "2026-10-02"), asked[1])
+        got = [(l["kind"], l["price"]) for l in w["levels"]]
+        self.assertEqual([("call_wall", 600.0), ("fri_call", 590.0), ("fri_call", 580.0), ("gamma_magnet", 575.0),
+                          ("max_pain", 566.0), ("fri_put", 560.0), ("fri_put", 550.0), ("put_wall", 550.0)], got)
+        self.assertNotIn("gamma_flip", [l["kind"] for l in w["levels"]])
+        self.assertIn("expiring this Friday", w["levels"][1]["meaning"])
+
+    def test_no_max_pain_for_that_expiry_is_none_not_the_next_one(self):
+        uw = FakeUW(option_contracts=self.contracts(), max_pain=[{"expiry": "2026-10-16", "max_pain": "560"}])
+        w = MM.friday_walls(uw, "SPY", spot=568.0, today=date(2026, 9, 29))
+        self.assertNotIn("max_pain", [l["kind"] for l in w["levels"]])
+
+    def test_a_friday_is_its_own_expiry_and_no_weeklies_says_so(self):
+        self.assertEqual(date(2026, 10, 2), MM.next_friday(date(2026, 10, 2)))
+        self.assertEqual(date(2026, 10, 9), MM.next_friday(date(2026, 10, 3)))
+        w = MM.friday_walls(FakeUW(option_contracts=[]), "SPY", spot=568.0, today=date(2026, 9, 29))
+        self.assertFalse(w["has_weekly"])
+
+    def test_the_map_ladder_says_its_oi_is_every_expiry(self):
+        self.assertIn("Across every expiry", MM.LEVEL_TEXT["oi_call"][1])
+
+
 class BoardRisks(unittest.TestCase):
     def test_fda_inside_the_life_and_squeeze_only_for_a_short_call(self):
         uw = FakeUW(fda_calendar=FDA, short_interest=SI)

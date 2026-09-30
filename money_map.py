@@ -44,8 +44,12 @@ LEVEL_TEXT = {
     "gamma_flip": ("Gamma flip", "Above it moves get calmer; below it they get bigger."),
     "max_pain": ("Max pain", "Where the most options expire worthless; price often drifts here into expiry."),
     "dark_pool": ("Dark pool", "Big buyers and sellers traded the most shares here, off the exchange."),
-    "oi_call": ("Big call OI", "The most open call contracts above the price: often a ceiling into expiry."),
-    "oi_put": ("Big put OI", "The most open put contracts below the price: often a floor into expiry."),
+    # Across every expiry added together: a level the market is built
+    # around, not a Friday pin (the Friday walls read one expiry).
+    "oi_call": ("Big call OI", "Across every expiry, the most open calls above the price: often a ceiling."),
+    "oi_put": ("Big put OI", "Across every expiry, the most open puts below the price: often a floor."),
+    "fri_call": ("Friday call OI", "The most calls expiring this Friday above the price: a ceiling into expiry."),
+    "fri_put": ("Friday put OI", "The most puts expiring this Friday below the price: a floor into expiry."),
 }
 
 # ── v5.36 thresholds ──
@@ -172,8 +176,8 @@ def levels_section(gex, max_pain, dark, spot: Optional[float], today: date,
             name = f"Max pain ({_short_day(_date(lv['expiry']))})"
         if lv["kind"] == "dark_pool":
             meaning = f"{lv['shares']:,} shares traded off the exchange here: a price big money cared about."
-        if lv["kind"] in ("oi_call", "oi_put"):
-            meaning = f"{lv['contracts']:,} open {'call' if lv['kind'] == 'oi_call' else 'put'} contracts. " + meaning
+        if lv["kind"] in ("oi_call", "oi_put", "fri_call", "fri_put"):
+            meaning = f"{lv['contracts']:,} open {'call' if lv['kind'] in ('oi_call', 'fri_call') else 'put'} contracts. " + meaning
         lv["label"] = name
         lv["meaning"] = meaning
         lv["pct"] = _pct(lv["price"], spot)
@@ -560,6 +564,61 @@ def board_risks(uw, rows, today: Optional[date] = None, workers: int = 6,
         finally:
             pool.shutdown(wait=False, cancel_futures=True)
     return out
+
+
+def next_friday(today: date) -> date:
+    return today + timedelta(days=(4 - today.weekday()) % 7)
+
+
+def expiry_oi_levels(rows, spot: Optional[float]) -> list:
+    """The biggest open interest for ONE expiry, from its contracts."""
+    if spot is None:
+        return []
+    calls, puts = [], []
+    for r in _rows(rows):
+        occ = parse_occ(r.get("option_symbol"))
+        oi = int(_num(r.get("open_interest")) or 0)
+        if not occ or oi <= 0:
+            continue
+        if occ["right"] == "call" and occ["strike"] > spot:
+            calls.append((occ["strike"], oi))
+        elif occ["right"] == "put" and occ["strike"] < spot:
+            puts.append((occ["strike"], oi))
+    out = []
+    for kind, lst in (("fri_call", calls), ("fri_put", puts)):
+        for k, n in sorted(lst, key=lambda t: t[1], reverse=True)[:OI_LEVELS]:
+            out.append({"kind": kind, "price": k, "contracts": n})
+    return out
+
+
+FRIDAY_KINDS = ("fri_call", "call_wall", "gamma_magnet", "max_pain", "put_wall", "fri_put")
+
+
+def friday_walls(uw, symbol: str, spot: Optional[float] = None, today: Optional[date] = None) -> dict:
+    """The walls into THIS Friday's expiry (Codex, #423): open interest
+    from that one expiry's contracts and max pain for that exact expiry,
+    with the gamma walls and magnet around them. Never raises."""
+    symbol = str(symbol or "").upper().strip()
+    today = today or date.today()
+    spot = _num(spot) if spot else None
+    exp = next_friday(today)
+    missing: list = []
+
+    def get(name, *a, **k):
+        fn = getattr(uw, name, None)
+        v, _e = _call(fn, *a, **k) if fn else (None, None)
+        if v is None:
+            missing.append(name)
+        return v
+
+    contracts = get("option_contracts", symbol, exp.isoformat())
+    gex = get("gex_levels", symbol)
+    mp = get("max_pain", symbol)
+    mp_fri = [r for r in _rows(mp) if str(r.get("expiry") or "")[:10] == exp.isoformat()]
+    lv = levels_section(gex, mp_fri, None, spot, today, extra=expiry_oi_levels(contracts, spot))
+    levels = [l for l in lv["levels"] if l["kind"] in FRIDAY_KINDS]
+    return {"symbol": symbol, "spot": spot, "expiry": exp.isoformat(), "levels": levels,
+            "has_weekly": bool(_rows(contracts)), "missing": missing}
 
 
 def build(uw, symbol: str, spot: Optional[float] = None, today: Optional[date] = None) -> dict:

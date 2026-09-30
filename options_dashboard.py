@@ -10087,6 +10087,29 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 _uw_send({"data": data})
                 return
 
+            if parsed.path == "/api/uw/friday_walls":
+                # The walls into this Friday's expiry (v5.36, Codex #423):
+                # one expiry's open interest and its own max pain.
+                qs = parse_qs(parsed.query)
+                symbol = (qs.get("symbol", [""])[0] or "").upper().strip()
+                try:
+                    spot = float(qs.get("price", ["0"])[0]) or None
+                except (TypeError, ValueError):
+                    spot = None
+                if not symbol:
+                    _uw_send({"error": "symbol required"}, status=400)
+                    return
+                if uw is None:
+                    _uw_send({"symbol": symbol, "data": None})
+                    return
+                try:
+                    import money_map as _money_map
+                    _today = datetime.now(_ET).date() if _ET is not None else date.today()
+                    _uw_send({"symbol": symbol, "data": _money_map.friday_walls(uw, symbol, spot, _today)})
+                except Exception as exc:  # noqa: BLE001
+                    _uw_send({"error": str(exc)[:200], "symbol": symbol}, status=500)
+                return
+
             if parsed.path == "/api/uw/hotlist":
                 # Options Hotlist (v5.36): the market's hottest contracts
                 # and its unusually rich and cheap volatility.

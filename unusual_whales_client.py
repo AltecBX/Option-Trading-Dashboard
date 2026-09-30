@@ -156,6 +156,10 @@ ENDPOINTS = {
     "hottest_chains": "/api/screener/option-contracts",
     # Tickers whose volatility is unusually rich (short_vol) or cheap (long_vol).
     "vol_anomaly_top": "/api/volatility/anomaly/top",
+    # Every contract for one ticker, filterable by expiry, with its OI.
+    # The Friday walls read ONE expiry from here (Codex, #423): the
+    # per-strike endpoint above adds every expiry together.
+    "option_contracts": "/api/stock/{ticker}/option-contracts",
 }
 # Most answers carry their rows under `data`; these do not.
 PEEL_KEY = {"option_historic": "chains"}
@@ -208,6 +212,7 @@ TTL_BY_KEY = {
     "option_historic": 3600,
     "hottest_chains": 120,
     "vol_anomaly_top": 900,
+    "option_contracts": 900,
     "_default": 15,
 }
 
@@ -482,6 +487,12 @@ class UWClient:
     def vol_anomaly_top(self, direction: str = "short_vol", limit: int = 50) -> Any:
         return self._get("vol_anomaly_top", {"direction": "long_vol" if direction == "long_vol" else "short_vol",
                                              "limit": str(max(1, min(200, int(limit))))})
+
+    def option_contracts(self, ticker: str, expiry: str, limit: int = 500) -> Optional[list[dict]]:
+        """One expiry's contracts that carry open interest."""
+        return self._get("option_contracts", {"ticker": str(ticker).upper(), "expiry": str(expiry),
+                                              "exclude_zero_oi_chains": "true",
+                                              "limit": str(max(1, min(500, int(limit))))})
 
     def variance_risk_premium(self, ticker: str) -> Any:
         return self._get("variance_risk_premium", {"ticker": str(ticker).upper()})
