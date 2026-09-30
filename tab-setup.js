@@ -650,8 +650,10 @@ function SuReportCard({
     (async () => {
       try {
         const r = await apiFetch("/api/uw/report_card");
-        const j = await r.json();
-        if (!cancelled && j && j.data) setRc(j.data);
+        const {
+          d
+        } = await suReadJson(r);
+        if (!cancelled && d && d.data) setRc(d.data);
       } catch (_) {/* the board stands on its own without it */}
     })();
     return () => {

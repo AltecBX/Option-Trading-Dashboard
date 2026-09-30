@@ -348,8 +348,9 @@ ok("the short sidebar line still explains itself on hover",
 // page mean different things: a gateway error page self-heals, the
 // Cloudflare sign-in screen (a 200 with HTML) needs a reload, and neither
 // is a fact about the symbol on screen.
-ok("both cards read responses through the page-aware reader",
-   (src.match(/await suReadJson\(r\)/g) || []).length === 2);
+// Three since v5.36: the board's report card reads its answer the same way.
+ok("every card reads responses through the page-aware reader",
+   (src.match(/await suReadJson\(r\)/g) || []).length === 3);
 ok("no bare r.json() remains in the setup cards",
    !/await r\.json\(\)/.test(src));
 ok("a gateway page self-heals through the retry countdown",
