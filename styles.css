@@ -13606,6 +13606,22 @@ a.tabsheet-btn.site { text-decoration: none; }
 .su-uw-thin { color: var(--fg); background: color-mix(in srgb, var(--down) 18%, transparent);
               border-color: color-mix(in srgb, var(--down) 55%, transparent); }
 .su-uw-none { border-color: transparent; color: var(--fg-4); }
+/* v5.36 — FDA dates and squeeze risk on a board row. */
+.su-warn { margin-top: 4px; font-size: 12px; font-weight: 600; line-height: 1.35; color: var(--fg);
+           padding: 2px 7px; border-radius: 6px; border-left: 3px solid var(--warn);
+           background: color-mix(in srgb, var(--warn) 12%, transparent); white-space: normal; }
+.su-warn-high { border-left-color: var(--down); background: color-mix(in srgb, var(--down) 14%, transparent); }
+/* v5.36 — the report card, in real dollars. */
+.su-rc { margin: 12px 0 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-2); }
+.su-rc-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; font-size: 13px; }
+.su-rc-big { font-family: var(--font-mono); font-weight: 700; }
+.su-rc-big.up, .su-rc-pnl.up { color: var(--up); }
+.su-rc-big.down, .su-rc-pnl.down { color: var(--down); }
+.su-rc-text { margin: 4px 0 6px; font-size: 13px; color: var(--fg-2); line-height: 1.45; }
+.su-rc-list { list-style: none; margin: 6px 0 0; padding: 0; font-size: 12.5px; }
+.su-rc-list li { display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 5px 0; border-bottom: 1px solid var(--line); color: var(--fg-2); }
+.su-rc-pnl { font-family: var(--font-mono); font-weight: 700; min-width: 64px; }
+.su-rc-when { color: var(--fg-3); }
 /* On a phone each row is a small block, not a table row to scroll: the
    symbol and expiry on top, the trade under them, then the three numbers
    that decide it — collect, can lose, return — each naming itself. The
@@ -15400,6 +15416,16 @@ body { overflow: hidden; overscroll-behavior: none; }
 .mm-lean.bullish { color: var(--up); }
 .mm-lean.bearish { color: var(--down); }
 .mm-missing { margin: 4px 0 0; font-size: 12px; color: var(--fg-3); }
+/* v5.36 — warnings, earnings, OI levels on the ladder. */
+.mm-warn { margin: 0 0 6px; padding: 7px 10px; border-radius: 8px; font-size: 13px; line-height: 1.45;
+           color: var(--fg); border-left: 4px solid var(--warn);
+           background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.mm-warn-high { border-left-color: var(--down); background: color-mix(in srgb, var(--down) 13%, transparent); }
+.mm-warn b { margin-right: 4px; }
+.mm-verdict.mm-earn-over b { background: color-mix(in srgb, var(--up) 20%, transparent); border-color: color-mix(in srgb, var(--up) 55%, transparent); }
+.mm-verdict.mm-earn-under b { background: color-mix(in srgb, var(--down) 18%, transparent); border-color: color-mix(in srgb, var(--down) 55%, transparent); }
+.mm-k-oi_call .mm-name { color: var(--down); opacity: 0.8; }
+.mm-k-oi_put .mm-name { color: var(--up); opacity: 0.8; }
 .mm-stale { margin: 0 0 10px; padding: 6px 10px; border-radius: 8px; font-size: 12.5px; color: var(--fg);
             border: 1px solid color-mix(in srgb, var(--warn) 55%, transparent);
             background: color-mix(in srgb, var(--warn) 12%, transparent); }
@@ -15443,9 +15469,17 @@ body { overflow: hidden; overscroll-behavior: none; }
 .sb-meta { margin-top: 3px; display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--fg-3); }
 .sb-earn { color: var(--warn); font-weight: 600; }
 .sb-foot { margin: 12px 0 0; font-size: 12px; color: var(--fg-3); line-height: 1.45; }
+/* v5.36 — the Options Hotlist reuses the buying page's rows. */
+.hl-how { color: var(--fg); }
+.hl-bought { border-color: color-mix(in srgb, var(--up) 55%, transparent); background: color-mix(in srgb, var(--up) 14%, transparent); }
+.hl-sold { border-color: color-mix(in srgb, var(--down) 55%, transparent); background: color-mix(in srgb, var(--down) 14%, transparent); }
+.sb-tag.hl-rich { color: var(--fg); border-color: color-mix(in srgb, var(--up) 55%, transparent); background: color-mix(in srgb, var(--up) 18%, transparent); }
+.sb-tag.hl-cheap { color: var(--fg); border-color: color-mix(in srgb, var(--down) 55%, transparent); background: color-mix(in srgb, var(--down) 14%, transparent); }
+.hl-card .sb-bar { justify-content: space-between; }
 @media (max-width: 900px) {
   .sb-view .lv-seg-btn, .sb-bar .lv-seg-btn { flex: 1 1 0; font-size: 13px; }
   .sb-bar .lv-seg, .sb-view { display: flex; width: 100%; }
+  .hl-view .lv-seg-btn { font-size: 12px; padding-left: 6px; padding-right: 6px; }
 }
 
 /* ══════════════════════════════════════════════════════════════════════════

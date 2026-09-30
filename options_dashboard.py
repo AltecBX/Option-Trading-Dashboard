@@ -10087,6 +10087,57 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 _uw_send({"data": data})
                 return
 
+            if parsed.path == "/api/uw/friday_walls":
+                # The walls into this Friday's expiry (v5.36, Codex #423):
+                # one expiry's open interest and its own max pain.
+                qs = parse_qs(parsed.query)
+                symbol = (qs.get("symbol", [""])[0] or "").upper().strip()
+                try:
+                    spot = float(qs.get("price", ["0"])[0]) or None
+                except (TypeError, ValueError):
+                    spot = None
+                if not symbol:
+                    _uw_send({"error": "symbol required"}, status=400)
+                    return
+                if uw is None:
+                    _uw_send({"symbol": symbol, "data": None})
+                    return
+                try:
+                    import money_map as _money_map
+                    _today = datetime.now(_ET).date() if _ET is not None else date.today()
+                    _uw_send({"symbol": symbol, "data": _money_map.friday_walls(uw, symbol, spot, _today)})
+                except Exception as exc:  # noqa: BLE001
+                    _uw_send({"error": str(exc)[:200], "symbol": symbol}, status=500)
+                return
+
+            if parsed.path == "/api/uw/hotlist":
+                # Options Hotlist (v5.36): the market's hottest contracts
+                # and its unusually rich and cheap volatility.
+                if uw is None:
+                    _uw_send({"data": None})
+                    return
+                try:
+                    import hotlist as _hotlist
+                    board = ((_wltable.get_board() if (_WLTABLE_AVAILABLE and _wltable is not None)
+                              else {}) or {})
+                    watch = [str(r.get("symbol") or r.get("ticker") or "") for r in (board.get("rows") or [])]
+                    _uw_send({"data": _hotlist.build(uw, watch)})
+                except Exception as exc:  # noqa: BLE001
+                    _uw_send({"error": str(exc)[:200]}, status=500)
+                return
+
+            if parsed.path == "/api/uw/report_card":
+                # Worth Selling Today graded in real dollars (v5.36): each
+                # past pick priced with UW's daily history for its contracts.
+                try:
+                    import report_card as _report_card
+                    _today = datetime.now(_ET).date() if _ET is not None else date.today()
+                    hist = (lambda sym: uw.option_historic(sym)) if uw is not None else (lambda sym: None)
+                    _uw_send({"data": _report_card.report(_STABLE_DIR, hist, _today)})
+                except Exception as exc:  # noqa: BLE001
+                    _uw_send({"error": str(exc)[:200]}, status=500)
+                return
+
             if parsed.path == "/api/uw/buyers":
                 # Insider & Congress buying (v5.34): the whole market's
                 # open-market insider purchases and congressional buys,
@@ -12922,6 +12973,13 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                         out["uw_checked"] = any(v is not None for v in checks.values())
                     except Exception as exc:  # noqa: BLE001
                         _log_warn("*", "api/setup_board uw", exc)
+                    # v5.36: FDA dates inside the option's life, and squeeze
+                    # risk on trades with a short call.
+                    try:
+                        import money_map as _money_map
+                        out["rows"] = _sboard.attach_risks(out["rows"], _money_map.board_risks(uw, out["rows"]))
+                    except Exception as exc:  # noqa: BLE001
+                        _log_warn("*", "api/setup_board risks", exc)
                 out["rows"] = out["rows"][:limit]
                 out["shown"] = len(out["rows"])
                 # Stage 1 over the WHOLE watchlist, so the payload can say
@@ -12936,6 +12994,17 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 out["as_of"] = (snap or {}).get("as_of")
                 out["scanning"] = bool((snap or {}).get("scanning"))
                 out["measured"] = len(rows)
+                # v5.36: write down today's picks for the report card, but
+                # only from a scan that is today's. A board read off a
+                # days-old scan is not a pick anyone could have made today.
+                try:
+                    import report_card as _report_card
+                    _today = datetime.now(_ET).date() if _ET is not None else date.today()
+                    _asof = str(out.get("as_of") or "")[:10]
+                    if out.get("rows") and _asof == _today.isoformat():
+                        _report_card.record(_STABLE_DIR, out["rows"], _today)
+                except Exception as exc:  # noqa: BLE001
+                    _log_warn("*", "report_card record", exc)
                 self._send_json(out, no_store=True)
             except Exception as exc:  # noqa: BLE001
                 _log_warn("*", "api/setup_board", exc)

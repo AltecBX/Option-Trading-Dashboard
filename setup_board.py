@@ -315,6 +315,34 @@ def second_opinion(rows, checks: dict | None) -> list:
     return out
 
 
+def attach_risks(rows, risks: dict | None) -> list:
+    """v5.36 — warnings before selling. An FDA decision inside the
+    option's life can move a biotech 40% overnight, and a heavily shorted
+    stock can squeeze through a short call. Neither is a measurement of
+    richness, so neither drops a row; both go on it in words, and a row
+    carrying one moves below the rows that carry none (stable, so the
+    order above is otherwise kept)."""
+    risks = risks or {}
+    out = []
+    for r in (rows or []):
+        k = risks.get(r.get("symbol")) or {}
+        fda = list(k.get("fda") or [])
+        sq = k.get("squeeze")
+        warn = []
+        if fda:
+            e = fda[0]
+            more = f" (+{len(fda) - 1} more)" if len(fda) > 1 else ""
+            warn.append({"kind": "fda", "level": "high", "short": f"FDA {e['text']}{more}",
+                         "text": f"An FDA catalyst falls inside this option's life: {e['text']}{more} "
+                                 "A decision can move the stock 40% overnight."})
+        if sq and sq.get("level") in ("high", "elevated"):
+            warn.append({"kind": "squeeze", "level": sq["level"], "text": sq["text"],
+                         "short": sq["text"].split(" (FINRA")[0]})
+        out.append({**r, "fda": fda, "squeeze": sq, "warnings": warn})
+    out.sort(key=lambda r: 1 if any(w["level"] == "high" for w in r["warnings"]) else 0)
+    return out
+
+
 def build(rows, horizon_days: float | None = None, limit: int = 10,
           min_vrp_ratio: float = MIN_VRP_RATIO,
           min_hist_n: int = MIN_HIST_N) -> dict:

@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "5.35";
+const APP_VERSION = "5.36";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -4111,6 +4111,14 @@ function App() {
                      onOpenTicker={(sym) => { switchTicker(sym); changeTab("trade"); }} />
           </CardErrorBoundary>
         </TabPanel>
+        <TabPanel tab="hotlist" active={activeTab}>
+          <CardErrorBoundary label="Options Hotlist">
+            <LazyTab chunk="tab-hotlist" component="HotlistTab" label="Options Hotlist"
+                     apiFetch={apiFetch}
+                     visible={activeTab === "hotlist"}
+                     onOpenTicker={(sym) => { switchTicker(sym); changeTab("trade"); }} />
+          </CardErrorBoundary>
+        </TabPanel>
         <TabPanel tab="gap" active={activeTab}>
           <CardErrorBoundary label="Gap Scan">
             <LazyTab chunk="tab-gap" component="GapTab" label="Gap Scan"
@@ -6023,6 +6031,12 @@ function App() {
         <TabPanel tab="friday" active={activeTab}>
           <CardErrorBoundary label="Friday">
             <FridayCard onOpenTab={changeTab} />
+          </CardErrorBoundary>
+        </TabPanel>
+        <TabPanel tab="friday" active={activeTab}>
+          <CardErrorBoundary label="Friday walls">
+            <FridayWallsCard ticker={ticker} currentPrice={getLivePrice(ticker) ?? currentPrice}
+                             apiFetch={apiFetch} uwHealth={uwHealth} />
           </CardErrorBoundary>
         </TabPanel>
         <TabPanel tab="friday" active={activeTab}>

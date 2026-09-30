@@ -20214,7 +20214,12 @@ const MM_MISSING = {
   variance_risk_premium: "implied vs realized",
   oi_change: "overnight open interest",
   insider_transactions: "insider trades",
-  congress_trades: "Congress trades"
+  congress_trades: "Congress trades",
+  fda_calendar: "FDA calendar",
+  short_interest: "short interest",
+  earnings_history: "earnings history",
+  oi_per_strike: "open interest by strike",
+  seasonality_monthly: "seasonality"
 };
 const mmPx = v => v == null ? "—" : `$${Number(v).toLocaleString(undefined, {
   minimumFractionDigits: 2,
@@ -20327,7 +20332,14 @@ function MoneyMapCard({
   }, "Couldn't refresh (", error, "). Showing the answer from ", loadedAt ? loadedAt.toLocaleTimeString([], {
     hour: "numeric",
     minute: "2-digit"
-  }) : "earlier", ".") : null, map.regime ? /*#__PURE__*/React.createElement("div", {
+  }) : "earlier", ".") : null, (map.fda || []).length || map.squeeze && map.squeeze.level !== "low" ? /*#__PURE__*/React.createElement("section", {
+    className: "mm-sec mm-warns"
+  }, (map.fda || []).slice(0, 3).map((e, i) => /*#__PURE__*/React.createElement("div", {
+    key: `fda-${i}`,
+    className: "mm-warn mm-warn-high"
+  }, /*#__PURE__*/React.createElement("b", null, "\u26A0 FDA"), " ", e.text, " A decision can move the stock 40% overnight.")), map.squeeze && map.squeeze.level !== "low" ? /*#__PURE__*/React.createElement("div", {
+    className: `mm-warn mm-warn-${map.squeeze.level}`
+  }, /*#__PURE__*/React.createElement("b", null, "\u26A0 Squeeze"), " ", map.squeeze.text) : null) : null, map.regime ? /*#__PURE__*/React.createElement("div", {
     className: `mm-regime mm-${map.regime.state}`
   }, /*#__PURE__*/React.createElement("b", null, map.regime.state === "calm" ? "Calm tape" : "Wild tape"), " ", map.regime.text) : null, (map.levels || []).length ? /*#__PURE__*/React.createElement("section", {
     className: "mm-sec"
@@ -20356,7 +20368,19 @@ function MoneyMapCard({
     className: "mm-h"
   }, "Is premium worth selling?"), /*#__PURE__*/React.createElement("div", {
     className: `mm-verdict mm-${prem.state}`
-  }, /*#__PURE__*/React.createElement("b", null, prem.state === "rich" ? "RICH" : prem.state === "thin" ? "THIN" : "FAIR"), /*#__PURE__*/React.createElement("span", null, prem.text))) : null, (map.opened || []).length ? /*#__PURE__*/React.createElement("section", {
+  }, /*#__PURE__*/React.createElement("b", null, prem.state === "rich" ? "RICH" : prem.state === "thin" ? "THIN" : "FAIR"), /*#__PURE__*/React.createElement("span", null, prem.text))) : null, map.earnings ? /*#__PURE__*/React.createElement("section", {
+    className: "mm-sec"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "mm-h"
+  }, "Earnings: expected vs actual moves"), /*#__PURE__*/React.createElement("div", {
+    className: `mm-verdict mm-earn-${map.earnings.state}`
+  }, /*#__PURE__*/React.createElement("b", null, map.earnings.state === "under" ? "UNDERPRICED" : map.earnings.state === "over" ? "OVERPRICED" : "FAIR"), /*#__PURE__*/React.createElement("span", null, map.earnings.text))) : null, map.seasonality ? /*#__PURE__*/React.createElement("section", {
+    className: "mm-sec"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "mm-h"
+  }, "Seasonality"), /*#__PURE__*/React.createElement("div", {
+    className: "mm-verdict"
+  }, /*#__PURE__*/React.createElement("span", null, map.seasonality.text))) : null, (map.opened || []).length ? /*#__PURE__*/React.createElement("section", {
     className: "mm-sec"
   }, /*#__PURE__*/React.createElement("div", {
     className: "mm-h"
@@ -20387,6 +20411,106 @@ function MoneyMapCard({
   }, /*#__PURE__*/React.createElement("span", null, cong.text))) : null, missing.length ? /*#__PURE__*/React.createElement("p", {
     className: "mm-missing"
   }, "Not available right now: ", missing.join(", "), ".") : null);
+}
+
+// v5.36 — the walls into Friday, on the Friday screen: where the most
+// open contracts sit either side of the price, max pain and the gamma
+// magnet. Same answer as the Big Money Map (one cached route), cut down
+// to what pins a stock into expiry.
+const FW_KINDS = ["fri_call", "call_wall", "gamma_magnet", "max_pain", "put_wall", "fri_put"];
+function FridayWallsCard({
+  ticker,
+  currentPrice,
+  apiFetch,
+  uwHealth
+}) {
+  const [map, setMap] = useState(null);
+  const [error, setError] = useState(null);
+  // The latest price via a ref, and a refetch the moment the first price
+  // arrives: without one the walls cannot be placed either side of it,
+  // and a card mounted before the quote stayed empty (Codex, #423).
+  const priceRef = React.useRef(currentPrice);
+  priceRef.current = currentPrice;
+  const hasPrice = currentPrice != null && currentPrice > 0;
+  useEffect(() => {
+    setMap(null);
+    setError(null);
+  }, [ticker]);
+  useEffect(() => {
+    if (!ticker || !uwHealth?.connected) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const r = await apiFetch(`/api/uw/friday_walls?symbol=${encodeURIComponent(ticker)}` + (priceRef.current ? `&price=${priceRef.current}` : ""));
+        const j = await r.json();
+        if (cancelled) return;
+        if (j.error) setError(j.error);else if (j.data) {
+          setMap(j.data);
+          setError(null);
+        }
+      } catch (e) {
+        if (!cancelled) setError(String(e.message || e));
+      }
+    };
+    load();
+    const id = setInterval(skipWhenHidden(load), 60000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [ticker, uwHealth?.connected, hasPrice]);
+  if (!uwHealth?.configured) return null;
+  const lv = (map && map.levels || []).filter(l => FW_KINDS.includes(l.kind));
+  const spot = map && map.spot;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "card mm-card fw-card"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-head"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "kicker"
+  }, "Unusual Whales \xB7 into the ", map && map.expiry ? mmDay(map.expiry) : "Friday", " expiry"), /*#__PURE__*/React.createElement("div", {
+    className: "card-title"
+  }, "Friday walls \xB7 ", ticker))), error && !map ? /*#__PURE__*/React.createElement(CardNote, {
+    kind: "error"
+  }, error) : null, !map && !error ? /*#__PURE__*/React.createElement(CardNote, {
+    kind: "loading"
+  }, "Reading open interest\u2026") : null, map && !lv.length ? /*#__PURE__*/React.createElement("p", {
+    className: "mm-missing"
+  }, "No walls came back for ", ticker, map.has_weekly === false ? `: no options expiring ${mmDay(map.expiry)} carry open interest` : "", ".") : null, lv.length ? /*#__PURE__*/React.createElement("ul", {
+    className: "mm-ladder"
+  }, lv.filter(l => spot == null || l.price > spot).map((l, i) => /*#__PURE__*/React.createElement("li", {
+    key: `a${i}`,
+    className: `mm-lv mm-k-${l.kind}`
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "mm-px"
+  }, mmPx(l.price)), /*#__PURE__*/React.createElement("span", {
+    className: "mm-name"
+  }, l.label), /*#__PURE__*/React.createElement("span", {
+    className: "mm-dist"
+  }, mmPct(l.pct)), /*#__PURE__*/React.createElement("span", {
+    className: "mm-why"
+  }, l.meaning))), spot != null ? /*#__PURE__*/React.createElement("li", {
+    className: "mm-lv mm-now"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "mm-px"
+  }, mmPx(spot)), /*#__PURE__*/React.createElement("span", {
+    className: "mm-name"
+  }, "Price now"), /*#__PURE__*/React.createElement("span", {
+    className: "mm-dist"
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "mm-why"
+  })) : null, lv.filter(l => spot != null && l.price <= spot).map((l, i) => /*#__PURE__*/React.createElement("li", {
+    key: `b${i}`,
+    className: `mm-lv mm-k-${l.kind}`
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "mm-px"
+  }, mmPx(l.price)), /*#__PURE__*/React.createElement("span", {
+    className: "mm-name"
+  }, l.label), /*#__PURE__*/React.createElement("span", {
+    className: "mm-dist"
+  }, mmPct(l.pct)), /*#__PURE__*/React.createElement("span", {
+    className: "mm-why"
+  }, l.meaning)))) : null);
 }
 const _memo = React.memo;
 Object.assign(window, {
@@ -20441,6 +20565,7 @@ Object.assign(window, {
   RollManagerCard: _memo(RollManagerCard),
   FlowScoreCard: _memo(FlowScoreCard),
   MoneyMapCard: _memo(MoneyMapCard),
+  FridayWallsCard: _memo(FridayWallsCard),
   PullbackBacktest,
   TradeBuilderCard: _memo(TradeBuilderCard),
   AnalystCard: _memo(AnalystCard),

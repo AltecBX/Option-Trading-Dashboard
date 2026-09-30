@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "5.35";
+const APP_VERSION = "5.36";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -5058,6 +5058,21 @@ function App() {
       changeTab("trade");
     }
   }))), /*#__PURE__*/React.createElement(TabPanel, {
+    tab: "hotlist",
+    active: activeTab
+  }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
+    label: "Options Hotlist"
+  }, /*#__PURE__*/React.createElement(LazyTab, {
+    chunk: "tab-hotlist",
+    component: "HotlistTab",
+    label: "Options Hotlist",
+    apiFetch: apiFetch,
+    visible: activeTab === "hotlist",
+    onOpenTicker: sym => {
+      switchTicker(sym);
+      changeTab("trade");
+    }
+  }))), /*#__PURE__*/React.createElement(TabPanel, {
     tab: "gap",
     active: activeTab
   }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
@@ -7521,6 +7536,16 @@ function App() {
     label: "Friday"
   }, /*#__PURE__*/React.createElement(FridayCard, {
     onOpenTab: changeTab
+  }))), /*#__PURE__*/React.createElement(TabPanel, {
+    tab: "friday",
+    active: activeTab
+  }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
+    label: "Friday walls"
+  }, /*#__PURE__*/React.createElement(FridayWallsCard, {
+    ticker: ticker,
+    currentPrice: getLivePrice(ticker) ?? currentPrice,
+    apiFetch: apiFetch,
+    uwHealth: uwHealth
   }))), /*#__PURE__*/React.createElement(TabPanel, {
     tab: "friday",
     active: activeTab

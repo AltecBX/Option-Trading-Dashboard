@@ -139,7 +139,30 @@ ENDPOINTS = {
     "congress_trades": "/api/congress/recent-trades",
     # 30-day implied vs 21-day realized volatility, and the gap.
     "variance_risk_premium": "/api/stock/{ticker}/volatility/variance-risk-premium",
+    # ── v5.36: warnings before selling, better strikes, the report card ──
+    # FDA decision dates (PDUFA, advisory committees, trial readouts).
+    "fda_calendar": "/api/market/fda-calendar",
+    # FINRA short interest, float and days to cover (twice a month).
+    "short_interest": "/api/shorts/{ticker}/interest-float/v2",
+    # Every past report: the move options expected and the move it made.
+    "earnings_history": "/api/earnings/{ticker}",
+    # Open interest per strike, calls and puts, across expiries.
+    "oi_per_strike": "/api/stock/{ticker}/oi-per-strike",
+    # Average, median, best and worst return for each calendar month.
+    "seasonality_monthly": "/api/seasonality/{ticker}/monthly",
+    # One option contract's daily history. Rows come under `chains`.
+    "option_historic": "/api/option-contract/{id}/historic",
+    # The market's hottest option contracts today.
+    "hottest_chains": "/api/screener/option-contracts",
+    # Tickers whose volatility is unusually rich (short_vol) or cheap (long_vol).
+    "vol_anomaly_top": "/api/volatility/anomaly/top",
+    # Every contract for one ticker, filterable by expiry, with its OI.
+    # The Friday walls read ONE expiry from here (Codex, #423): the
+    # per-strike endpoint above adds every expiry together.
+    "option_contracts": "/api/stock/{ticker}/option-contracts",
 }
+# Most answers carry their rows under `data`; these do not.
+PEEL_KEY = {"option_historic": "chains"}
 
 
 # Per-endpoint cache TTLs in seconds. Tuned for "as fast as UW allows
@@ -180,6 +203,16 @@ TTL_BY_KEY = {
     "insider_transactions": 900,
     "congress_trades": 900,
     "variance_risk_premium": 3600,
+    "fda_calendar": 3600,
+    "short_interest": 6 * 3600,
+    "earnings_history": 6 * 3600,
+    "oi_per_strike": 900,
+    "seasonality_monthly": 24 * 3600,
+    # A past day's option prices never change; today's row does, hourly is plenty.
+    "option_historic": 3600,
+    "hottest_chains": 120,
+    "vol_anomaly_top": 900,
+    "option_contracts": 900,
     "_default": 15,
 }
 
@@ -413,6 +446,54 @@ class UWClient:
             p["date"] = str(date)
         return self._get("congress_trades", p)
 
+    # ── v5.36 ──
+    def fda_calendar(self, ticker: str | None = None, target_date_min: str | None = None,
+                     target_date_max: str | None = None, limit: int = 500) -> Optional[list[dict]]:
+        p = {"limit": str(max(1, min(500, int(limit))))}
+        if ticker:
+            p["ticker"] = str(ticker).upper()
+        if target_date_min:
+            p["target_date_min"] = str(target_date_min)
+        if target_date_max:
+            p["target_date_max"] = str(target_date_max)
+        return self._get("fda_calendar", p)
+
+    def short_interest(self, ticker: str) -> Any:
+        return self._get("short_interest", {"ticker": str(ticker).upper()})
+
+    def earnings_history(self, ticker: str) -> Optional[list[dict]]:
+        return self._get("earnings_history", {"ticker": str(ticker).upper()})
+
+    def oi_per_strike(self, ticker: str) -> Optional[list[dict]]:
+        return self._get("oi_per_strike", {"ticker": str(ticker).upper()})
+
+    def seasonality_monthly(self, ticker: str) -> Optional[list[dict]]:
+        return self._get("seasonality_monthly", {"ticker": str(ticker).upper()})
+
+    def option_historic(self, option_symbol: str, limit: int = 120) -> Optional[list[dict]]:
+        return self._get("option_historic", {"id": str(option_symbol).upper(),
+                                             "limit": str(max(1, min(500, int(limit))))})
+
+    def hottest_chains(self, limit: int = 50, min_premium: int = 0,
+                       order: str | None = None) -> Optional[list[dict]]:
+        p = {"limit": str(max(1, min(250, int(limit))))}
+        if min_premium > 0:
+            p["min_premium"] = str(int(min_premium))
+        if order:
+            p["order"] = str(order)
+            p["order_direction"] = "desc"
+        return self._get("hottest_chains", p)
+
+    def vol_anomaly_top(self, direction: str = "short_vol", limit: int = 50) -> Any:
+        return self._get("vol_anomaly_top", {"direction": "long_vol" if direction == "long_vol" else "short_vol",
+                                             "limit": str(max(1, min(200, int(limit))))})
+
+    def option_contracts(self, ticker: str, expiry: str, limit: int = 500) -> Optional[list[dict]]:
+        """One expiry's contracts that carry open interest."""
+        return self._get("option_contracts", {"ticker": str(ticker).upper(), "expiry": str(expiry),
+                                              "exclude_zero_oi_chains": "true",
+                                              "limit": str(max(1, min(500, int(limit))))})
+
     def variance_risk_premium(self, ticker: str) -> Any:
         return self._get("variance_risk_premium", {"ticker": str(ticker).upper()})
 
@@ -479,8 +560,9 @@ class UWClient:
                 self._rate["last_error"] = str(exc)[:120]
             print(f"[uw] {key} error: {exc}", file=sys.stderr)
             return None
-        # UW returns {"data": [...]} or {"data": {...}} — peel data.
-        data = payload.get("data") if isinstance(payload, dict) else payload
+        # UW returns {"data": [...]} or {"data": {...}} — peel data. A few
+        # endpoints use another key (PEEL_KEY).
+        data = payload.get(PEEL_KEY.get(key, "data")) if isinstance(payload, dict) else payload
         with self._cache_lock:
             self._cache[cache_key] = (now + ttl, data)
         return data

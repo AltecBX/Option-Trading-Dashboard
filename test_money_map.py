@@ -306,3 +306,162 @@ class TheClientKnowsTheNewPaths(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+# ── v5.36 ──────────────────────────────────────────────────────────────────
+FDA = [  # shape of UW's /api/market/fda-calendar example
+    {"catalyst": "PDUFA Date", "drug": "Lifileucel", "end_date": "2026-10-12", "has_options": True,
+     "indication": "Advanced Melanoma", "marketcap": "1000000000", "notes": None, "outcome": None,
+     "outcome_brief": None, "source_link": None, "start_date": "2026-10-12", "status": "NDA", "ticker": "IOVA"},
+    {"catalyst": "Phase 3 Readout", "drug": "X-1", "start_date": "2026-10-01", "end_date": "2026-12-31",
+     "status": "Phase 3", "ticker": "IOVA", "indication": ""},
+    {"catalyst": "PDUFA Date", "drug": "Done", "start_date": "2026-10-02", "end_date": "2026-10-02",
+     "outcome": "Approved", "status": "NDA", "ticker": "IOVA"},
+    {"catalyst": "AdCom", "drug": "Past", "start_date": "2026-09-01", "end_date": "2026-09-01",
+     "status": "NDA", "ticker": "IOVA"},
+    {"catalyst": "PDUFA Date", "drug": "Far", "start_date": "2026-12-20", "end_date": "2026-12-20",
+     "status": "NDA", "ticker": "OTHR"},
+]
+SI = {"days_to_cover": "8.1", "fee_rate": "0.2782", "market_date": "2026-09-15", "rebate_rate": "3.3518",
+      "short_interest": 75000, "short_shares_available": 10000000, "si_float": "0.241",
+      "si_float_with_synth_long_pct_of_total_shares": "0.23", "symbol": "IOVA", "total_float": 4250000}
+EARN = [  # UW /api/earnings/{ticker} example shape, newest first after sorting
+    {"actual_eps": "2.45", "expected_move_perc": "0.0359", "post_earnings_move_1d": "-0.0724",
+     "report_date": "2026-07-30", "report_time": "postmarket", "short_straddle_1d": "-0.5830"},
+    {"actual_eps": "2.32", "expected_move_perc": "0.0261", "post_earnings_move_1d": "0.0500",
+     "report_date": "2026-04-30", "report_time": "postmarket", "short_straddle_1d": "-0.4"},
+    {"expected_move_perc": "0.04", "post_earnings_move_1d": "0.01", "report_date": "2026-01-30"},
+    {"expected_move_perc": None, "post_earnings_move_1d": "0.2", "report_date": "2025-10-30"},
+]
+OIPS = [{"call_oi": 1123, "date": "2026-09-25", "put_oi": 24443, "strike": "90"},
+        {"call_oi": 50000, "date": "2026-09-25", "put_oi": 100, "strike": "110"},
+        {"call_oi": 90000, "date": "2026-09-25", "put_oi": 10, "strike": "120"},
+        {"call_oi": 10, "date": "2026-09-25", "put_oi": 70000, "strike": "95"},
+        {"call_oi": 5, "date": "2026-09-25", "put_oi": 5000, "strike": "80"},
+        {"call_oi": 3000, "date": "2026-09-25", "put_oi": 3000, "strike": "130"}]
+SEAS = [{"avg_change": 0.032, "max_change": 0.0635, "median_change": 0.0195, "min_change": -0.0727,
+         "month": 9, "positive_closes": 8, "positive_months_perc": 0.8, "years": 10},
+        {"avg_change": -0.011, "max_change": 0.04, "median_change": -0.01, "min_change": -0.09,
+         "month": 10, "positive_closes": 4, "positive_months_perc": 0.4, "years": 10}]
+
+
+class Warnings(unittest.TestCase):
+    def test_fda_events_upcoming_undecided_soonest_first(self):
+        ev = MM.fda_events(FDA, TODAY)
+        self.assertEqual(["X-1", "Lifileucel", "Far"], [e["drug"] for e in ev])
+        self.assertEqual("PDUFA Date for Lifileucel: Oct 12 (Advanced Melanoma).", ev[1]["text"])
+        self.assertEqual("Phase 3 Readout for X-1: Oct 1 to Dec 31.", ev[0]["text"])
+        self.assertEqual(["X-1", "Lifileucel"], [e["drug"] for e in MM.fda_events(FDA, TODAY, until=date(2026, 10, 16))])
+        self.assertEqual([], MM.fda_events(FDA, TODAY, ticker="AAPL"))
+
+    def test_squeeze_levels(self):
+        hi = MM.squeeze_section(SI)
+        self.assertEqual("high", hi["level"])
+        self.assertIn("24.1% of the float is sold short, 8.1 days to cover (FINRA, 2026-09-15)", hi["text"])
+        self.assertEqual("elevated", MM.squeeze_section({"si_float": "0.12", "days_to_cover": "2"})["level"])
+        self.assertEqual("low", MM.squeeze_section({"si_float": "0.02", "days_to_cover": "1"})["level"])
+        self.assertIsNone(MM.squeeze_section(None))
+        self.assertIsNone(MM.squeeze_section({"symbol": "X"}))
+
+
+class EarningsAndStrikes(unittest.TestCase):
+    def test_expected_vs_actual(self):
+        e = MM.earnings_section(EARN)
+        self.assertEqual(3, e["n"], "a report without an expected move is skipped")
+        self.assertEqual((3.4, 4.41), (round(e["expected_avg"], 1), round(e["actual_avg"], 2)))
+        self.assertEqual(2, e["bigger"])
+        self.assertEqual("under", e["state"])
+        self.assertIn("options expected ±3.4% on average; the stock actually moved ±4.4% the next day, "
+                      "more than expected 2 of 3 times", e["text"])
+        self.assertIsNone(MM.earnings_section([]))
+
+    def test_oi_walls_either_side_of_the_price(self):
+        got = [(l["kind"], l["price"], l["contracts"]) for l in MM.oi_levels(OIPS, 100.0)]
+        self.assertEqual([("oi_call", 120.0, 90000), ("oi_call", 110.0, 50000),
+                          ("oi_put", 95.0, 70000), ("oi_put", 90.0, 24443)], got)
+        self.assertEqual([], MM.oi_levels(OIPS, None))
+
+    def test_seasonality_this_month_and_next_near_the_end(self):
+        s = MM.seasonality_section(SEAS, date(2026, 9, 10))
+        self.assertEqual("September: up 8 of the last 10 years, average +3.2% (worst -7.3%, best +6.3%).", s["text"])
+        self.assertIsNone(s["next"])
+        late = MM.seasonality_section(SEAS, date(2026, 9, 25))
+        self.assertEqual("October", late["next"]["name"])
+        self.assertIn("October: up 4 of the last 10 years", late["text"])
+
+    def test_the_map_carries_them_all(self):
+        uw = FakeUW(fda_calendar=[dict(r, ticker="SPY") for r in FDA], short_interest=SI,
+                    earnings_history=EARN, oi_per_strike=[dict(r, strike=str(float(r["strike"]) * 5.68)) for r in OIPS],
+                    seasonality_monthly=SEAS)
+        m = MM.build(uw, "SPY", spot=568.0, today=TODAY)
+        self.assertEqual("X-1", m["fda"][0]["drug"])
+        self.assertEqual("high", m["squeeze"]["level"])
+        self.assertEqual("under", m["earnings"]["state"])
+        self.assertIn("October", m["seasonality"]["text"])
+        kinds = {l["kind"] for l in m["levels"]}
+        self.assertTrue({"oi_call", "oi_put"} <= kinds, "the OI walls are on the ladder")
+        oi = [l for l in m["levels"] if l["kind"] == "oi_call"][0]
+        self.assertIn("open call contracts", oi["meaning"])
+
+
+class FridayWalls(unittest.TestCase):
+    """Codex, #423: the Friday walls read ONE expiry's open interest, and
+    that expiry's own max pain, not every expiry added together."""
+
+    def contracts(self):
+        return [{"option_symbol": "SPY261002C00580000", "open_interest": 90000},
+                {"option_symbol": "SPY261002C00575000", "open_interest": 20000},
+                {"option_symbol": "SPY261002C00590000", "open_interest": 50000},
+                {"option_symbol": "SPY261002P00560000", "open_interest": 70000},
+                {"option_symbol": "SPY261002P00550000", "open_interest": 1000},
+                {"option_symbol": "SPY261002P00570000", "open_interest": 999999},   # above spot: not a floor
+                {"option_symbol": "junk", "open_interest": 5}]
+
+    def test_this_fridays_contracts_and_max_pain(self):
+        uw = FakeUW(option_contracts=self.contracts(),
+                    max_pain=[{"expiry": "2026-10-02", "max_pain": "566"}, {"expiry": "2026-09-26", "max_pain": "570"},
+                              {"expiry": "2026-10-16", "max_pain": "560"}])
+        w = MM.friday_walls(uw, "spy", spot=568.0, today=date(2026, 9, 29))
+        self.assertEqual("2026-10-02", w["expiry"])
+        asked = [c for c in uw.calls if c[0] == "option_contracts"][0]
+        self.assertEqual(("SPY", "2026-10-02"), asked[1])
+        got = [(l["kind"], l["price"]) for l in w["levels"]]
+        self.assertEqual([("call_wall", 600.0), ("fri_call", 590.0), ("fri_call", 580.0), ("gamma_magnet", 575.0),
+                          ("max_pain", 566.0), ("fri_put", 560.0), ("fri_put", 550.0), ("put_wall", 550.0)], got)
+        self.assertNotIn("gamma_flip", [l["kind"] for l in w["levels"]])
+        self.assertIn("expiring this Friday", w["levels"][1]["meaning"])
+
+    def test_no_max_pain_for_that_expiry_is_none_not_the_next_one(self):
+        uw = FakeUW(option_contracts=self.contracts(), max_pain=[{"expiry": "2026-10-16", "max_pain": "560"}])
+        w = MM.friday_walls(uw, "SPY", spot=568.0, today=date(2026, 9, 29))
+        self.assertNotIn("max_pain", [l["kind"] for l in w["levels"]])
+
+    def test_a_friday_is_its_own_expiry_and_no_weeklies_says_so(self):
+        self.assertEqual(date(2026, 10, 2), MM.next_friday(date(2026, 10, 2)))
+        self.assertEqual(date(2026, 10, 9), MM.next_friday(date(2026, 10, 3)))
+        w = MM.friday_walls(FakeUW(option_contracts=[]), "SPY", spot=568.0, today=date(2026, 9, 29))
+        self.assertFalse(w["has_weekly"])
+
+    def test_the_map_ladder_says_its_oi_is_every_expiry(self):
+        self.assertIn("Across every expiry", MM.LEVEL_TEXT["oi_call"][1])
+
+
+class BoardRisks(unittest.TestCase):
+    def test_fda_inside_the_life_and_squeeze_only_for_a_short_call(self):
+        uw = FakeUW(fda_calendar=FDA, short_interest=SI)
+        rows = [{"symbol": "IOVA", "kind": "put_credit_spread", "expiration": "2026-10-16"},
+                {"symbol": "OTHR", "kind": "call_credit_spread", "expiration": "2026-10-16"},
+                {"symbol": "IOVA2", "kind": "iron_condor", "expiration": "2026-10-16"}]
+        got = MM.board_risks(uw, rows, today=TODAY)
+        self.assertEqual(["X-1", "Lifileucel"], [e["drug"] for e in got["IOVA"]["fda"]])
+        self.assertEqual([], got["OTHR"]["fda"], "Dec 20 is after the Oct 16 expiry")
+        self.assertIsNone(got["IOVA"]["squeeze"], "a put spread has no short call to squeeze")
+        self.assertEqual("high", got["OTHR"]["squeeze"]["level"])
+        self.assertEqual("high", got["IOVA2"]["squeeze"]["level"])
+        asked = [c for c in uw.calls if c[0] == "fda_calendar"]
+        self.assertEqual(1, len(asked), "one market-wide FDA call covers the board")
+
+    def test_nothing_raises(self):
+        uw = FakeUW(fda_calendar=RuntimeError("x"), short_interest=RuntimeError("y"))
+        got = MM.board_risks(uw, [{"symbol": "A", "kind": "iron_condor", "expiration": "2026-10-16"}], today=TODAY)
+        self.assertEqual({"A": {"fda": [], "squeeze": None}}, got)

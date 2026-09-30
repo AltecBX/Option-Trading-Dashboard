@@ -15659,6 +15659,8 @@ const MM_MISSING = {
   gex_levels: "gamma levels", max_pain: "max pain", darkpool_levels: "dark pool levels",
   variance_risk_premium: "implied vs realized", oi_change: "overnight open interest",
   insider_transactions: "insider trades", congress_trades: "Congress trades",
+  fda_calendar: "FDA calendar", short_interest: "short interest", earnings_history: "earnings history",
+  oi_per_strike: "open interest by strike", seasonality_monthly: "seasonality",
 };
 const mmPx = (v) => (v == null ? "—" : `$${Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const mmMoney = (v) => {
@@ -15747,6 +15749,19 @@ function MoneyMapCard({ ticker, currentPrice, apiFetch, uwHealth }) {
             ? loadedAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "earlier"}.
         </p>
       ) : null}
+      {/* v5.36 — warnings first: an FDA decision ahead, or squeeze risk. */}
+      {(map.fda || []).length || (map.squeeze && map.squeeze.level !== "low") ? (
+        <section className="mm-sec mm-warns">
+          {(map.fda || []).slice(0, 3).map((e, i) => (
+            <div key={`fda-${i}`} className="mm-warn mm-warn-high">
+              <b>⚠ FDA</b> {e.text} A decision can move the stock 40% overnight.
+            </div>
+          ))}
+          {map.squeeze && map.squeeze.level !== "low" ? (
+            <div className={`mm-warn mm-warn-${map.squeeze.level}`}><b>⚠ Squeeze</b> {map.squeeze.text}</div>
+          ) : null}
+        </section>
+      ) : null}
       {map.regime ? (
         <div className={`mm-regime mm-${map.regime.state}`}>
           <b>{map.regime.state === "calm" ? "Calm tape" : "Wild tape"}</b> {map.regime.text}
@@ -15783,6 +15798,23 @@ function MoneyMapCard({ ticker, currentPrice, apiFetch, uwHealth }) {
             <b>{prem.state === "rich" ? "RICH" : prem.state === "thin" ? "THIN" : "FAIR"}</b>
             <span>{prem.text}</span>
           </div>
+        </section>
+      ) : null}
+
+      {map.earnings ? (
+        <section className="mm-sec">
+          <div className="mm-h">Earnings: expected vs actual moves</div>
+          <div className={`mm-verdict mm-earn-${map.earnings.state}`}>
+            <b>{map.earnings.state === "under" ? "UNDERPRICED" : map.earnings.state === "over" ? "OVERPRICED" : "FAIR"}</b>
+            <span>{map.earnings.text}</span>
+          </div>
+        </section>
+      ) : null}
+
+      {map.seasonality ? (
+        <section className="mm-sec">
+          <div className="mm-h">Seasonality</div>
+          <div className="mm-verdict"><span>{map.seasonality.text}</span></div>
         </section>
       ) : null}
 
@@ -15834,6 +15866,75 @@ function MoneyMapCard({ ticker, currentPrice, apiFetch, uwHealth }) {
 }
 
 
+// v5.36 — the walls into Friday, on the Friday screen: where the most
+// open contracts sit either side of the price, max pain and the gamma
+// magnet. Same answer as the Big Money Map (one cached route), cut down
+// to what pins a stock into expiry.
+const FW_KINDS = ["fri_call", "call_wall", "gamma_magnet", "max_pain", "put_wall", "fri_put"];
+function FridayWallsCard({ ticker, currentPrice, apiFetch, uwHealth }) {
+  const [map, setMap] = useState(null);
+  const [error, setError] = useState(null);
+  // The latest price via a ref, and a refetch the moment the first price
+  // arrives: without one the walls cannot be placed either side of it,
+  // and a card mounted before the quote stayed empty (Codex, #423).
+  const priceRef = React.useRef(currentPrice);
+  priceRef.current = currentPrice;
+  const hasPrice = currentPrice != null && currentPrice > 0;
+  useEffect(() => { setMap(null); setError(null); }, [ticker]);
+  useEffect(() => {
+    if (!ticker || !uwHealth?.connected) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const r = await apiFetch(`/api/uw/friday_walls?symbol=${encodeURIComponent(ticker)}`
+                                 + (priceRef.current ? `&price=${priceRef.current}` : ""));
+        const j = await r.json();
+        if (cancelled) return;
+        if (j.error) setError(j.error); else if (j.data) { setMap(j.data); setError(null); }
+      } catch (e) { if (!cancelled) setError(String(e.message || e)); }
+    };
+    load();
+    const id = setInterval(skipWhenHidden(load), 60000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [ticker, uwHealth?.connected, hasPrice]);
+  if (!uwHealth?.configured) return null;
+  const lv = ((map && map.levels) || []).filter(l => FW_KINDS.includes(l.kind));
+  const spot = map && map.spot;
+  return (
+    <div className="card mm-card fw-card">
+      <div className="card-head">
+        <div>
+          <div className="kicker">Unusual Whales · into the {map && map.expiry ? mmDay(map.expiry) : "Friday"} expiry</div>
+          <div className="card-title">Friday walls · {ticker}</div>
+        </div>
+      </div>
+      {error && !map ? <CardNote kind="error">{error}</CardNote> : null}
+      {!map && !error ? <CardNote kind="loading">Reading open interest…</CardNote> : null}
+      {map && !lv.length ? <p className="mm-missing">No walls came back for {ticker}{map.has_weekly === false ? `: no options expiring ${mmDay(map.expiry)} carry open interest` : ""}.</p> : null}
+      {lv.length ? (
+        <ul className="mm-ladder">
+          {lv.filter(l => spot == null || l.price > spot).map((l, i) => (
+            <li key={`a${i}`} className={`mm-lv mm-k-${l.kind}`}>
+              <span className="mm-px">{mmPx(l.price)}</span><span className="mm-name">{l.label}</span>
+              <span className="mm-dist">{mmPct(l.pct)}</span><span className="mm-why">{l.meaning}</span>
+            </li>
+          ))}
+          {spot != null ? (
+            <li className="mm-lv mm-now"><span className="mm-px">{mmPx(spot)}</span>
+              <span className="mm-name">Price now</span><span className="mm-dist"></span><span className="mm-why"></span></li>
+          ) : null}
+          {lv.filter(l => spot != null && l.price <= spot).map((l, i) => (
+            <li key={`b${i}`} className={`mm-lv mm-k-${l.kind}`}>
+              <span className="mm-px">{mmPx(l.price)}</span><span className="mm-name">{l.label}</span>
+              <span className="mm-dist">{mmPct(l.pct)}</span><span className="mm-why">{l.meaning}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 const _memo = React.memo;
 Object.assign(window, { TickerLogo, MarketBreadthCard: _memo(MarketBreadthCard),
   FridayCard: _memo(FridayCard),
@@ -15864,7 +15965,7 @@ Object.assign(window, { TickerLogo, MarketBreadthCard: _memo(MarketBreadthCard),
   StrategyReferenceCard: _memo(StrategyReferenceCard), WatchlistManager, QuickAddRow,
   WatchlistRow, FlashOnChange, SortableTh, PercentCalc: _memo(PercentCalc),
   RollManagerCard: _memo(RollManagerCard),
-  FlowScoreCard: _memo(FlowScoreCard), MoneyMapCard: _memo(MoneyMapCard), PullbackBacktest,
+  FlowScoreCard: _memo(FlowScoreCard), MoneyMapCard: _memo(MoneyMapCard), FridayWallsCard: _memo(FridayWallsCard), PullbackBacktest,
   TradeBuilderCard: _memo(TradeBuilderCard), AnalystCard: _memo(AnalystCard),
   PullbackProfileCard: _memo(PullbackProfileCard), BasingCard: _memo(BasingCard),
   Recommendation, RecommendationPair, StrategyCard: _memo(StrategyCard),

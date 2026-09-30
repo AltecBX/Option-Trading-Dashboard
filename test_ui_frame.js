@@ -136,7 +136,8 @@ const grouped = [...groupBlock.matchAll(/"([a-z]+)"/g)].map(m => m[1])
   .filter(x => tabIds.includes(x));
 // 31 since v5.29: the Live Scanner joined the Scan group.
 // 32 since v5.34: Insider & Congress buying joined it too.
-ok("every destination is still declared", tabIds.length === 32, String(tabIds.length));
+// 33 since v5.36: the Options Hotlist.
+ok("every destination is still declared", tabIds.length === 33, String(tabIds.length));
 ok("every destination belongs to exactly one group",
    tabIds.every(id => grouped.filter(g => g === id).length === 1),
    tabIds.filter(id => grouped.filter(g => g === id).length !== 1).join(","));
@@ -374,7 +375,7 @@ ok("the Friday head card says which Friday and whether today is the day",
   const live = read("tab-live.jsx");
   ok("the Live Scanner is a destination in the Scan group",
      /\{ id: "live", label: "Live Scanner" \}/.test(lib)
-     && /ids: \["live", "buyers", "scanners",/.test(lib));
+     && /ids: \["live", "buyers", "hotlist", "scanners",/.test(lib));
   ok("its chunk is built, verified and mounted",
      /"tab-live\.jsx"/.test(read("build_frontend.js")) && /"tab-live\.js"/.test(read("verify_frontend.js"))
      && /chunk="tab-live" component="LiveScanTab"/.test(app)
@@ -420,6 +421,12 @@ ok("the Friday head card says which Friday and whether today is the day",
   const buyers = read("tab-buyers.jsx");
   ok("Insider & Congress is a destination in the Scan group",
      /\{ id: "buyers", label: "Insider & Congress" \}/.test(lib) && /ids: \["live", "buyers",/.test(lib));
+  ok("the Options Hotlist is a destination whose chunk is built, verified and mounted (v5.36)",
+     /\{ id: "hotlist", label: "Options Hotlist" \}/.test(lib)
+     && /"tab-hotlist\.jsx"/.test(read("build_frontend.js")) && /"tab-hotlist\.js"/.test(read("verify_frontend.js"))
+     && /chunk="tab-hotlist" component="HotlistTab"/.test(app)
+     && /Object\.assign\(window, \{ HotlistTab: React\.memo\(HotlistTab\) \}\)/.test(read("tab-hotlist.jsx"))
+     && /visible=\{activeTab === "hotlist"\}/.test(app));
   ok("its chunk is built, verified and mounted",
      /"tab-buyers\.jsx"/.test(read("build_frontend.js")) && /"tab-buyers\.js"/.test(read("verify_frontend.js"))
      && /chunk="tab-buyers" component="BuyersTab"/.test(app)
@@ -444,6 +451,13 @@ ok("the Friday head card says which Friday and whether today is the day",
      && /function MoneyMapCard[\s\S]{0,2400}if \(!uwHealth\?\.configured\) return null;/.test(cards));
   ok("a failed refresh is shown over the last good answer, never hidden behind it",
      /\{error \? \(\s*<p className="mm-stale">/.test(cards) && /setLoadedAt\(new Date\(\)\)/.test(cards));
+  ok("the Friday walls read their own route, the latest price, and refetch when the first price lands (Codex, #423)",
+     /\/api\/uw\/friday_walls\?symbol=/.test(cards)
+     && /function FridayWallsCard[\s\S]{0,1500}priceRef\.current = currentPrice;/.test(cards)
+     && /\}, \[ticker, uwHealth\?\.connected, hasPrice\]\);/.test(cards));
+  ok("the Friday screen carries the walls into expiry (v5.36)",
+     /<CardErrorBoundary label="Friday walls">\s*<FridayWallsCard /.test(app)
+     && /FridayWallsCard: _memo\(FridayWallsCard\)/.test(cards));
   ok("it polls once a minute, and not while the page is hidden",
      /setInterval\(skipWhenHidden\(load\), 60000\)/.test(cards));
 }

@@ -137,6 +137,7 @@ const SU_TIP = {
   iv30: "Constant-maturity 30-day implied volatility — what the market is charging.",
   erv: "The volatility this stock is forecast to actually realize. The gap between this and implied volatility is where premium selling makes money.",
   vrp: "Implied volatility minus expected realized volatility, in points. Positive means options are priced above what the stock is likely to do.",
+  report_card: "Every trade this board has shown is written down the first day it appears. Later, each leg is priced with Unusual Whales' real daily history for that exact option: on the expiry day for a finished trade, today for one still open. Credit taken in minus the cost to buy it back, per contract, if held to expiry.",
   uw_check: "Unusual Whales' second opinion: its 30-day implied volatility against how much the stock actually moved over the last 21 trading days. RICH means options are priced for more than the stock has been doing, so sellers are overpaid; THIN means underpaid. Rows where UW agrees it is RICH lead the board; THIN rows drop to the bottom because the two measurements disagree.",
   measured: "How often price actually travelled each distance within the life of this option — in this state, and from any ordinary bar for comparison. The keep rate is shown on its conservative lower bound.",
   baseline: "The same question asked of every ordinary bar. The conditional rate has to beat this, or the state is not special.",
@@ -635,6 +636,54 @@ function SuTrade({
     title: SU_TIP.delta_short
   }, suNum(Math.abs(r.delta), 2), "\u0394") : null)));
 }
+
+// v5.36 — the board's report card, in real dollars: every past pick
+// priced with Unusual Whales' daily history for its exact contracts.
+function SuReportCard({
+  apiFetch,
+  nonce
+}) {
+  const [rc, setRc] = useState(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await apiFetch("/api/uw/report_card");
+        const {
+          d
+        } = await suReadJson(r);
+        if (!cancelled && d && d.data) setRc(d.data);
+      } catch (_) {/* the board stands on its own without it */}
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiFetch, nonce]);
+  if (!rc || !rc.recorded) return null;
+  const money = v => `${v >= 0 ? "+" : "−"}$${Math.abs(Math.round(v)).toLocaleString()}`;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "su-rc",
+    title: SU_TIP.report_card
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "su-rc-head"
+  }, /*#__PURE__*/React.createElement("b", null, "Report card"), rc.closed ? /*#__PURE__*/React.createElement("span", {
+    className: `su-rc-big ${rc.total_pnl >= 0 ? "up" : "down"}`
+  }, rc.wins, "/", rc.closed, " won \xB7 ", money(rc.total_pnl)) : null), /*#__PURE__*/React.createElement("p", {
+    className: "su-rc-text"
+  }, rc.text), (rc.recent || []).length ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
+    className: "su-more-btn",
+    onClick: () => setOpen(o => !o)
+  }, open ? "Hide the picks" : `Show the last ${rc.recent.length} picks`), open ? /*#__PURE__*/React.createElement("ul", {
+    className: "su-rc-list"
+  }, rc.recent.map((p, i) => /*#__PURE__*/React.createElement("li", {
+    key: i
+  }, /*#__PURE__*/React.createElement("span", {
+    className: `su-rc-pnl ${p.pnl >= 0 ? "up" : "down"}`
+  }, money(p.pnl)), /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("b", null, p.symbol), " ", p.trade || "", " \xB7 ", p.legs.map(l => `${l.action === "sell" ? "Sell" : "Buy"} ${l.strike} ${l.right}`).join(" · ")), /*#__PURE__*/React.createElement("span", {
+    className: "su-rc-when"
+  }, p.final ? `expired ${p.expiry}` : `open, priced ${p.on}`)))) : null) : null);
+}
 function SuBoardRow({
   r,
   onPick
@@ -656,7 +705,11 @@ function SuBoardRow({
     title: SU_TIP.action
   }, /*#__PURE__*/React.createElement(SuTrade, {
     r: r
-  })), /*#__PURE__*/React.createElement("td", {
+  }), (r.warnings || []).map(w => /*#__PURE__*/React.createElement("div", {
+    key: w.kind,
+    className: `su-warn su-warn-${w.level}`,
+    title: w.text
+  }, "\u26A0 ", w.short || w.text))), /*#__PURE__*/React.createElement("td", {
     className: "su-c-exp",
     title: SU_TIP.expiry
   }, suExpiry(r.expiration, r.dte)), /*#__PURE__*/React.createElement("td", {
@@ -828,7 +881,10 @@ function SellBoardCard({
     key: r.symbol,
     r: r,
     onPick: onPickTicker
-  }))))) : null, data && (data.refused_by || []).length ? /*#__PURE__*/React.createElement("p", {
+  }))))) : null, data ? /*#__PURE__*/React.createElement(SuReportCard, {
+    apiFetch: apiFetch,
+    nonce: data.as_of
+  }) : null, data && (data.refused_by || []).length ? /*#__PURE__*/React.createElement("p", {
     className: "su-uni su-tally",
     title: SU_TIP.tally
   }, "Refused: ", (data.refused_by || []).map(r => `${r.n} ${r.label}`).join(" · ")) : null, uni ? /*#__PURE__*/React.createElement("p", {
