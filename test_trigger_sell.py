@@ -370,5 +370,332 @@ class Retime(unittest.TestCase):
         self.assertEqual(3, r["sessions"], "Wednesday to Friday")
 
 
+
+# ── v2: regime-conditional triggers ─────────────────────────────────────────
+import json
+import os
+from pathlib import Path
+
+# A synthetic table in the real one's shape, in percent points. Edges are
+# [min, q20, q40, q60, q80, max] of last week's Friday-to-Friday close.
+TABLE = {
+    "SYN": {"unconditional_trigger": 9.0,
+            "prior_week_edges": [-5.0, -0.5, 0.5, 2.0, 8.0, 15.0],
+            "conditional": [
+                {"quintile": 1, "prior_lo": -5.0, "prior_hi": -0.5, "trigger70": 12.0, "trigger50": 10.0},
+                {"quintile": 2, "prior_lo": -0.5, "prior_hi": 0.5, "trigger70": 8.0, "trigger50": 6.0},
+                {"quintile": 3, "prior_lo": 0.5, "prior_hi": 2.0, "trigger70": 7.0, "trigger50": 5.5},
+                {"quintile": 4, "prior_lo": 2.0, "prior_hi": 8.0, "trigger70": 6.0, "trigger50": 5.0},
+                {"quintile": 5, "prior_lo": 8.0, "prior_hi": 15.0, "trigger70": 4.0, "trigger50": 3.0}]},
+    "SPCX": {"unconditional_trigger": 11.0},
+}
+
+# A three-week cycle: a big up week that closes near its high (+11%), a
+# quiet week after it whose wick tops near +4%, then an ordinary week.
+UP = [(0.03, 0.03), (0.06, 0.06), (0.09, 0.09), (0.12, 0.11), (0.12, 0.11)]
+AFTER_UP = [(0.02, 0.01), (0.04, 0.02), (0.03, 0.0), (0.01, -0.005), (0.0, -0.01)]
+NORMAL = [(0.02, 0.02), (0.05, 0.04), (0.07, 0.05), (0.04, 0.02), (0.02, 0.01)]
+
+
+def regime_tape(weeks=38, after_up=None):
+    """NORMAL, UP, AFTER_UP repeated, ending on an UP week so the next
+    Monday starts in the top quintile."""
+    cyc = [NORMAL, UP, AFTER_UP]
+    shapes = {}
+    k = 0
+    for i in range(weeks):
+        s = cyc[i % 3]
+        if s is AFTER_UP and after_up is not None:
+            s = after_up(k)
+            k += 1
+        shapes[i] = s
+    return tape(weeks, overrides=shapes)
+
+
+def _real_table():
+    """The real table, wherever it has been put: $JERRY_REGIME_TABLE, the
+    repo's data/ folder, or the workspace path it was built in."""
+    here = Path(__file__).resolve().parent
+    for p in (os.environ.get("JERRY_REGIME_TABLE"),
+              here / "data" / "conditional_triggers.json",
+              Path.home() / "workspace/goals/catch-stock-trends-before-they-move/hidden_files/conditional_triggers.json"):
+        if p and Path(p).is_file():
+            return json.loads(Path(p).read_text())
+    return None
+
+
+REAL = _real_table()
+
+
+@unittest.skipUnless(REAL, "conditional_triggers.json not found: set JERRY_REGIME_TABLE or put it in data/")
+class RealTable(unittest.TestCase):
+    """(a) and (c) on the real two-year table."""
+
+    def test_lite_after_a_big_up_week(self):
+        self.assertAlmostEqual(0.145, ts.regime_trigger("LITE", 15.0, REAL), delta=0.0051)
+        self.assertNotAlmostEqual(0.1382, ts.regime_trigger("LITE", 15.0, REAL), places=3)
+
+    def test_lite_after_a_crash_week(self):
+        self.assertAlmostEqual(0.215, ts.regime_trigger("LITE", -9.0, REAL), delta=0.0051)
+
+    def test_cohr_after_a_big_up_week(self):
+        self.assertAlmostEqual(0.0925, ts.regime_trigger("COHR", 12.0, REAL), delta=0.0026)
+
+    def test_tickers_without_quintiles_use_their_unconditional_trigger(self):
+        for t in ("SPCX", "DRAM"):
+            info = ts.regime_info(t, 15.0, REAL)
+            if info["source"] == "missing":
+                continue                  # not in this copy of the table at all
+            self.assertEqual("unconditional", info["source"], t)
+            self.assertAlmostEqual(info["unconditional"], ts.regime_trigger(t, 15.0, REAL))
+
+
+class RegimeTrigger(unittest.TestCase):
+    def test_each_quintile_gets_its_own_trigger(self):
+        self.assertAlmostEqual(0.04, ts.regime_trigger("SYN", 11.0, TABLE))
+        self.assertAlmostEqual(0.12, ts.regime_trigger("syn", -3.0, TABLE), msg="ticker case does not matter")
+        self.assertAlmostEqual(0.07, ts.regime_trigger("SYN", 1.0, TABLE))
+
+    def test_an_edge_value_lands_in_the_lower_quintile_and_outliers_clamp(self):
+        """(b)"""
+        e = TABLE["SYN"]["prior_week_edges"]
+        self.assertEqual(1, ts.quintile_of(-0.5, e))
+        self.assertEqual(2, ts.quintile_of(0.5, e))
+        self.assertEqual(3, ts.quintile_of(2.0, e))
+        self.assertEqual(4, ts.quintile_of(8.0, e))
+        self.assertEqual(5, ts.quintile_of(15.0, e))
+        self.assertEqual(1, ts.quintile_of(-40.0, e), "below the first edge clamps to 1")
+        self.assertEqual(5, ts.quintile_of(60.0, e), "above the last edge clamps to 5")
+        self.assertAlmostEqual(0.12, ts.regime_trigger("SYN", -40.0, TABLE))
+        self.assertAlmostEqual(0.04, ts.regime_trigger("SYN", 60.0, TABLE))
+        # four interior cut points work the same way
+        self.assertEqual(2, ts.quintile_of(0.5, e[1:-1]))
+
+    def test_a_ticker_without_quintiles_falls_back_to_its_unconditional_trigger(self):
+        """(c)"""
+        info = ts.regime_info("SPCX", 15.0, TABLE)
+        self.assertEqual("unconditional", info["source"])
+        self.assertAlmostEqual(0.11, ts.regime_trigger("SPCX", 15.0, TABLE))
+        self.assertIsNone(ts.regime_trigger("NOPE", 15.0, TABLE), "not in the table at all")
+
+    def test_table_shapes_and_units(self):
+        frac = {"SYN": {"unconditional_trigger": 0.09,
+                        "prior_week_edges": [-0.05, -0.005, 0.005, 0.02, 0.08, 0.15],
+                        "conditional": [{"quintile": q, "trigger70": t} for q, t in
+                                        ((1, .12), (2, .08), (3, .07), (4, .06), (5, .04))]}}
+        self.assertAlmostEqual(0.04, ts.regime_trigger("SYN", 11.0, frac), msg="fraction-unit table")
+        as_list = [dict(TABLE["SYN"], ticker="SYN")]
+        self.assertAlmostEqual(0.04, ts.regime_trigger("SYN", 11.0, as_list))
+        self.assertAlmostEqual(0.04, ts.regime_trigger("SYN", 11.0, {"tickers": TABLE}))
+        self.assertAlmostEqual(0.04, ts.regime_trigger(None, 11.0, TABLE["SYN"]), msg="one entry passed directly")
+
+
+class RegimeCalibration(unittest.TestCase):
+    def test_the_regime_replaces_the_percentile_and_keeps_the_iv_scaling(self):
+        bars = regime_tape()
+        plain = ts.calibrate(bars)
+        cal = ts.calibrate(bars, regime_table=TABLE, prior_week_close_pct=11.0, ticker="SYN")
+        self.assertEqual("percentile", plain["trigger_source"])
+        self.assertEqual("regime", cal["trigger_source"])
+        self.assertAlmostEqual(0.04, cal["trigger_pct"])
+        self.assertEqual(5, cal["regime"]["quintile"])
+        hot = ts.calibrate(bars, regime_table=TABLE, prior_week_close_pct=11.0, ticker="SYN",
+                           iv_now=0.9, iv_median=0.4)
+        self.assertAlmostEqual(0.04 * ts.IV_SCALE_HI, hot["trigger_pct"])
+        self.assertEqual(plain["n_weeks"], cal["n_weeks"], "same clean weeks either way")
+
+    def test_too_few_weeks_still_refuses_with_a_table(self):
+        cal = ts.calibrate(regime_tape(9), regime_table=TABLE, prior_week_close_pct=11.0, ticker="SYN")
+        self.assertFalse(cal["ok"])
+
+    def test_a_ticker_the_table_cannot_answer_keeps_the_percentile(self):
+        bars = regime_tape()
+        cal = ts.calibrate(bars, regime_table=TABLE, prior_week_close_pct=11.0, ticker="NOPE")
+        self.assertEqual("percentile", cal["trigger_source"])
+        self.assertAlmostEqual(ts.calibrate(bars)["trigger_pct"], cal["trigger_pct"])
+
+    def test_sessions_left_come_from_the_quintile_only(self):
+        bars = regime_tape()
+        e = TABLE["SYN"]["prior_week_edges"]
+        # after an up week the 4% wick tops on Tuesday: Wed, Thu, Fri are left
+        self.assertEqual(3, ts.quintile_sessions_left(bars, 5, 0.04, edges_pct=e))
+        # the ordinary weeks (after a -1% week) reach 4% on Tuesday too, and
+        # 7% on Wednesday
+        self.assertEqual(2, ts.quintile_sessions_left(bars, 1, 0.07, edges_pct=e))
+        self.assertIsNone(ts.quintile_sessions_left(bars, 5, 0.20, edges_pct=e))
+
+
+class RegimeDecision(unittest.TestCase):
+    def setUp(self):
+        self.bars = regime_tape()
+        self.mon = next_monday(38)
+        self.fri = self.mon + timedelta(days=4)
+        self.anchor = self.bars[-1]["close"]
+
+    def test_decide_uses_the_regime_trigger_in_the_wait(self):
+        """(d) After an +11% week the trigger is the top quintile's 4%, not
+        the unconditional percentile, and the wait is priced there."""
+        plain = ts.decide(self.anchor, self.bars, self.mon + timedelta(days=1), self.fri, 0.45)
+        d = ts.decide(self.anchor, self.bars, self.mon + timedelta(days=1), self.fri, 0.45,
+                      ticker="SYN", regime_table=TABLE)
+        self.assertTrue(d["ok"], d.get("reason"))
+        self.assertAlmostEqual(11.0, d["regime"]["prior_week_close_pct"], places=6)
+        self.assertEqual(5, d["regime"]["quintile"])
+        self.assertAlmostEqual(0.04, d["trigger_pct"])
+        self.assertAlmostEqual(self.anchor * 1.04, d["trigger_price"])
+        self.assertAlmostEqual(self.anchor * 1.04, d["wait"]["sale_price"])
+        self.assertNotAlmostEqual(plain["trigger_price"], d["trigger_price"], places=2)
+        self.assertNotAlmostEqual(plain["wait"]["ev"], d["wait"]["ev"], places=4)
+        # the odds and the sessions come from the same quintile's weeks
+        self.assertEqual("quintile", d["regime"]["basis"])
+        self.assertEqual(1.0, d["wait"]["p_hit"], "every week after an up week reached 4%")
+        self.assertEqual(4, d["wait"]["sessions_at_tap"], "a Tuesday tap: Tue, Wed, Thu, Fri")
+        self.assertEqual(d["regime"]["weeks_in_quintile"], d["after_trigger"]["n_weeks"])
+
+    def test_the_guardrail_reads_only_the_quintile_and_names_it(self):
+        """(e) Stretched top-quintile weeks that do not pull back harder keep
+        the delta at the money, and the reason says which quintile."""
+        d = ts.decide(self.anchor, self.bars, self.mon + timedelta(days=1), self.fri, 0.45,
+                      ticker="SYN", regime_table=TABLE)
+        self.assertGreater(d["delta"]["uncapped"], ts.DELTA_MID)
+        self.assertTrue(d["delta"]["capped"])
+        self.assertEqual(ts.DELTA_MID, d["delta"]["adaptive"])
+        self.assertIn("quintile 5", d["delta"]["why_capped"])
+        self.assertFalse(d["after_trigger"]["deep_retrace_proven"])
+
+    def test_without_a_table_nothing_changes(self):
+        a = ts.decide(self.anchor, self.bars, self.mon + timedelta(days=1), self.fri, 0.45)
+        self.assertFalse(a["regime"]["on"])
+        self.assertEqual("percentile", a["calibration"]["trigger_source"])
+        self.assertIsNone(a["history_record"]["quintile"])
+
+
+class ThetaHistoryByRegime(unittest.TestCase):
+    def test_two_weeks_running_means_the_same_quintile(self):
+        rec = lambda q, dom: {"week": "2026-09-21", "ticker": "SYN", "quintile": q,
+                              "trigger_pct": 0.04, "theta_dominant": dom}
+        self.assertTrue(ts.theta_too_far(True, [rec(5, True)], 5))
+        self.assertFalse(ts.theta_too_far(True, [rec(1, True)], 5), "a different regime is not 'running'")
+        self.assertTrue(ts.theta_too_far(True, [rec(5, True), rec(1, False)], 5),
+                        "the last record in the SAME quintile decides")
+        self.assertFalse(ts.theta_too_far(True, [rec(5, False), rec(1, True)], 5))
+        self.assertFalse(ts.theta_too_far(False, [rec(5, True)], 5))
+        self.assertTrue(ts.theta_too_far(True, [True], None), "v1 booleans still work")
+
+    def test_decide_returns_the_record_to_keep(self):
+        bars = regime_tape()
+        mon = next_monday(38)
+        d = ts.decide(bars[-1]["close"], bars, mon + timedelta(days=1), mon + timedelta(days=4), 0.45,
+                      ticker="SYN", regime_table=TABLE)
+        r = d["history_record"]
+        self.assertEqual({"week", "ticker", "quintile", "trigger_pct", "theta_dominant", "theta_decay", "uplift"},
+                         set(r))
+        self.assertEqual((mon.isoformat(), "SYN", 5), (r["week"], r["ticker"], r["quintile"]))
+
+
+class PercentileByRegime(unittest.TestCase):
+    def test_expected_premium_is_hit_odds_times_the_price_at_the_trigger(self):
+        bars = regime_tape()
+        e = ts.expected_weekly_premium("SYN", 5, 0.04, bars, TABLE, iv=0.45)
+        sessions = ts.quintile_sessions_left(bars, 5, 0.04, edges_pct=TABLE["SYN"]["prior_week_edges"]) + 1
+        k = ts.delta_strike(1.04, sessions, 0.45, ts.DELTA_MID)   # capped at the money (unproven)
+        price = metrics._bs_price(1.04, k, sessions / 252.0, 0.45, "call")
+        self.assertAlmostEqual(1.0 * price, e, places=9)
+        self.assertEqual(0.0, ts.expected_weekly_premium("SYN", 5, 0.30, bars, TABLE, iv=0.45),
+                         "a trigger nobody reaches collects nothing")
+
+    def test_a_runner_regime_prefers_a_lower_percentile(self):
+        """(f) After big up weeks this stock sometimes keeps running: the
+        wick tops spread from +2% to +14%. Waiting for the 70th percentile
+        gives up too many weeks; the premium-maximizing percentile is lower."""
+        runs = [0.02, 0.03, 0.04, 0.05, 0.06, 0.08, 0.10, 0.12, 0.14, 0.03, 0.05, 0.07, 0.09]
+
+        def after_up(k):
+            h = runs[k % len(runs)]
+            return [(h * 0.4, h * 0.3), (h, h * 0.6), (h * 0.8, h * 0.3), (h * 0.5, 0.0), (h * 0.3, -0.01)]
+        bars = regime_tape(39, after_up=after_up)
+        res = ts.optimize_percentile("SYN", 5, bars, TABLE, iv=0.45)
+        self.assertTrue(res["ok"], res.get("reason"))
+        self.assertLess(res["percentile"], 0.70)
+        self.assertEqual(len(ts.PCTILE_GRID), len(res["grid"]))
+        at70 = [g for g in res["grid"] if g["pctile"] == 0.70][0]
+        self.assertGreater(res["premium"], at70["premium"])
+
+    def test_a_thin_quintile_is_refused(self):
+        res = ts.optimize_percentile("SYN", 2, regime_tape(), TABLE, iv=0.45)
+        self.assertFalse(res["ok"])
+        self.assertIn("quintile 2", res["reason"])
+
+
+class LastWeekIsARealWeek(unittest.TestCase):
+    """Codex, #425: last week's move is read only from the Friday closes of
+    two back-to-back weeks. A missing or cut-short week would otherwise
+    pass off a two-week (or Wednesday-to-Friday) move as last week's and
+    pick the wrong quintile."""
+
+    def _without(self, bars, week, days=range(5)):
+        mon = START + timedelta(weeks=week)
+        drop = {(mon + timedelta(days=i)).isoformat() for i in days}
+        return [b for b in bars if b["date"] not in drop]
+
+    def test_a_missing_calendar_week_is_not_a_prior_week_move(self):
+        weeks = {w["start"]: w for w in ts.friday_weeks(self._without(tape(6), 2))}
+        after_gap = weeks[(START + timedelta(weeks=4)).isoformat()]
+        self.assertIsNone(after_gap["prior_week_pct"], "week 1's Friday to week 3's is two weeks")
+        self.assertAlmostEqual(2.0, weeks[(START + timedelta(weeks=5)).isoformat()]["prior_week_pct"])
+
+    def test_a_cut_short_week_is_not_a_prior_week_move(self):
+        weeks = {w["start"]: w for w in ts.friday_weeks(self._without(tape(5), 1, days=(3, 4)))}
+        self.assertIsNone(weeks[(START + timedelta(weeks=3)).isoformat()]["prior_week_pct"],
+                          "week 1 ended on Wednesday")
+        self.assertAlmostEqual(2.0, weeks[(START + timedelta(weeks=4)).isoformat()]["prior_week_pct"])
+
+    def _decide(self, bars):
+        mon = next_monday(38)
+        return ts.decide(bars[-1]["close"], bars, mon + timedelta(days=1), mon + timedelta(days=4),
+                         0.45, ticker="SYN", regime_table=TABLE)
+
+    def test_decide_needs_last_week_itself(self):
+        d = self._decide(self._without(regime_tape(), 37))
+        self.assertIsNone(d["regime"]["prior_week_close_pct"])
+        self.assertFalse(d["regime"]["on"])
+        self.assertIsNone(d["regime"]["quintile"])
+
+    def test_decide_needs_last_week_to_end_on_its_last_session(self):
+        d = self._decide(self._without(regime_tape(), 37, days=(3, 4)))
+        self.assertIsNone(d["regime"]["prior_week_close_pct"])
+        self.assertFalse(d["regime"]["on"])
+
+    def test_decide_needs_the_week_before_to_end_on_its_last_session(self):
+        d = self._decide(self._without(regime_tape(), 36, days=(4,)))
+        self.assertIsNone(d["regime"]["prior_week_close_pct"])
+        self.assertTrue(self._decide(regime_tape())["regime"]["on"], "the full tape still reads it")
+
+
+class TableWithoutEdges(unittest.TestCase):
+    """Codex, #425: a table that gives only each quintile's prior_lo/prior_hi
+    sorts the past weeks by those same bounds, not by cut points worked out
+    afresh from the weeks."""
+
+    BARE = {"SYN": {k: v for k, v in TABLE["SYN"].items() if k != "prior_week_edges"}}
+
+    def test_the_bounds_become_the_edges(self):
+        info = ts.regime_info("SYN", 11.0, self.BARE)
+        self.assertEqual(5, info["quintile"])
+        self.assertEqual(TABLE["SYN"]["prior_week_edges"], info["edges_pct"])
+        self.assertEqual(1, ts.regime_info("SYN", -0.5, self.BARE)["quintile"], "on a bound: the lower one")
+
+    def test_decide_sorts_history_the_same_way(self):
+        bars = regime_tape()
+        mon = next_monday(38)
+        args = (bars[-1]["close"], bars, mon + timedelta(days=1), mon + timedelta(days=4), 0.45)
+        full = ts.decide(*args, ticker="SYN", regime_table=TABLE)
+        bare = ts.decide(*args, ticker="SYN", regime_table=self.BARE)
+        self.assertEqual(full["regime"]["weeks_in_quintile"], bare["regime"]["weeks_in_quintile"])
+        self.assertEqual("quintile", bare["regime"]["basis"])
+        self.assertAlmostEqual(full["wait"]["p_hit"], bare["wait"]["p_hit"])
+        self.assertAlmostEqual(full["wait"]["ev"], bare["wait"]["ev"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
