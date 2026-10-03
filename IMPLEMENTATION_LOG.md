@@ -5529,3 +5529,80 @@ Codex on #423, all three right and fixed:
   longest ago.
 
 The tests for these fail on the old code.
+
+## trigger_sell.py — WHEN to sell the week's call (engine only, not on screen yet)
+
+Jerry asked to formalize his weekly call-selling trigger system as a
+module beside `weekly_sell.py` (where) and `stretch_evidence.py` (what
+happens after). It is pure stdlib plus `weekly_sell` and `metrics`.
+
+- **Weeks.** `friday_weeks` measures each Monday-to-Friday week from the
+  prior week's last close. It records the high and the Friday close as
+  fractions, the weekday the high printed, the sessions left after it,
+  per-day highs (so the first tap of ANY level can be found), and the
+  median of the last 8 weekly closes. Partial weeks and the first,
+  anchorless week are dropped.
+- **Clean weeks.** `weekly_high_moves` drops any week containing an
+  earnings date.
+- **Wick.** `wick_score` is the median of (high − close). `rank_tickers`
+  sorts a watchlist by it and keeps thin names at the bottom with a reason.
+- **Trigger.** `calibrate` puts it at the 70th percentile of clean weekly
+  highs, scaled by sqrt(iv_now/iv_median) clamped to [0.70, 1.50]. Under
+  12 clean weeks it returns ok=False with the reason.
+- **After the tap.** `after_trigger_stats` gives the hit rate, P(Friday
+  close > trigger), the median and p90 finish, and terciles by extension.
+  `deep_retrace_proven` is true only when the high-extension tercile
+  retraced harder than the low one, with 3+ weeks in each.
+- **Adaptive delta.** The policy points are 0.30 at extension ≤ 0, 0.50 at
+  1, and 0.70 at 1.5, then +0.10 per unit up to 0.85. Above 0.50 is
+  allowed only when `deep_retrace_proven`; otherwise the delta is capped at
+  the money, and `decide` says why.
+- **Strike and EV.** `delta_strike` bisects `metrics._bs_delta`.
+  `ev_short_call` uses `weekly_sell.evaluate_strike`'s arithmetic, and a
+  test pins the two together.
+- **`decide`.**
+  - p_hit counts only weeks first tapped on or after today's weekday, so a
+    Wednesday decision is not credited with Monday taps.
+  - The sessions at the tap are the median left after the first tap,
+    plus the tap day itself.
+  - EV(wait) − EV(now) is split into theta decay, strike uplift and delta
+    uplift (they sum exactly to the credit difference), plus a
+    risk-and-miss remainder that closes the EV gap.
+  - Theta dominates when its loss exceeds the two uplifts.
+    `theta_history` from the caller flags `trigger_too_far` two weeks
+    running.
+  - "wait" needs EV(wait) > EV(now) + 10% × |EV(now)|; "skip" when both
+    are ≤ 0. A tap already on screen returns "sell_at_trigger".
+- **Handing back.** `retime_at_trigger` returns the spot and sessions for
+  re-running `weekly_sell.build_plan` at the tap.
+
+Tests: `test_trigger_sell.py` (23), covering the five asked for:
+- a 9% Wednesday spike fading to +2% gives a 9% trigger, P(finish >
+  trigger) = 0, and "wait";
+- quarterly earnings spikes are excluded;
+- under 12 clean weeks gives ok=False;
+- the spiky fade ranks above the grind;
+- extension > 1.5 gives a delta ≥ 0.70.
+
+Plus week construction, the percentile, the IV clamp, the delta inversion,
+EV parity with `weekly_sell`, legs summing, the delta cap, Monday-tap
+crediting, theta two weeks running, skip, and retiming.
+
+Codex on #424, all five right and fixed (the tests fail on the old code):
+- **The anchor must be a real end-of-week close.** A gap that cut the
+  prior week short (Thursday and Friday missing) anchored the next week to
+  Wednesday. Now the prior week's last bar must be its final session.
+  Friday, or Thursday when Friday is a holiday: a Good Friday test guards
+  that side.
+- **A tap earlier this week counts.** If any of this week's highs in the
+  bars reached the trigger, or `tapped=True` is passed, it is a tap, even
+  after a pullback. The answer is "sell_at_trigger", priced at the current
+  spot with the sessions actually left, and `tap.first_seen` says when.
+- **A tapped skip no longer says "sell".** It says the tap has lost money
+  on this stock's own trigger weeks.
+- **The fallback is a later sale.** Its horizon is min(2, sessions after
+  today): two from Monday to Wednesday, one on Thursday, none on Friday. A
+  Friday decision can no longer "wait" for a fallback that can't happen.
+- **No Monday sale (`NO_MONDAY_SALE`).** On Monday a "sell_now" becomes
+  "wait" with `monday_rule` set and the numbers kept. A Monday TAP still
+  sells: that is the system working, not the flat Monday sale it replaces.
