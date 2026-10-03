@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "5.37";
+const APP_VERSION = "5.38";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -4100,7 +4100,21 @@ function App() {
             <LazyTab chunk="tab-live" component="LiveScanTab" label="Live Scanner"
                      apiFetch={apiFetch} ticker={ticker}
                      visible={activeTab === "live"}
-                     onOpenTicker={(sym) => { switchTicker(sym); changeTab("trade"); }} />
+                     onOpenTicker={(sym) => { switchTicker(sym); changeTab("trade"); }}
+                     onOpenSell={(sym) => {
+                       // v5.38: straight to the stock's When to sell card on
+                       // Analyze, once the page has drawn it.
+                       switchTicker(sym); changeTab("analyze");
+                       let tries = 0;
+                       const go = () => {
+                         const el = document.getElementById("jump-when-to-sell");
+                         const card = document.querySelector(".wts-card .card-title");
+                         if (el && card && card.textContent.includes(sym)) {
+                           el.scrollIntoView({ behavior: "smooth", block: "start" });
+                         } else if (++tries < 40) setTimeout(go, 250);
+                       };
+                       setTimeout(go, 250);
+                     }} />
           </CardErrorBoundary>
         </TabPanel>
         <TabPanel tab="buyers" active={activeTab}>

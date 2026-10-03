@@ -5179,6 +5179,12 @@ try:
         levels_fn=lambda sym: (lambda uw: (__import__("money_map").live_levels(uw, sym)
                                            if uw is not None else None))(
             _uw_client.get_client() if (_UW_AVAILABLE and _uw_client is not None) else None),
+        # v5.38: When to sell. Each regime-table stock's trigger for the week,
+        # from the same year of bars the ticker page's card reads.
+        sell_fn=lambda sym, day: __import__("when_to_sell").weekly_trigger(
+            sym, load_daily(sym, 260), day,
+            earnings_dates=(load_earnings_history(sym, 60) or {}).get("past") or []),
+        sell_symbols_fn=lambda: __import__("when_to_sell").table_symbols(),
     )
     _LIVE_AVAILABLE = True
 except Exception as _exc:  # noqa: BLE001

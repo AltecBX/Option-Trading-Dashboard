@@ -54,6 +54,19 @@ def load_table(path: Path | str | None = None) -> Optional[dict]:
     return table
 
 
+def table_symbols(table: Any = "default") -> list:
+    """The stocks the regime table covers: the Live Scanner's When to sell
+    list. A {"tickers": {...}} or {SYM: entry} map, or a list of entries."""
+    tbl = load_table() if table == "default" else table
+    if isinstance(tbl, dict):
+        inner = tbl.get("tickers") if isinstance(tbl.get("tickers"), dict) else tbl
+        return sorted(str(k).upper() for k, v in inner.items() if isinstance(v, dict))
+    if isinstance(tbl, list):
+        return sorted({str(e.get("ticker") or e.get("symbol")).upper() for e in tbl
+                       if isinstance(e, dict) and (e.get("ticker") or e.get("symbol"))})
+    return []
+
+
 def decision_day(today: date) -> date:
     """The day the card decides for: today on a weekday, the coming Monday
     on a weekend."""
@@ -195,6 +208,46 @@ def why_trigger(cal_source: Optional[str], table: Any, ticker: str, prior_pct: A
     if ts.regime_info(ticker, None, table)["source"] == "missing":
         return "not_in_table"
     return "no_last_week" if prior_pct is None else "not_in_table"
+
+
+def weekly_trigger(ticker: str, bars: Sequence[dict], today: date, table: Any = "default",
+                   earnings_dates: Iterable[Any] = ()) -> dict:
+    """This week's trigger alone, without the option pricing: what the Live
+    Scanner watches for (v5.38). The same trigger `build` shows: Friday's
+    close times (1 + the table's row for last week's move), or the stock's
+    own percentile when the table cannot answer. Never raises.
+
+    {ok, symbol, week, decision_day, anchor, trigger_pct, trigger_price,
+     regime: {on, quintile, prior_week_pct, why, unconditional}, reason}"""
+    tk = str(ticker or "").upper()
+    out: dict[str, Any] = {"ok": False, "symbol": tk}
+    try:
+        day = decision_day(today)
+        tbl = load_table() if table == "default" else table
+        rows = ts._rows(bars)
+        prior = ts.last_week_move_pct(ts._weekly_closes(rows, day), day)
+        cal = ts.calibrate(bars, [e for e in (earnings_dates or []) if e], regime_table=tbl,
+                           prior_week_close_pct=prior if tbl is not None else None, ticker=tk)
+        anchor = ts._anchor_close(rows, day)
+        out.update({"week": ts._monday(day).isoformat(), "decision_day": day.isoformat()})
+        if not cal.get("ok") or not anchor:
+            out["reason"] = cal.get("reason") or "no Friday close to measure the trigger from"
+            return out
+        tp = cal["trigger_pct"]
+        info = cal.get("regime") or {}
+        out.update({
+            "ok": True, "anchor": _r(anchor, 2), "trigger_pct": _r(tp),
+            "trigger_price": _r(anchor * (1.0 + tp), 2),
+            "regime": {"on": cal.get("trigger_source") == "regime",
+                       "quintile": info.get("quintile") if cal.get("trigger_source") == "regime" else None,
+                       "prior_week_pct": _r(prior, 2),
+                       "why": why_trigger(cal.get("trigger_source"), tbl, tk, prior),
+                       "unconditional": _r(info.get("unconditional"))},
+        })
+        return out
+    except Exception as exc:  # noqa: BLE001
+        out["reason"] = f"could not set the trigger: {str(exc)[:160]}"
+        return out
 
 
 def build(ticker: str, *, spot: Any, bars: Sequence[dict], calls: Sequence[dict] = (),

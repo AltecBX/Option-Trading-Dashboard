@@ -339,8 +339,21 @@ def live_payload():
              "high_52w": 400.0, "low_52w": 20.0, "tag": groups[s][0], "sector": groups[s][1]}
             for s in ("NVDA", "MOS", "BBWI", "XE", "META")]
     tmp = _tf.mkdtemp()
+    # v5.38: When to sell triggers for four of them, one (SNDK) not on the
+    # board and not quoted: NVDA taps its trigger, META comes within 2%.
+    trig = {"NVDA": (200.0, 0.0525, 1), "META": (570.0, 0.045, 5), "MOS": (24.27, 0.12, 3),
+            "SNDK": (300.0, 0.2633, None)}
+
+    def sell_fn(sym, d):
+        anchor, pct, q5 = trig[sym]
+        return {"ok": True, "symbol": sym, "week": "2026-09-21", "anchor": anchor,
+                "trigger_pct": round(pct, 4), "trigger_price": round(anchor * (1 + pct), 2),
+                "regime": {"on": q5 is not None, "quintile": q5, "prior_week_pct": 6.5 if q5 else None,
+                           "why": "regime" if q5 else "no_last_week", "unconditional": 0.1}}
     LS.configure(quotes_fn=lambda syms: {x: quotes[x] for x in syms if x in quotes},
-                 universe_fn=lambda: rows, now_fn=lambda: clock["t"], data_dir=tmp)
+                 universe_fn=lambda: rows, now_fn=lambda: clock["t"], data_dir=tmp,
+                 sell_fn=sell_fn, sell_symbols_fn=lambda: sorted(trig))
+    LS.refresh_sell(clock["t"])
 
     def q(last, prev, opn, high, low, vol):
         return {"regular_last": last, "last": last, "close_prev": prev, "open": opn,
@@ -2100,6 +2113,63 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         else:
             page.click(".lv-view .lv-seg-btn:nth-child(1)")
             page.wait_for_timeout(200)
+
+    def test_when_to_sell_on_the_live_scanner(self):
+        """v5.38. Jerry: "Add When to sell to the Live Scanner too." The
+        week's triggers for the regime-table stocks, from the real engine:
+        tapped first, then the nearest, with the price, the trigger and how
+        far to go; at the top of the side column on a wide screen, a third
+        view on a phone."""
+        live = live_payload()
+        sell = live["snapshot"]["sell"]
+        self.assertEqual("NVDA", sell["rows"][0]["symbol"])
+        self.assertEqual("tapped", sell["rows"][0]["status"])
+        self.assertTrue(any(a["setup_id"] == "sell_trigger_tap" and a["symbol"] == "NVDA"
+                            for a in live["snapshot"]["alerts"]), "the tap is an alert too")
+        for w, h in ((1440, 900), (440, 956)):
+            geo, errors, handles = self._measure(w, h, tab="live", live=live)
+            page = handles[2]
+            try:
+                self.assertFalse(errors, f"page errors at {w}px: {errors[:3]}")
+                page.wait_for_selector(".lv-alert", timeout=15000)
+                if w <= 900:
+                    self.assertFalse(page.evaluate("!!document.querySelector('.lv-sell').offsetParent"),
+                                     "on a phone it waits behind its own button")
+                    page.click(".lv-view .lv-seg-btn:nth-child(3)")
+                    page.wait_for_timeout(200)
+                got = page.evaluate("""(() => {
+                  const c = document.querySelector('.lv-sell'), card = document.querySelector('.lv-card');
+                  const rows = [...c.querySelectorAll('tbody tr')].map(tr => ({
+                    sym: tr.querySelector('.lv-sym').innerText.trim(),
+                    status: tr.querySelector('.lv-sell-st').innerText.trim(),
+                    text: tr.innerText}));
+                  const m = document.querySelector('.main');
+                  return {rows, head: c.querySelector('.lv-sell-head').innerText,
+                          visible: !!c.offsetParent,
+                          feed: !!document.querySelector('.lv-feed').offsetParent,
+                          lists: !!document.querySelector('.lv-ranks').offsetParent,
+                          past: Math.round(c.getBoundingClientRect().right - card.getBoundingClientRect().right),
+                          tableOver: Math.round(c.querySelector('table').getBoundingClientRect().right - c.getBoundingClientRect().right),
+                          scroll: Math.max(0, m.scrollWidth - m.clientWidth),
+                          font: getComputedStyle(c.querySelector('.lv-sell-sum')).fontFamily}; })()""")
+                self.assertTrue(got["visible"])
+                self.assertEqual([r["symbol"] for r in sell["rows"]], [r["sym"] for r in got["rows"]])
+                self.assertTrue(got["rows"][0]["status"].startswith("Tapped"))
+                self.assertIn("1 tapped", got["head"])
+                meta = [r for r in sell["rows"] if r["symbol"] == "META"][0]
+                self.assertIn(f"${meta['trigger_price']:.2f}", [r for r in got["rows"] if r["sym"] == "META"][0]["text"])
+                self.assertIn("No trigger yet", page.evaluate("document.querySelector('.lv-sell').innerText") if sell["missing"] else "No trigger yet")
+                self.assertNotIn("Mono", got["font"], "the section reads in the body font, not the side label's mono")
+                self.assertLessEqual(got["past"], 1, f"the section runs off the card at {w}px")
+                self.assertLessEqual(got["tableOver"], 1, f"the table runs out of its box at {w}px")
+                self.assertLessEqual(got["scroll"], 2, f"the page scrolls sideways at {w}px")
+                if w <= 900:
+                    self.assertFalse(got["feed"], "the When to sell view replaces the feed")
+                    self.assertFalse(got["lists"], "and the lists")
+                else:
+                    self.assertTrue(got["feed"] and got["lists"], "on a wide screen everything shows")
+            finally:
+                self._close(handles)
 
     def test_the_live_scanner_reads_at_a_glance(self):
         """v5.29. Jerry, with three screenshots of an open-source day-trading
