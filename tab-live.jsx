@@ -24,6 +24,7 @@ const LV_TIP = {
   check: "Type any symbol on your watchlist to see every setup: whether its trigger is live right now, and exactly which condition stopped an alert.",
   setups: "Rename, tune or switch off any setup, set the conditions a stock must pass, how long before the same stock can fire again, and whether it pushes to your phone.",
   sound: "Play a short beep in this browser when a new alert arrives.",
+  sell: "Your When to sell system, for every stock in your regime table: this week's trigger (Friday's close plus the rise the table expects after a week like last week), the live price, and how far it has to go. A tap alerts here and on your phone. Tap a stock to open its When to sell card.",
   lists: "Ranked lists from the same prices. Only stocks over $5 with at least 500K shares a day are listed, so the lists are names you can trade options on.",
 };
 
@@ -224,6 +225,90 @@ function LvRankings({ rankings, phase, onOpen }) {
   );
 }
 
+// ── When to sell (v5.38) ────────────────────────────────────────────────────
+// Every stock in Jerry's regime table with this week's trigger, tapped ones
+// first, then the nearest. A few rows by default; all of them on a tap.
+const LV_SELL_SHOW = 8;
+const LV_SELL_STATUS = { tapped: "Tapped", near: "Close", waiting: "Waiting" };
+const LV_SELL_TIP = {
+  tapped: "The price reached this week's trigger: your system sells the call now.",
+  near: "Within a couple of percent of the trigger.",
+  waiting: "Still below the trigger.",
+};
+function lvDay(iso) {
+  if (!iso) return "";
+  const d = new Date(`${String(iso).slice(0, 10)}T12:00:00`);
+  return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+}
+function LvSellList({ sell, phase, onOpen }) {
+  const [all, setAll] = useState(false);
+  const rows = (sell && sell.rows) || [];
+  const missing = (sell && sell.missing) || [];
+  const n = { tapped: 0, near: 0, waiting: 0 };
+  rows.forEach(r => { n[r.status] = (n[r.status] || 0) + 1; });
+  const shown = all ? rows : rows.slice(0, Math.max(LV_SELL_SHOW, n.tapped + n.near));
+  const live = phase === "open" || phase === "pre";
+  return (
+    <section className="lv-sell" title={LV_TIP.sell}>
+      <div className="lv-sell-head">
+        <div>
+          <span className="kicker">When to sell · week of {sell && sell.week ? lvDay(sell.week) : "…"}</span>
+          <div className="lv-sell-sum">
+            {!sell ? "Loading…"
+              : !rows.length ? (missing.length ? "Working out this week's triggers…" : "No stocks in your regime table yet.")
+              : <>
+                  {n.tapped ? <b className="lv-sell-n tapped">{n.tapped} tapped</b> : null}
+                  {n.near ? <b className="lv-sell-n near">{n.near} within {sell.near_pct}%</b> : null}
+                  <span>{n.waiting} waiting</span>
+                  {!live ? <span className="lv-sell-note"> · prices are Friday's close until the market opens</span> : null}
+                </>}
+          </div>
+        </div>
+        {rows.length > shown.length || all ? (
+          <button className="lv-btn" onClick={() => setAll(v => !v)}>
+            {all ? "Show fewer" : `Show all ${rows.length}`}
+          </button>
+        ) : null}
+      </div>
+      {shown.length ? (
+        <table className="scan-table lv-sell-table">
+          <thead>
+            <tr>
+              <th>Symbol</th>
+              <th className="scan-num">Price</th>
+              <th className="scan-num">Trigger</th>
+              <th className="scan-num">To go</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map(r => (
+              <tr key={r.symbol} className={`lv-sell-${r.status}`}>
+                <td><button className="lv-sym" onClick={() => onOpen && onOpen(r.symbol)}
+                            title={`Open ${r.symbol}'s When to sell card`}>{r.symbol}</button></td>
+                <td className="scan-num">{r.last != null ? `$${lvNum(r.last)}` : r.anchor != null ? `$${lvNum(r.anchor)}` : "—"}</td>
+                <td className="scan-num"
+                    title={r.regime_on ? `Last week closed ${lvPct(r.prior_week_pct)}: row ${r.quintile} of 5 of your table`
+                           : r.why === "no_last_week" ? "Last week's move could not be read: the stock's own 70th percentile"
+                           : "The stock's own 70th percentile of weekly highs"}>
+                  ${lvNum(r.trigger_price)}
+                  <span className="lv-sell-sub">{lvPct(r.trigger_pct * 100)}{r.regime_on ? ` · row ${r.quintile}` : ""}</span>
+                </td>
+                <td className="scan-num lv-metric">{r.status === "tapped" ? "—" : lvPct(r.to_go_pct)}</td>
+                <td><span className={`lv-sell-st ${r.status}`}
+                          title={LV_SELL_TIP[r.status] + (r.tapped ? ` Tapped ${lvDay(r.tapped)}.` : "")}>{LV_SELL_STATUS[r.status]}</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : null}
+      {missing.length && rows.length ? (
+        <p className="lv-sell-miss">No trigger yet for {missing.map(m => m.symbol).join(", ")}.</p>
+      ) : null}
+    </section>
+  );
+}
+
 // Ranked on the server's one status per row, which decides eligibility
 // first — never on the raw trigger, which reads "live" for a switched-off
 // setup too (Codex, #417).
@@ -405,7 +490,7 @@ function LvSetupEditor({ apiFetch, onClose, onSaved }) {
   );
 }
 
-function LiveScanTab({ apiFetch, onOpenTicker, visible, ticker }) {
+function LiveScanTab({ apiFetch, onOpenTicker, onOpenSell, visible, ticker }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState(null);
   const [side, setSide] = useState("all");
@@ -459,6 +544,7 @@ function LiveScanTab({ apiFetch, onOpenTicker, visible, ticker }) {
   const records = (data && data.records) || {};
   const phase = (data && data.phase) || "closed";
   const ago = data && lvAgo(data.last_sweep);
+  const sellTapped = ((data && data.sell && data.sell.rows) || []).filter(r => r.status === "tapped").length;
 
   return (
     <div className="card lv-card">
@@ -506,6 +592,9 @@ function LiveScanTab({ apiFetch, onOpenTicker, visible, ticker }) {
         <button role="tab" aria-selected={view === "lists"}
                 className={`lv-seg-btn ${view === "lists" ? "on" : ""}`}
                 onClick={() => setView("lists")}>Lists</button>
+        <button role="tab" aria-selected={view === "sell"}
+                className={`lv-seg-btn ${view === "sell" ? "on" : ""}`}
+                onClick={() => setView("sell")}>When to sell{sellTapped ? ` (${sellTapped})` : ""}</button>
       </div>
 
       <div className={`lv-cols lv-show-${view}`}>
@@ -539,6 +628,9 @@ function LiveScanTab({ apiFetch, onOpenTicker, visible, ticker }) {
           )}
         </section>
         <section className="lv-side">
+          {/* v5.38: When to sell heads the side column on a wide screen; on
+              a phone it is the third view. */}
+          <LvSellList sell={data && data.sell} phase={phase} onOpen={onOpenSell || onOpenTicker} />
           <LvRankings rankings={data && data.rankings} phase={phase} onOpen={onOpenTicker} />
         </section>
       </div>

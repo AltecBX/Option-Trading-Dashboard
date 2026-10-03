@@ -5728,3 +5728,45 @@ Codex on #426, each proven red first:
 Jerry's updated regime table (same date and format) adds 14 stocks: AMAT,
 AMD, ARM, COIN, GEV, INTC, LRCX, MDB, MRVL, NOW, NVDA, ORCL, SNOW, VLO
 (53 in all; the 39 already there are unchanged).
+
+## v5.38 — When to sell on the Live Scanner
+
+Jerry: "Add When to sell to the Live Scanner too."
+
+- **Every stock in the regime table gets this week's trigger**
+  (`when_to_sell.weekly_trigger`: the card's trigger without the option
+  pricing, from the same year of bars). The scanner works them out a few
+  per loop pass (`refresh_sell`, 8 a pass), once a week, in every phase,
+  so on a weekend the list already shows Monday's plan. A stock whose
+  trigger cannot be set is retried after 30 minutes and listed as such.
+  Table stocks that are not on the watchlist board are quoted too.
+- **A new setup, "When to sell: trigger tapped"** (`sell_trigger_tap`):
+  fires when the price is at or above the week's trigger, a gap over it
+  included, once a week per stock: the tap date is kept on disk
+  (`sell-taps-<week>.json`), so a restart does not alert Tuesday's tap
+  again on Wednesday. It pushes to the phone and no price, volume or size
+  condition stands in its way. Its side is SHORT, so the scanner's
+  30-minute grading measures what the system bets on: the pullback after
+  the tap. Saved setup lists are offered it once, like the v5.34 setups.
+- **The When to sell list** rides on `/api/live` as `sell`: tapped first,
+  then within 2%, then the rest by distance. On a wide screen it heads the
+  side column above the lists; on a phone it is a third view
+  ("Alerts | Lists | When to sell (n tapped)"). A tap on a stock opens
+  its When to sell card on Analyze.
+- `trigger_sell.last_week_move_pct` is the one place last week's move is
+  read, for the card and the scanner alike.
+
+Tests: `test_live_scan.WhenToSell` (10: weekly setting, the weekend week,
+the tap with its sentence and push, once a week across a restart, a gap
+over, a stock off the board, last week's trigger never reused, failures
+retried; mutation-checked), `test_when_to_sell.WeeklyTrigger` (3: the
+scanner's trigger is the card's), the offered-once tests, and a render
+test on desktop and phone from the real engine.
+
+Codex on #427, each proven red first:
+- **A touch between two sweeps is a tap.** The scanner samples every 30
+  seconds, so a stock that traded through the trigger and back in between
+  was never alerted. The tap now also reads the session's high from the
+  quote; the alert says "Touched ... Today's high was $X; it is $Y now."
+- **"N of M names" counts the table stocks** added to the quote list, so
+  the status line can no longer say more names were quoted than exist.

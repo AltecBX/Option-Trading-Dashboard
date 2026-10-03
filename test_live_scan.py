@@ -603,12 +603,26 @@ class NewTriggersReachASavedList(unittest.TestCase):
 
     def test_offered_once(self):
         got = self.load()
-        self.assertEqual(5, len(got))
+        self.assertEqual(6, len(got), "the two v5.34 setups and v5.38's When to sell")
         self.assertIn("gamma_flip_cross", got)
         self.assertIn("dark_pool_level", got)
+        self.assertIn("sell_trigger_tap", got)
         keep = [s for s in LS.setups() if s["trigger"] != "dark_pool_level"]
         self.assertTrue(LS.save_setups(keep)["ok"])
         self.assertNotIn("dark_pool_level", self.load(), "a deleted setup came back")
+
+    def test_a_list_saved_after_v534_is_offered_when_to_sell_once(self):
+        # v5.38: offered.json already lists the v5.34 triggers, not the new one.
+        (self.dir / "offered.json").write_text(json.dumps(sorted(set(LS.TRIGGERS) - {"sell_trigger_tap"})))
+        got = self.load()
+        self.assertIn("sell_trigger_tap", got)
+        self.assertNotIn("gamma_flip_cross", got, "a v5.34 setup already offered is not offered again")
+        tap = [s for s in LS.setups() if s["trigger"] == "sell_trigger_tap"][0]
+        self.assertTrue(tap["notify"], "the tap goes to the phone")
+        self.assertEqual(0, tap["conditions"]["min_avg_volume"])
+        keep = [s for s in LS.setups() if s["trigger"] != "sell_trigger_tap"]
+        self.assertTrue(LS.save_setups(keep)["ok"])
+        self.assertNotIn("sell_trigger_tap", self.load())
 
     def test_a_fresh_install_that_deletes_one_keeps_it_deleted(self):
         """Codex, #421: no offered.json on a fresh install used to read as a
@@ -624,3 +638,161 @@ class NewTriggersReachASavedList(unittest.TestCase):
         got = self.load()
         self.assertIn("gamma_flip_cross", got)
         self.assertEqual(len(LS.DEFAULT_SETUPS), len(got))
+
+
+class WhenToSell(Harness):
+    """v5.38: this week's When to sell trigger, watched live for the stocks
+    in Jerry's regime table, and an alert (to the phone) on the tap."""
+
+    def setUp(self):
+        super().setUp()
+        self.table = ["AAA", "ZZZ"]           # ZZZ is in the table but not on the board
+        self.asked = []
+        self.failing = set()
+
+        def sell_fn(sym, d):
+            self.asked.append((sym, d))
+            if sym in self.failing:
+                return {"ok": False, "symbol": sym, "reason": "not enough history"}
+            if d.weekday() >= 5:
+                d = d + timedelta(days=7 - d.weekday())
+            mon = (d - timedelta(days=d.weekday())).isoformat()
+            return {"ok": True, "symbol": sym, "week": mon, "anchor": 100.0,
+                    "trigger_pct": 0.05, "trigger_price": 105.0,
+                    "regime": {"on": True, "quintile": 5, "prior_week_pct": 11.0, "why": "regime"}}
+
+        self.sell_fn = sell_fn
+        self.reconfigure()
+
+    def reconfigure(self):
+        LS.configure(quotes_fn=lambda syms: {s: self.quotes[s] for s in syms if s in self.quotes},
+                     universe_fn=lambda: self.rows,
+                     notify_fn=lambda t, m, p=0: self.pushes.append((t, m)),
+                     now_fn=lambda: self.clock, data_dir=self.tmp.name,
+                     sell_fn=self.sell_fn, sell_symbols_fn=lambda: self.table)
+
+    def test_triggers_are_set_once_a_week(self):
+        self.assertEqual(2, LS.refresh_sell(at(9, 0)))
+        self.assertEqual(0, LS.refresh_sell(at(9, 30)), "already set for this week")
+        lst = LS.sell_list(at(9, 30))
+        self.assertEqual("2026-09-21", lst["week"])
+        self.assertEqual({"AAA", "ZZZ"}, {r["symbol"] for r in lst["rows"]})
+        nxt = at(9, 0, day=datetime(2026, 9, 28, tzinfo=ET))
+        self.assertEqual(2, LS.refresh_sell(nxt), "a new week sets new triggers")
+
+    def test_the_weekend_shows_the_coming_week(self):
+        sat = at(11, 0, day=datetime(2026, 9, 26, tzinfo=ET))
+        LS.refresh_sell(sat)
+        self.assertEqual("2026-09-28", LS.sell_list(sat)["week"])
+        self.assertEqual(2, len(LS.sell_list(sat)["rows"]))
+        self.assertAlmostEqual(5.0, LS.sell_list(sat)["rows"][0]["to_go_pct"],
+                               msg="with no live price the distance is from Friday's close")
+
+    def test_the_tap_fires_once_with_its_reason_and_goes_to_the_phone(self):
+        self.only("sell_trigger_tap")
+        LS.refresh_sell(at(9, 0))
+        self.step(at(10, 0), AAA=quote(103.0))
+        self.step(at(10, 0, 30), AAA=quote(104.9))
+        self.assertEqual([], self.alerts(), "just short of the trigger")
+        self.step(at(10, 1), AAA=quote(105.2))
+        a = self.alerts("sell_trigger_tap")
+        self.assertEqual(1, len(a))
+        self.assertEqual("short", a[0]["side"])
+        self.assertIn("When to sell trigger of $105.00", a[0]["why"])
+        self.assertIn("row 5 of 5", a[0]["why"])
+        self.assertEqual(1, len(self.pushes))
+        self.step(at(10, 1, 30), AAA=quote(104.0))
+        self.step(at(10, 2), AAA=quote(105.5))
+        self.assertEqual(1, len(self.alerts("sell_trigger_tap")), "once")
+        row = [r for r in LS.sell_list(at(10, 2))["rows"] if r["symbol"] == "AAA"][0]
+        self.assertEqual("tapped", row["status"])
+        self.assertEqual("2026-09-24", row["tapped"])
+
+    def test_a_gap_over_the_trigger_still_fires(self):
+        self.only("sell_trigger_tap")
+        LS.refresh_sell(at(9, 0))
+        self.step(at(9, 30), AAA=quote(107.0, opn=107.0))
+        self.step(at(9, 30, 30), AAA=quote(107.5, opn=107.0))
+        self.assertEqual(1, len(self.alerts("sell_trigger_tap")))
+
+    def test_a_stock_off_the_board_is_watched_too(self):
+        self.only("sell_trigger_tap")
+        LS.refresh_sell(at(9, 0))
+        self.step(at(10, 0), ZZZ=quote(100.0))
+        self.step(at(10, 0, 30), ZZZ=quote(106.0))
+        self.assertEqual(["ZZZ"], [a["symbol"] for a in self.alerts("sell_trigger_tap")])
+
+    def test_a_tap_earlier_in_the_week_is_not_alerted_again_even_after_a_restart(self):
+        self.only("sell_trigger_tap")
+        tue = datetime(2026, 9, 22, tzinfo=ET)
+        LS.refresh_sell(at(9, 0, day=tue))
+        self.step(at(10, 0, day=tue), AAA=quote(103.0))
+        self.step(at(10, 0, 30, day=tue), AAA=quote(105.5))
+        self.assertEqual(1, len(self.alerts("sell_trigger_tap")))
+        self.reconfigure()                                   # a deploy on Wednesday
+        wed = datetime(2026, 9, 23, tzinfo=ET)
+        LS.refresh_sell(at(9, 0, day=wed))
+        self.step(at(10, 0, day=wed), AAA=quote(104.0))
+        self.step(at(10, 0, 30, day=wed), AAA=quote(106.0))
+        self.assertEqual([], self.alerts("sell_trigger_tap"), "Wednesday's alerts are empty: Tuesday already tapped")
+        chk = {r["setup_id"]: r for r in LS.check("AAA", at(10, 1, day=wed))["setups"]}
+        self.assertIn("When to sell trigger", chk["sell_trigger_tap"]["detail"])
+
+    def test_a_stock_without_a_trigger_says_why(self):
+        self.only("sell_trigger_tap")
+        self.step(at(10, 0), BBB=quote(100.0))
+        chk = {r["setup_id"]: r for r in LS.check("BBB", at(10, 0))["setups"]}
+        self.assertIn("No When to sell trigger", chk["sell_trigger_tap"]["detail"])
+
+    def test_last_weeks_trigger_is_not_used(self):
+        self.only("sell_trigger_tap")
+        LS.refresh_sell(at(9, 0))
+        nxt = datetime(2026, 9, 28, tzinfo=ET)
+        self.sell_fn, real = (lambda s, d: None), self.sell_fn   # this week's cannot be set
+        self.reconfigure()
+        self.step(at(10, 0, day=nxt), AAA=quote(100.0))
+        self.step(at(10, 0, 30, day=nxt), AAA=quote(110.0))
+        self.assertEqual([], self.alerts("sell_trigger_tap"))
+
+    def test_a_failure_is_listed_and_retried_later(self):
+        self.failing = {"ZZZ"}
+        LS.refresh_sell(at(9, 0))
+        lst = LS.sell_list(at(9, 0))
+        self.assertEqual(["ZZZ"], [m["symbol"] for m in lst["missing"]])
+        self.assertEqual(["AAA"], [r["symbol"] for r in lst["rows"]])
+        self.assertEqual(0, LS.refresh_sell(at(9, 10)))
+        self.failing = set()
+        self.assertEqual(1, LS.refresh_sell(at(9, 0) + timedelta(seconds=LS.SELL_RETRY_S)))
+        self.assertEqual(2, len(LS.sell_list(at(10, 0))["rows"]))
+
+    def test_the_snapshot_carries_the_list(self):
+        LS.refresh_sell(at(9, 0))
+        self.assertEqual(2, len(LS.snapshot()["sell"]["rows"]))
+
+    # Codex, #427
+    def test_a_touch_between_two_sweeps_still_counts(self):
+        # Through the trigger and back inside 30 seconds: the quote's high
+        # of day remembers it even though no sampled price was above it.
+        self.only("sell_trigger_tap")
+        LS.refresh_sell(at(9, 0))
+        self.step(at(10, 0), AAA=quote(103.0, high=103.0))
+        self.step(at(10, 0, 30), AAA=quote(104.0, high=105.6))
+        a = self.alerts("sell_trigger_tap")
+        self.assertEqual(1, len(a))
+        self.assertIn("Touched its When to sell trigger of $105.00", a[0]["why"])
+        row = [r for r in LS.sell_list(at(10, 1))["rows"] if r["symbol"] == "AAA"][0]
+        self.assertEqual("tapped", row["status"])
+
+    def test_a_high_from_before_the_trigger_existed_is_not_a_tap_on_the_first_look(self):
+        # The first look only sets the baseline, as for every setup.
+        self.only("sell_trigger_tap")
+        LS.refresh_sell(at(9, 0))
+        self.step(at(10, 0), AAA=quote(103.0, high=103.0))
+        self.assertEqual([], self.alerts())
+
+    def test_the_universe_counts_the_table_stocks_too(self):
+        LS.refresh_sell(at(9, 0))
+        self.step(at(10, 0), AAA=quote(101.0), BBB=quote(99.0), ZZZ=quote(50.0))
+        snap = LS.snapshot()
+        self.assertEqual(3, snap["universe_n"], "AAA and BBB on the board, ZZZ from the table")
+        self.assertLessEqual(snap["quoted_n"], snap["universe_n"])

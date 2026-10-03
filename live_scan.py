@@ -178,6 +178,14 @@ TRIGGERS = {
         "help": "Crosses one of the three prices where the most shares traded in dark pools today (Unusual Whales): prices big money cared about, which often act as support or resistance. Levels are fetched for stocks on a ranked list.",
         "params": {"min_shares": (100_000, 0, 50_000_000, "Dark pool shares at the level at least")},
     },
+    # v5.38 — Jerry's When to sell trigger (trigger_sell / when_to_sell):
+    # this week's call-selling trigger, set from Friday's close and last
+    # week's move, for the stocks in his regime table.
+    "sell_trigger_tap": {
+        "label": "Reached its When to sell trigger", "side": "short", "once": True, "session": "open",
+        "help": "Trades at or above this week's When to sell trigger: Friday's close plus the rise your regime table expects after a week like last week. Your system sells the call on that tap. Fires once a week per stock. Covers the stocks in your regime table.",
+        "params": {},
+    },
     "premarket_mover": {
         "label": "Pre-market mover", "side": "either", "once": True, "session": "pre",
         "help": "Before the open: at least X% from yesterday's close on at least N shares traded.",
@@ -214,6 +222,10 @@ DEFAULT_SETUPS = [
     ("premarket_mover", "Pre-market mover", {}, {}, 0),
     ("gamma_flip_cross", "Crossed the gamma flip", {}, {"min_rvol": 1.0}, 1800),
     ("dark_pool_level", "Crossed a dark pool level", {}, {"min_rvol": 1.0}, 1200),
+    # The tap is the moment to act, so it goes to the phone, and no price,
+    # volume or size condition stands in its way: the table chose the stocks.
+    ("sell_trigger_tap", "When to sell: trigger tapped", {},
+     {"min_price": 0, "min_avg_volume": 0, "min_market_cap": 0}, 0, True),
 ]
 # The triggers a setups.json written before a release already knew. A
 # trigger added later is offered once to a saved list (see _load_setups);
@@ -229,6 +241,11 @@ LEVEL_TTL_S = 600          # a symbol's levels are refetched after this
 LEVEL_FETCH_PER_PASS = 6   # fetches per refresh pass, so one pass stays short
 LEVEL_LISTS = ("movers_5m", "rvol", "gainers", "losers", "active")
 
+# ── When to sell (v5.38) ───────────────────────────────────────────────────
+SELL_FETCH_PER_PASS = 8    # weekly triggers worked out per loop pass (each reads a year of bars)
+SELL_RETRY_S = 1800        # a stock whose trigger could not be set is retried after this
+SELL_NEAR_PCT = 2.0        # "close" on the list: within this much of the trigger
+
 # Grading: minutes after an alert at which its move is recorded.
 HORIZONS = (15, 30, 60)
 # A graded alert "followed through" when it was in profit, in its own
@@ -241,6 +258,8 @@ _UNIVERSE_FN = None    # () -> [board rows]
 _NOTIFY_FN = None      # (title, message, priority=0) -> None
 _NOW_FN = None         # () -> aware datetime in Eastern
 _LEVELS_FN = None      # (symbol) -> {"gamma_flip": float|None, "dark": [[price, shares], ...]} | None
+_SELL_FN = None        # (symbol, date) -> when_to_sell.weekly_trigger(...) dict
+_SELL_SYMBOLS_FN = None  # () -> [symbols with a When to sell trigger] (the regime table)
 _DATA_DIR: Path | None = None
 
 _LOCK = threading.RLock()
@@ -255,6 +274,7 @@ def _fresh_state() -> dict:
         "pending": [],           # alerts still being graded
         "prior": {},             # SYM -> [high, low, close] of the prior session
         "levels": {},            # SYM -> {"at", "gamma_flip", "dark"} from Unusual Whales
+        "sell": {},              # SYM -> this week's When to sell trigger (+ "at", "tapped")
         "rankings": {},
         "last_sweep": None, "phase": None, "error": None,
         "universe_n": 0, "quoted_n": 0, "sweeps": 0,
@@ -268,11 +288,13 @@ _SETUPS: list = []
 
 
 def configure(quotes_fn=None, universe_fn=None, notify_fn=None, now_fn=None,
-              data_dir=None, levels_fn=None) -> None:
+              data_dir=None, levels_fn=None, sell_fn=None, sell_symbols_fn=None) -> None:
     global _QUOTES_FN, _UNIVERSE_FN, _NOTIFY_FN, _NOW_FN, _DATA_DIR, _LEVELS_FN
+    global _SELL_FN, _SELL_SYMBOLS_FN
     with _LOCK:
         _QUOTES_FN, _UNIVERSE_FN, _NOTIFY_FN, _NOW_FN = quotes_fn, universe_fn, notify_fn, now_fn
         _LEVELS_FN = levels_fn
+        _SELL_FN, _SELL_SYMBOLS_FN = sell_fn, sell_symbols_fn
         _DATA_DIR = Path(data_dir) / "live_scan" if data_dir else None
         keep = {"scanning": _STATE.get("scanning"), "thread": _STATE.get("thread")}
         _STATE.clear()
@@ -364,13 +386,13 @@ def _write_json(name: str, obj) -> None:
 
 
 # ── setups ─────────────────────────────────────────────────────────────────
-def _default_setup(trigger, name, params, conds, cooldown) -> dict:
+def _default_setup(trigger, name, params, conds, cooldown, notify=False) -> dict:
     spec = TRIGGERS[trigger]
     return {
         "id": trigger, "name": name, "trigger": trigger, "enabled": True,
         "params": {k: params.get(k, v[0]) for k, v in spec["params"].items()},
         "conditions": {k: conds.get(k, v[0]) for k, v in CONDITIONS.items()},
-        "cooldown_s": int(cooldown), "notify": False,
+        "cooldown_s": int(cooldown), "notify": bool(notify),
     }
 
 
@@ -618,10 +640,47 @@ def _picture(sym: str, q: dict, row: dict, st: dict, now: datetime) -> dict:
         "minutes": minutes_since_open(now),
         "gamma_flip": ((_STATE.get("levels") or {}).get(sym) or {}).get("gamma_flip"),
         "dark_levels": ((_STATE.get("levels") or {}).get(sym) or {}).get("dark") or [],
+        "sell": _sell_for(sym, now),
     }
 
 
 # ── trigger evaluation ─────────────────────────────────────────────────────
+NO_SELL = ("No When to sell trigger for this stock this week: the scanner sets one for each "
+           "stock in your regime table, from Friday's close and last week's move.")
+
+
+def _sell_week(now: datetime) -> str:
+    """The Monday of the week the When to sell triggers belong to: this
+    week's, or on a weekend the coming one's."""
+    d = now.date()
+    if d.weekday() >= 5:
+        d += timedelta(days=7 - d.weekday())
+    return (d - timedelta(days=d.weekday())).isoformat()
+
+
+def _sell_for(sym: str, now: datetime) -> dict | None:
+    """This week's trigger for a symbol, or None when it has none this week."""
+    rec = (_STATE.get("sell") or {}).get(sym)
+    if not rec or not rec.get("ok") or rec.get("week") != _sell_week(now) or not rec.get("trigger_price"):
+        return None
+    return rec
+
+
+def _sell_touched(p: dict, rec: dict) -> bool:
+    """Has the price reached this week's trigger today: the last price, or
+    the session's high since a touch can fall between two sweeps."""
+    tp = rec["trigger_price"]
+    return ((p.get("last") is not None and p["last"] >= tp)
+            or (p.get("high") is not None and p["high"] >= tp))
+
+
+def _sell_row(rec: dict) -> str:
+    reg = rec.get("regime") or {}
+    if reg.get("on") and reg.get("prior_week_pct") is not None:
+        return f"; last week {reg['prior_week_pct']:+.1f}%, row {reg['quintile']} of 5"
+    return ""
+
+
 NO_LEVELS = ("No Unusual Whales levels for this stock yet: they are fetched for the "
              "stocks on a ranked list, refreshed every 10 minutes.")
 
@@ -679,6 +738,32 @@ def _trigger_state(trig: str, p: dict, prev_p: dict | None, st: dict, params: di
         near = min(levels, key=lambda t: abs(last - t[0]))
         return live, False, None, (f"Nearest dark pool level {_fmt_money(near[0])} "
                                    f"({_fmt_vol(near[1])} shares), {abs(_pct(near[0], last) or 0):.1f}% away.")
+
+    if trig == "sell_trigger_tap":
+        rec = p.get("sell")
+        if not rec:
+            return False, False, None, NO_SELL
+        tp = rec["trigger_price"]
+        live = last >= tp
+        # A touch between two sweeps still shows in the session's high
+        # (Codex, #427): a 30-second sample alone missed brief taps.
+        touched = _sell_touched(p, rec)
+        tapped = rec.get("tapped")
+        # Once a week: a tap on an earlier day this week already said it.
+        crossed = touched and (tapped is None or tapped == now.date().isoformat())
+        if touched:
+            where = ("" if live else
+                     f" Today's high was {_fmt_money(p['high'])}; it is {_fmt_money(last)} now.")
+            return live, crossed, "short", (
+                f"{'Reached' if live else 'Touched'} its When to sell trigger of {_fmt_money(tp)} "
+                f"({rec['trigger_pct'] * 100:+.1f}% from Friday's {_fmt_money(rec['anchor'])}"
+                f"{_sell_row(rec)}).{where} Your system sells the call on the tap: "
+                f"open {p['symbol']} for the strike.")
+        if tapped:
+            return False, False, None, (f"Tapped its trigger of {_fmt_money(tp)} on {tapped}; "
+                                        f"now {abs(_pct(tp, last) or 0):.1f}% below it.")
+        return False, False, None, (f"This week's trigger is {_fmt_money(tp)}, "
+                                    f"{abs(_pct(tp, last) or 0):.1f}% above the price.")
 
     if trig in ("new_hod", "new_lod"):
         hi = trig == "new_hod"
@@ -967,8 +1052,13 @@ def sweep(now: datetime | None = None) -> dict:
             s = str(r.get("symbol") or r.get("ticker") or "").upper().strip()
             if s:
                 by_sym[s] = r
-        _STATE["universe_n"] = len(by_sym)
         setups_now = [s for s in _SETUPS if s.get("enabled")]
+        # The When to sell stocks are watched whether or not they are on the
+        # watchlist board (v5.38), and counted in the universe so "N of M
+        # names" stays true (Codex, #427).
+        for sym in (_STATE.get("sell") or {}):
+            by_sym.setdefault(sym, {})
+        _STATE["universe_n"] = len(by_sym)
     if not by_sym or _QUOTES_FN is None:
         return {"ok": False, "phase": ph, "error": "no universe or no quote source"}
 
@@ -1042,6 +1132,12 @@ def sweep(now: datetime | None = None) -> dict:
                 _STATE["alerts"].append(a)
                 _STATE["pending"].append(a)
                 new_alerts.append((a, s))
+            # A tap is a fact of the week whatever the setups say: the
+            # When to sell list shows it and the alert does not repeat.
+            rec = pic.get("sell")
+            if ph == "open" and rec and not rec.get("tapped") and _sell_touched(pic, rec):
+                rec["tapped"] = now.date().isoformat()
+                _save_sell_taps()
         graded = _grade(now)
         _STATE["rankings"] = build_rankings(pics, ph)
         _STATE["last_sweep"] = now.isoformat()
@@ -1103,6 +1199,85 @@ def refresh_levels(now: datetime | None = None) -> int:
             _STATE["levels"][sym] = rec
         done += 1
     return done
+
+
+# ── When to sell (v5.38) ───────────────────────────────────────────────────
+def _save_sell_taps() -> None:
+    taps = {s: r["tapped"] for s, r in (_STATE.get("sell") or {}).items() if r.get("tapped")}
+    weeks = {r.get("week") for r in (_STATE.get("sell") or {}).values() if r.get("week")}
+    for wk in weeks:
+        _write_json(f"sell-taps-{wk}.json", {s: t for s, t in taps.items()
+                                             if (_STATE["sell"][s].get("week") == wk)})
+
+
+def refresh_sell(now: datetime | None = None) -> int:
+    """Work out this week's When to sell trigger for the stocks that need
+    one: new to the list, set for an earlier week, or failed a while ago. A
+    few per pass, outside the lock (each reads a year of bars). Runs in
+    every phase, so the weekend already shows Monday's plan."""
+    if _SELL_FN is None or _SELL_SYMBOLS_FN is None:
+        return 0
+    now = now or _now()
+    week, ts = _sell_week(now), now.timestamp()
+    try:
+        syms = [str(x).upper() for x in (_SELL_SYMBOLS_FN() or [])]
+    except Exception:  # noqa: BLE001
+        syms = []
+    with _LOCK:
+        have = dict(_STATE.get("sell") or {})
+        # A stock dropped from the table leaves the list.
+        for gone in set(have) - set(syms):
+            _STATE["sell"].pop(gone, None)
+    due = [s for s in syms
+           if (have.get(s) or {}).get("week") != week
+           or (not (have.get(s) or {}).get("ok") and ts - (have.get(s) or {}).get("at", 0) >= SELL_RETRY_S)]
+    taps = _read_json(f"sell-taps-{week}.json", {}) or {}
+    done = 0
+    for sym in due[:SELL_FETCH_PER_PASS]:
+        try:
+            rec = _SELL_FN(sym, now.date()) or {}
+        except Exception as exc:  # noqa: BLE001
+            rec = {"ok": False, "reason": str(exc)[:160]}
+        rec = dict(rec)
+        rec.update({"symbol": sym, "at": ts, "week": rec.get("week") or week})
+        if rec.get("week") == week and isinstance(taps, dict) and taps.get(sym):
+            rec["tapped"] = taps[sym]
+        with _LOCK:
+            _STATE["sell"][sym] = rec
+        done += 1
+    return done
+
+
+def sell_list(now: datetime | None = None) -> dict:
+    """The When to sell list: every stock with a trigger this week, nearest
+    to its trigger first, tapped ones on top."""
+    now = now or _now()
+    week = _sell_week(now)
+    rows, missing = [], []
+    with _LOCK:
+        for sym, rec in (_STATE.get("sell") or {}).items():
+            if not rec.get("ok") or rec.get("week") != week:
+                if rec.get("week") == week or not rec.get("ok"):
+                    missing.append({"symbol": sym, "reason": rec.get("reason")})
+                continue
+            pic = ((_STATE["sym"].get(sym) or {}).get("pic") or {})
+            last = pic.get("last") if pic.get("last") is not None else pic.get("pm_last")
+            px = last if last is not None else rec.get("anchor")
+            tp = rec["trigger_price"]
+            to_go = (tp / px - 1.0) * 100.0 if px else None
+            status = ("tapped" if rec.get("tapped") else
+                      "near" if to_go is not None and to_go <= SELL_NEAR_PCT else "waiting")
+            reg = rec.get("regime") or {}
+            rows.append({"symbol": sym, "last": _r(last), "anchor": rec.get("anchor"),
+                         "trigger_price": tp, "trigger_pct": rec.get("trigger_pct"),
+                         "to_go_pct": _r(to_go), "status": status, "tapped": rec.get("tapped"),
+                         "prior_week_pct": reg.get("prior_week_pct"), "quintile": reg.get("quintile"),
+                         "regime_on": bool(reg.get("on")), "why": reg.get("why"),
+                         "unconditional": reg.get("unconditional")})
+    order = {"tapped": 0, "near": 1, "waiting": 2}
+    rows.sort(key=lambda r: (order[r["status"]], r["to_go_pct"] if r["to_go_pct"] is not None else 1e9))
+    return {"week": week, "rows": rows, "missing": sorted(missing, key=lambda m: m["symbol"]),
+            "near_pct": SELL_NEAR_PCT}
 
 
 # ── track records ──────────────────────────────────────────────────────────
@@ -1186,6 +1361,7 @@ def snapshot(since_ts: float | None = None, limit: int = 300) -> dict:
             "prior_known": bool(_STATE["prior"]),
         }
     out["records"] = track_records()
+    out["sell"] = sell_list()
     return out
 
 
@@ -1273,6 +1449,7 @@ def _loop() -> None:
                         _grade(now)
                         _write_json(f"alerts-{_STATE['day']}.json", _STATE["alerts"])
                 wait = 300
+            refresh_sell(now)
             if time.time() - last_cleanup > 6 * 3600:
                 cleanup_history()
                 last_cleanup = time.time()

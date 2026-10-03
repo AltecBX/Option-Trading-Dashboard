@@ -218,5 +218,41 @@ class WhyThisTrigger(unittest.TestCase):
         self.assertEqual("no_last_week", self.why(bars=holed), "in the table, but last week is missing")
 
 
+
+class WeeklyTrigger(unittest.TestCase):
+    """v5.38: the trigger alone, for the Live Scanner, must be the card's."""
+
+    def setUp(self):
+        self.bars = T.regime_tape()
+        self.mon = T.next_monday(38)
+        self.spot = self.bars[-1]["close"]
+        self.chain = [{"strike": round(self.spot), "iv": 0.45}]
+
+    def test_it_is_the_cards_trigger(self):
+        for day in (self.mon + timedelta(days=1), self.mon - timedelta(days=1)):
+            for tbl in (T.TABLE, None):
+                w = wts.weekly_trigger("SYN", self.bars, day, table=tbl)
+                c = wts.build("SYN", spot=self.spot, bars=self.bars, calls=self.chain, puts=self.chain,
+                              today=day, data_dir=None, table=tbl)
+                self.assertTrue(w["ok"], w.get("reason"))
+                self.assertEqual(c["trigger_price"], w["trigger_price"])
+                self.assertEqual(c["regime"]["why"], w["regime"]["why"])
+                self.assertEqual(c["regime"]["quintile"], w["regime"]["quintile"])
+                self.assertEqual(self.mon.isoformat(), w["week"])
+
+    def test_the_regime_row(self):
+        w = wts.weekly_trigger("SYN", self.bars, self.mon + timedelta(days=1), table=T.TABLE)
+        self.assertTrue(w["regime"]["on"])
+        self.assertEqual(5, w["regime"]["quintile"])
+        self.assertAlmostEqual(0.04, w["trigger_pct"])
+        self.assertAlmostEqual(11.0, w["regime"]["prior_week_pct"], places=2)
+
+    def test_too_little_history_says_so(self):
+        w = wts.weekly_trigger("SYN", self.bars[:30], self.mon + timedelta(days=1), table=T.TABLE)
+        self.assertFalse(w["ok"])
+        self.assertIn("clean weeks", w["reason"])
+        self.assertFalse(wts.weekly_trigger("SYN", None, self.mon, table=None)["ok"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

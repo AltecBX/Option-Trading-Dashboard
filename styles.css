@@ -15335,6 +15335,8 @@ body { overflow: hidden; overscroll-behavior: none; }
      same class, so the element is named (the first draft hid the arrows). */
   .lv-show-alerts section.lv-side { display: none; }
   .lv-show-lists .lv-feed { display: none; }
+  /* v5.38: the third view, When to sell, is the side column without the lists. */
+  .lv-show-sell .lv-feed, .lv-show-sell .lv-ranks, .lv-show-lists .lv-sell { display: none; }
   .lv-feed-head { flex-wrap: nowrap; gap: 6px; margin-bottom: 4px; }
   .lv-feed-head .lv-seg { flex-wrap: nowrap; flex: none; }
   .lv-setup-filter { max-width: none; flex: 1 1 auto; min-width: 0; }
@@ -15517,6 +15519,39 @@ body { overflow: hidden; overscroll-behavior: none; }
 @media (max-width: 900px) {
   .wts-pair { grid-template-columns: minmax(0, 1fr); }
   .wts-px { font-size: 20px; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Live Scanner · When to sell (v5.38). The week's triggers for the regime
+   table's stocks: tapped first, then the nearest. Tokens only.
+   ══════════════════════════════════════════════════════════════════════════ */
+.lv-sell { margin: 0 0 16px; padding: 10px 12px; border-radius: 10px;
+           border: 1px solid var(--line); background: var(--bg-2);
+           /* it sits in section.lv-side, which shares a class name with the
+              alerts' mono LONG/SHORT label */
+           font-family: var(--font-body); font-size: 13px; font-weight: 400; letter-spacing: normal; }
+.lv-sell-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 8px 12px; }
+.lv-sell-sum { margin-top: 4px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px;
+               font-size: 13px; color: var(--fg-2); }
+.lv-sell-n { padding: 1px 8px; border-radius: 999px; font-size: 12px; color: var(--fg); border: 1px solid var(--line); }
+.lv-sell-n.tapped { background: color-mix(in srgb, var(--up) 18%, transparent); border-color: color-mix(in srgb, var(--up) 55%, transparent); }
+.lv-sell-n.near { background: color-mix(in srgb, var(--warn) 16%, transparent); border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
+.lv-sell-note { font-size: 12px; color: var(--fg-3); }
+.lv-sell-table { width: 100%; margin-top: 8px; }
+.lv-sell-sub { display: block; font-size: 11px; color: var(--fg-3); white-space: nowrap; }
+.lv-sell-st { display: inline-block; padding: 1px 8px; border-radius: 6px; font-size: 12px; font-weight: 700;
+              color: var(--fg-2); background: var(--bg-3); border: 1px solid var(--line); white-space: nowrap; }
+.lv-sell-st.tapped { color: var(--fg); background: color-mix(in srgb, var(--up) 20%, transparent); border-color: color-mix(in srgb, var(--up) 55%, transparent); }
+.lv-sell-st.near { color: var(--fg); background: color-mix(in srgb, var(--warn) 16%, transparent); border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
+.lv-sell-tapped td { background: color-mix(in srgb, var(--up) 6%, transparent); }
+.lv-sell-miss { margin: 8px 0 0; font-size: 12px; color: var(--fg-3); }
+@media (max-width: 900px) {
+  .lv-sell { padding: 8px 10px; }
+  /* the phone rule gives every .scan-table cell 8px a side, !important */
+  .scan-table.lv-sell-table th, .scan-table.lv-sell-table td { padding: 6px 3px !important; }
+  .lv-sell-st { padding: 1px 5px; font-size: 11.5px; }
+  /* three views now: each button as wide as its words, on one line */
+  .lv-view .lv-seg-btn { flex: 1 1 auto; white-space: nowrap; padding-left: 8px; padding-right: 8px; }
 }
 
 /* ══════════════════════════════════════════════════════════════════════════

@@ -25,6 +25,7 @@ const LV_TIP = {
   check: "Type any symbol on your watchlist to see every setup: whether its trigger is live right now, and exactly which condition stopped an alert.",
   setups: "Rename, tune or switch off any setup, set the conditions a stock must pass, how long before the same stock can fire again, and whether it pushes to your phone.",
   sound: "Play a short beep in this browser when a new alert arrives.",
+  sell: "Your When to sell system, for every stock in your regime table: this week's trigger (Friday's close plus the rise the table expects after a week like last week), the live price, and how far it has to go. A tap alerts here and on your phone. Tap a stock to open its When to sell card.",
   lists: "Ranked lists from the same prices. Only stocks over $5 with at least 500K shares a day are listed, so the lists are names you can trade options on."
 };
 const LV_LISTS = [["gainers", "Gainers", "change_pct"], ["losers", "Losers", "change_pct"], ["active", "Most active", "volume"], ["rvol", "Volume surge", "rvol"], ["movers_5m", "5-min movers", "move_5m"], ["gap_up", "Gap up", "gap_pct"], ["gap_down", "Gap down", "gap_pct"]];
@@ -247,6 +248,97 @@ function LvRankings({
   }))) : /*#__PURE__*/React.createElement("p", {
     className: "lv-empty"
   }, "Nothing on this list yet", phase === "pre" && !cur[0].startsWith("pm_") ? " — before the bell the regular-session lists are empty; the pre-market lists are live." : "."));
+}
+
+// ── When to sell (v5.38) ────────────────────────────────────────────────────
+// Every stock in Jerry's regime table with this week's trigger, tapped ones
+// first, then the nearest. A few rows by default; all of them on a tap.
+const LV_SELL_SHOW = 8;
+const LV_SELL_STATUS = {
+  tapped: "Tapped",
+  near: "Close",
+  waiting: "Waiting"
+};
+const LV_SELL_TIP = {
+  tapped: "The price reached this week's trigger: your system sells the call now.",
+  near: "Within a couple of percent of the trigger.",
+  waiting: "Still below the trigger."
+};
+function lvDay(iso) {
+  if (!iso) return "";
+  const d = new Date(`${String(iso).slice(0, 10)}T12:00:00`);
+  return d.toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric"
+  });
+}
+function LvSellList({
+  sell,
+  phase,
+  onOpen
+}) {
+  const [all, setAll] = useState(false);
+  const rows = sell && sell.rows || [];
+  const missing = sell && sell.missing || [];
+  const n = {
+    tapped: 0,
+    near: 0,
+    waiting: 0
+  };
+  rows.forEach(r => {
+    n[r.status] = (n[r.status] || 0) + 1;
+  });
+  const shown = all ? rows : rows.slice(0, Math.max(LV_SELL_SHOW, n.tapped + n.near));
+  const live = phase === "open" || phase === "pre";
+  return /*#__PURE__*/React.createElement("section", {
+    className: "lv-sell",
+    title: LV_TIP.sell
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "lv-sell-head"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+    className: "kicker"
+  }, "When to sell \xB7 week of ", sell && sell.week ? lvDay(sell.week) : "…"), /*#__PURE__*/React.createElement("div", {
+    className: "lv-sell-sum"
+  }, !sell ? "Loading…" : !rows.length ? missing.length ? "Working out this week's triggers…" : "No stocks in your regime table yet." : /*#__PURE__*/React.createElement(React.Fragment, null, n.tapped ? /*#__PURE__*/React.createElement("b", {
+    className: "lv-sell-n tapped"
+  }, n.tapped, " tapped") : null, n.near ? /*#__PURE__*/React.createElement("b", {
+    className: "lv-sell-n near"
+  }, n.near, " within ", sell.near_pct, "%") : null, /*#__PURE__*/React.createElement("span", null, n.waiting, " waiting"), !live ? /*#__PURE__*/React.createElement("span", {
+    className: "lv-sell-note"
+  }, " \xB7 prices are Friday's close until the market opens") : null))), rows.length > shown.length || all ? /*#__PURE__*/React.createElement("button", {
+    className: "lv-btn",
+    onClick: () => setAll(v => !v)
+  }, all ? "Show fewer" : `Show all ${rows.length}`) : null), shown.length ? /*#__PURE__*/React.createElement("table", {
+    className: "scan-table lv-sell-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Symbol"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num"
+  }, "Price"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num"
+  }, "Trigger"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num"
+  }, "To go"), /*#__PURE__*/React.createElement("th", null, "Status"))), /*#__PURE__*/React.createElement("tbody", null, shown.map(r => /*#__PURE__*/React.createElement("tr", {
+    key: r.symbol,
+    className: `lv-sell-${r.status}`
+  }, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("button", {
+    className: "lv-sym",
+    onClick: () => onOpen && onOpen(r.symbol),
+    title: `Open ${r.symbol}'s When to sell card`
+  }, r.symbol)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num"
+  }, r.last != null ? `$${lvNum(r.last)}` : r.anchor != null ? `$${lvNum(r.anchor)}` : "—"), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num",
+    title: r.regime_on ? `Last week closed ${lvPct(r.prior_week_pct)}: row ${r.quintile} of 5 of your table` : r.why === "no_last_week" ? "Last week's move could not be read: the stock's own 70th percentile" : "The stock's own 70th percentile of weekly highs"
+  }, "$", lvNum(r.trigger_price), /*#__PURE__*/React.createElement("span", {
+    className: "lv-sell-sub"
+  }, lvPct(r.trigger_pct * 100), r.regime_on ? ` · row ${r.quintile}` : "")), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num lv-metric"
+  }, r.status === "tapped" ? "—" : lvPct(r.to_go_pct)), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("span", {
+    className: `lv-sell-st ${r.status}`,
+    title: LV_SELL_TIP[r.status] + (r.tapped ? ` Tapped ${lvDay(r.tapped)}.` : "")
+  }, LV_SELL_STATUS[r.status])))))) : null, missing.length && rows.length ? /*#__PURE__*/React.createElement("p", {
+    className: "lv-sell-miss"
+  }, "No trigger yet for ", missing.map(m => m.symbol).join(", "), ".") : null);
 }
 
 // Ranked on the server's one status per row, which decides eligibility
@@ -552,6 +644,7 @@ function LvSetupEditor({
 function LiveScanTab({
   apiFetch,
   onOpenTicker,
+  onOpenSell,
   visible,
   ticker
 }) {
@@ -616,6 +709,7 @@ function LiveScanTab({
   const records = data && data.records || {};
   const phase = data && data.phase || "closed";
   const ago = data && lvAgo(data.last_sweep);
+  const sellTapped = (data && data.sell && data.sell.rows || []).filter(r => r.status === "tapped").length;
   return /*#__PURE__*/React.createElement("div", {
     className: "card lv-card"
   }, /*#__PURE__*/React.createElement("div", {
@@ -680,7 +774,12 @@ function LiveScanTab({
     "aria-selected": view === "lists",
     className: `lv-seg-btn ${view === "lists" ? "on" : ""}`,
     onClick: () => setView("lists")
-  }, "Lists")), /*#__PURE__*/React.createElement("div", {
+  }, "Lists"), /*#__PURE__*/React.createElement("button", {
+    role: "tab",
+    "aria-selected": view === "sell",
+    className: `lv-seg-btn ${view === "sell" ? "on" : ""}`,
+    onClick: () => setView("sell")
+  }, "When to sell", sellTapped ? ` (${sellTapped})` : "")), /*#__PURE__*/React.createElement("div", {
     className: `lv-cols lv-show-${view}`
   }, /*#__PURE__*/React.createElement("section", {
     className: "lv-feed"
@@ -717,7 +816,11 @@ function LiveScanTab({
     className: "lv-empty"
   }, !data ? "Loading…" : phase === "open" || phase === "pre" ? "No alerts yet today. They appear here as they fire — newest on top." : "No alerts today.")), /*#__PURE__*/React.createElement("section", {
     className: "lv-side"
-  }, /*#__PURE__*/React.createElement(LvRankings, {
+  }, /*#__PURE__*/React.createElement(LvSellList, {
+    sell: data && data.sell,
+    phase: phase,
+    onOpen: onOpenSell || onOpenTicker
+  }), /*#__PURE__*/React.createElement(LvRankings, {
     rankings: data && data.rankings,
     phase: phase,
     onOpen: onOpenTicker

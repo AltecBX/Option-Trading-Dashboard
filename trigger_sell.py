@@ -885,9 +885,7 @@ def decide(spot: float, bars: Sequence[dict], today: Any, friday_expiry: Any,
     # Last week's move: its own Friday close against the Friday before. A
     # missing or cut-short week gives no move, and so no regime (Codex, #425).
     wk = _weekly_closes(rows, today_d)
-    prior_pct = (_week_move_pct(wk[-2], wk[-1])
-                 if len(wk) >= 2 and _monday(wk[-1]["date"]) == _monday(today_d) - timedelta(days=7)
-                 else None)
+    prior_pct = last_week_move_pct(wk, today_d)
     cal = calibrate(bars, earnings_dates, iv_now=iv_now, iv_median=iv_median,
                     regime_table=regime_table,
                     prior_week_close_pct=prior_pct if regime_table is not None else None,
@@ -1102,6 +1100,17 @@ def theta_too_far(theta_dominant: bool, history: Sequence[Any], quintile: int | 
         return bool(items[-1])
     same = [h for h in items if isinstance(h, Mapping) and h.get("quintile") == quintile]
     return bool(same and same[-1].get("theta_dominant"))
+
+
+def last_week_move_pct(weekly_closes: list[dict], today: date) -> float | None:
+    """Last week's Friday-to-Friday close in percent points, from
+    `_weekly_closes`: last week's own final close against the week
+    before's, or None when last week is missing or either week was cut
+    short (Codex, #425)."""
+    wk = weekly_closes
+    if len(wk) < 2 or _monday(wk[-1]["date"]) != _monday(today) - timedelta(days=7):
+        return None
+    return _week_move_pct(wk[-2], wk[-1])
 
 
 def _weekly_closes(rows: list[dict], today: date) -> list[dict]:
