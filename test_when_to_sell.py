@@ -147,5 +147,76 @@ class Card(unittest.TestCase):
         self.assertFalse(c["ok"])
 
 
+
+class ThisWeeksChain(unittest.TestCase):
+    """Codex, #426: the page's chain can be another week's (a later expiry
+    picked, or next Friday's on a Friday). This week's plan is priced with
+    this week's chain only."""
+
+    def setUp(self):
+        self.bars = T.regime_tape()
+        self.mon = T.next_monday(38)
+        self.day = self.mon + timedelta(days=1)
+        self.fri = self.mon + timedelta(days=4)
+        self.spot = self.bars[-1]["close"]
+        self.other = [{"strike": round(self.spot), "iv": 0.90}]
+        self.mine = [{"strike": round(self.spot), "iv": 0.40}]
+
+    def build(self, **kw):
+        return wts.build("SYN", spot=self.spot, bars=self.bars, calls=self.other, puts=self.other,
+                         today=self.day, data_dir=None, hv=0.5, table=T.TABLE, **kw)
+
+    def test_another_weeks_chain_is_not_used(self):
+        c = self.build(chain_expiry=(self.fri + timedelta(days=7)).isoformat())
+        self.assertEqual("realized", c["iv_source"])
+        self.assertAlmostEqual(0.5, c["iv"])
+
+    def test_this_weeks_chain_is_fetched_instead(self):
+        asked = []
+        c = self.build(chain_expiry=(self.fri + timedelta(days=7)).isoformat(),
+                       chain_fn=lambda exp: asked.append(exp) or (self.mine, self.mine))
+        self.assertEqual([self.fri], asked)
+        self.assertEqual("chain", c["iv_source"])
+        self.assertAlmostEqual(0.40, c["iv"])
+
+    def test_the_matching_chain_is_used_as_is(self):
+        asked = []
+        c = self.build(chain_expiry=self.fri.isoformat(), chain_fn=lambda exp: asked.append(exp))
+        self.assertEqual([], asked)
+        self.assertAlmostEqual(0.90, c["iv"])
+
+    def test_a_failed_fetch_falls_back_to_realized(self):
+        def boom(exp):
+            raise RuntimeError("no chain")
+        c = self.build(chain_expiry="2099-01-01", chain_fn=boom)
+        self.assertTrue(c["ok"], c.get("reason"))
+        self.assertEqual("realized", c["iv_source"])
+
+
+class WhyThisTrigger(unittest.TestCase):
+    """Codex, #426: the card says why its trigger was chosen, and must not
+    say "not in your table" for a stock that is."""
+
+    def setUp(self):
+        self.bars = T.regime_tape()
+        self.mon = T.next_monday(38)
+        self.spot = self.bars[-1]["close"]
+        self.chain = [{"strike": round(self.spot), "iv": 0.45}]
+
+    def why(self, bars=None, table=T.TABLE, ticker="SYN"):
+        c = wts.build(ticker, spot=self.spot, bars=bars or self.bars, calls=self.chain, puts=self.chain,
+                      today=self.mon + timedelta(days=1), data_dir=None, table=table)
+        return c["regime"]["why"]
+
+    def test_each_reason(self):
+        self.assertEqual("regime", self.why())
+        self.assertEqual("no_quintiles", self.why(ticker="SPCX"))
+        self.assertEqual("not_in_table", self.why(ticker="NOPE"))
+        self.assertEqual("no_table", self.why(table=None))
+        gap = self.mon - timedelta(weeks=1)
+        holed = [b for b in self.bars if not (gap <= date.fromisoformat(b["date"][:10]) < self.mon)]
+        self.assertEqual("no_last_week", self.why(bars=holed), "in the table, but last week is missing")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

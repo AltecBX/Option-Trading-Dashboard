@@ -5711,3 +5711,20 @@ tape, no table, no chain, never raises; mutation-checked), one new
 trigger on screen from the real engine on DELL with the real table,
 side by side on a desktop and stacked with nothing clipped on a phone, a
 missing answer says so).
+
+Codex on #426, each proven red first:
+- **This week's plan is priced with this week's chain.** The page's chain
+  is for the expiry on screen, which is next Friday's on a Friday or any
+  later one Jerry picks; its IV is another tenor's. When that expiry is
+  not this week's, `when_to_sell.build` fetches this week's chain
+  (`chain_fn`, the dashboard's `load_option_chain` for that date, used
+  only when the expiry it returns is the one asked for), and falls back
+  to realized volatility, said on the card, when it cannot.
+- **The card says why its trigger was chosen, correctly.** A stock in the
+  table whose last week could not be read was called "not in your
+  table". `regime.why` now names the case (regime, no_quintiles,
+  no_last_week, not_in_table, no_table) and the card words each one.
+
+Jerry's updated regime table (same date and format) adds 14 stocks: AMAT,
+AMD, ARM, COIN, GEV, INTC, LRCX, MDB, MRVL, NOW, NVDA, ORCL, SNOW, VLO
+(53 in all; the 39 already there are unchanged).

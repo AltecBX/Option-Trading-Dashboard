@@ -181,30 +181,65 @@ def card(d: dict, *, weekend: bool, iv_source: str) -> dict:
     return out
 
 
+def why_trigger(cal_source: Optional[str], table: Any, ticker: str, prior_pct: Any) -> str:
+    """Why the card's trigger is the one it is, as a code the card words:
+    regime (last week's row), no_quintiles (the table's single trigger),
+    no_last_week (in the table, but last week's move could not be read),
+    not_in_table, or no_table (both: the stock's own percentile)."""
+    if cal_source == "regime":
+        return "regime"
+    if cal_source == "unconditional":
+        return "no_quintiles"
+    if not table:
+        return "no_table"
+    if ts.regime_info(ticker, None, table)["source"] == "missing":
+        return "not_in_table"
+    return "no_last_week" if prior_pct is None else "not_in_table"
+
+
 def build(ticker: str, *, spot: Any, bars: Sequence[dict], calls: Sequence[dict] = (),
           puts: Sequence[dict] = (), earnings_dates: Iterable[Any] = (), today: date,
-          data_dir=None, hv: Any = None, table: Any = "default") -> dict:
-    """The card for one ticker. `today` is the market's date (ET)."""
+          data_dir=None, hv: Any = None, table: Any = "default",
+          chain_expiry: Any = None, chain_fn=None) -> dict:
+    """The card for one ticker. `today` is the market's date (ET).
+
+    `calls`/`puts` are the page's chain, for `chain_expiry`. When that is not
+    this week's expiry (a later one picked, or next Friday's on a Friday),
+    its IV is another tenor's: this week's chain is fetched with
+    `chain_fn(expiry_date) -> (calls, puts)` instead, and without one (or
+    when it fails) realized volatility stands in (Codex, #426)."""
     try:
         tk = str(ticker or "").upper()
         day = decision_day(today)
         weekend = day != today
         px = float(spot) if spot else None
+        exp = week_expiry(day)
+        if chain_expiry and str(chain_expiry)[:10] != exp.isoformat():
+            calls = puts = ()
+            if chain_fn is not None:
+                try:
+                    got = chain_fn(exp) or ((), ())
+                    calls, puts = got[0] or (), got[1] or ()
+                except Exception:  # noqa: BLE001
+                    calls = puts = ()
         iv = atm_iv(calls, puts, px) if px else None
         iv_source = "chain"
         if not iv and ts._sigma(hv):
             iv, iv_source = ts._sigma(hv), "realized"
         tbl = load_table() if table == "default" else table
         week = ts._monday(day).isoformat()
-        d = ts.decide(px or 0.0, bars, day, week_expiry(day), iv,
+        d = ts.decide(px or 0.0, bars, day, exp, iv,
                       earnings_dates=[e for e in (earnings_dates or []) if e],
                       theta_history=prior_records(data_dir, tk, week),
                       ticker=tk, regime_table=tbl)
         out = card(d, weekend=weekend, iv_source=iv_source)
+        if isinstance(out.get("regime"), dict):
+            out["regime"]["why"] = why_trigger(out["regime"].get("source"), tbl, tk,
+                                               out["regime"].get("prior_week_pct"))
         out["table"] = bool(tbl)
         out["table_as_of"] = (tbl or {}).get("as_of") if isinstance(tbl, dict) else None
         out["decision_day"] = day.isoformat()
-        out["expiry"] = week_expiry(day).isoformat()
+        out["expiry"] = exp.isoformat()
         if d.get("history_record") and not weekend:
             save_record(data_dir, d["history_record"])
         return out

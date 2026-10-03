@@ -2730,6 +2730,15 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         self.assertFalse(w["sideBySide"], "on a phone the two choices stack")
         self.assertLessEqual(geo["doc"]["scrollW"], 440 + 1, "the card pushed the page sideways")
 
+    def test_when_to_sell_says_why_its_trigger_is_the_percentile(self):
+        # Codex, #426: a stock in the table whose last week could not be
+        # read must not be called "not in your table".
+        pay = sell_payload()
+        pay["whenToSell"]["regime"].update({"on": False, "source": "percentile", "why": "no_last_week"})
+        text = self._sell_probe(payload=pay)[0]["wts"]["text"]
+        self.assertIn("Last week's move could not be read", text)
+        self.assertNotIn("not in your table", text)
+
     def test_when_to_sell_without_an_answer_says_so(self):
         pay = sell_payload()
         pay["whenToSell"] = None

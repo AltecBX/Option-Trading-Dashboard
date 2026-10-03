@@ -4143,6 +4143,11 @@ def build_payload(
             today=(datetime.now(_ET).date() if _ET is not None else date.today()),
             data_dir=_STABLE_DIR,
             hv=hv_current,
+            # The page's chain may be another week's (a later expiry picked,
+            # or next Friday's on a Friday): then this week's is fetched.
+            chain_expiry=exp,
+            chain_fn=lambda d: (lambda r: (r[0], r[1]) if r[2] == d.isoformat() else ((), ()))(
+                load_option_chain(ticker, d, d.isoformat())),
         )
     except Exception as exc:  # noqa: BLE001
         print(f"[when_to_sell] {ticker}: {exc}", file=sys.stderr)

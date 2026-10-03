@@ -16011,9 +16011,12 @@ function WhenToSellCard({ ticker, plan, planTicker, currentPrice }) {
                 {reg.unconditional != null ? <> (normally {wtsPct(reg.unconditional)})</> : null}.
                 {reg.basis === "quintile" ? ` Odds below come from the ${reg.weeks} past weeks that started like this one.`
                                           : ` Only ${reg.weeks} past weeks started like this one, so the odds use all weeks.`}</>
-            : reg.source === "unconditional"
-              ? <>Last week's move could not be read, so this uses the stock's normal trigger from your table.</>
-              : <>Not in your table: the trigger is the 70th percentile of this stock's own weekly highs over the last year ({p.weeks} weeks).</>}
+            : reg.why === "no_quintiles"
+              ? <>Your table has one trigger for this stock, not one per row, so that is the trigger.</>
+              : <>{reg.why === "no_last_week" ? "Last week's move could not be read (a missing or short week)"
+                   : reg.why === "no_table" ? "No regime table is loaded"
+                   : reg.why === "not_in_table" ? "This stock is not in your table"
+                   : "The table could not answer for this stock"}, so the trigger is the 70th percentile of its own weekly highs over the last year ({p.weeks} weeks).</>}
         </p>
         <div className="wts-pair">
           <div className="wts-opt">
