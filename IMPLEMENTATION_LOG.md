@@ -5656,5 +5656,7 @@ Everything existing is unchanged without a table: all 29 v1 tests pass.
 table's shape, plus units/shapes, the calibration contract, quintile
 sessions, the premium formula, thin quintiles and like-for-like theta.
 (a) and the real (c) read the real table from `$JERRY_REGIME_TABLE` or
-`data/conditional_triggers.json`, and skip with that message until it is
-there.
+`data/conditional_triggers.json`. Jerry's table (as of 2026-10-03, two
+years, 39 tickers) is now committed there and they pass on it: LITE after
++15% → 14.54%, LITE after −9% → 21.49%, COHR after +12% → 9.25%.
+49 tests, none skipped.

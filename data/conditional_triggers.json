@@ -1,0 +1,2112 @@
+{
+ "as_of": "2026-10-03",
+ "window": "2y",
+ "tickers": {
+  "LITE": {
+   "n_weeks": 96,
+   "unconditional_trigger": 13.82,
+   "prior_week_edges": [
+    -20.81,
+    -4.24,
+    0.35,
+    4.07,
+    10.1,
+    40.87
+   ],
+   "conditional": [
+    {
+     "quintile": 1,
+     "prior_lo": -20.81,
+     "prior_hi": -4.24,
+     "trigger70": 21.49,
+     "trigger50": 11.95,
+     "n": 19
+    },
+    {
+     "quintile": 2,
+     "prior_lo": -4.24,
+     "prior_hi": 0.35,
+     "trigger70": 11.49,
+     "trigger50": 6.22,
+     "n": 19
+    },
+    {
+     "quintile": 3,
+     "prior_lo": 0.35,
+     "prior_hi": 4.07,
+     "trigger70": 14.28,
+     "trigger50": 9.18,
+     "n": 19
+    },
+    {
+     "quintile": 4,
+     "prior_lo": 4.07,
+     "prior_hi": 10.1,
+     "trigger70": 8.48,
+     "trigger50": 6.36,
+     "n": 19
+    },
+    {
+     "quintile": 5,
+     "prior_lo": 10.1,
+     "prior_hi": 40.87,
+     "trigger70": 14.54,
+     "trigger50": 10.51,
+     "n": 19
+    }
+   ]
+  },
+  "CIEN": {
+   "n_weeks": 96,
+   "unconditional_trigger": 9.56,
+   "prior_week_edges": [
+    -18.73,
+    -4.49,
+    -0.22,
+    4.17,
+    9.31,
+    29.93
+   ],
+   "conditional": [
+    {
+     "quintile": 1,
+     "prior_lo": -18.73,
+     "prior_hi": -4.49,
+     "trigger70": 9.59,
+     "trigger50": 7.48,
+     "n": 19
+    },
+    {
+     "quintile": 2,
+     "prior_lo": -4.49,
+     "prior_hi": -0.22,
+     "trigger70": 13.19,
+     "trigger50": 5.82,
+     "n": 19
+    },
+    {
+     "quintile": 3,
+     "prior_lo": -0.22,
+     "prior_hi": 4.17,
+     "trigger70": 9.16,
+     "trigger50": 8.51,
+     "n": 19
+    },
+    {
+     "quintile": 4,
+     "prior_lo": 4.17,
+     "prior_hi": 9.31,
+     "trigger70": 8.04,
+     "trigger50": 5.91,
+     "n": 19
+    },
+    {
+     "quintile": 5,
+     "prior_lo": 9.31,
+     "prior_hi": 29.93,
+     "trigger70": 12.12,
+     "trigger50": 5.91,
+     "n": 19
+    }
+   ]
+  },
+  "GME": {
+   "n_weeks": 96,
+   "unconditional_trigger": 6.71,
+   "prior_week_edges": [
+    -25.15,
+    -3.91,
+    -1.03,
+    1.52,
+    5.08,
+    18.35
+   ],
+   "conditional": [
+    {
+     "quintile": 1,
+     "prior_lo": -25.15,
+     "prior_hi": -3.91,
+     "trigger70": 5.05,
+     "trigger50": 4.12,
+     "n": 19
+    },
+    {
+     "quintile": 2,
+     "prior_lo": -3.91,
+     "prior_hi": -1.03,
+     "trigger70": 10.56,
+     "trigger50": 5.15,
+     "n": 19
+    },
+    {
+     "quintile": 3,
+     "prior_lo": -1.03,
+     "prior_hi": 1.52,
+     "trigger70": 5.42,
+     "trigger50": 3.79,
+     "n": 19
+    },
+    {
+     "quintile": 4,
+     "prior_lo": 1.52,
+     "prior_hi": 5.08,
+     "trigger70": 6.33,
+     "trigger50": 4.19,
+     "n": 19
+    },
+    {
+     "quintile": 5,
+     "prior_lo": 5.08,
+     "prior_hi": 18.35,
+     "trigger70": 11.85,
+     "trigger50": 6.18,
+     "n": 19
+    }
+   ]
+  },
+  "ONDS": {
+   "n_weeks": 96,
+   "unconditional_trigger": 21.36,
+   "prior_week_edges": [
+    -34.55,
+    -10.66,
+    -4.18,
+    4.11,
+    16.66,
+    76.19
+   ],
+   "conditional": [
+    {
+     "quintile": 1,
+     "prior_lo": -34.55,
+     "prior_hi": -10.66,
+     "trigger70": 16.12,
+     "trigger50": 9.82,
+     "n": 19
+    },
+    {
+     "quintile": 2,
+     "prior_lo": -10.66,
+     "prior_hi": -4.18,
+     "trigger70": 27.41,
+     "trigger50": 15.33,
+     "n": 19
+    },
+    {
+     "quintile": 3,
+     "prior_lo": -4.18,
+     "prior_hi": 4.11,
+     "trigger70": 15.07,
+     "trigger50": 11.46,
+     "n": 19
+    },
+    {
+     "quintile": 4,
+     "prior_lo": 4.11,
+     "prior_hi": 16.66,
+     "trigger70": 23.15,
+     "trigger50": 16.1,
+     "n": 19
+    },
+    {
+     "quintile": 5,
+     "prior_lo": 16.66,
+     "prior_hi": 76.19,
+     "trigger70": 30.67,
+     "trigger50": 19.36,
+     "n": 19
+    }
+   ]
+  },
+  "POET": {
+   "n_weeks": 96,
+   "unconditional_trigger": 15.65,
+   "prior_week_edges": [
+    -51.59,
+    -9.1,
+    -3.05,
+    3.36,
+    9.53,
+    107.99
+   ],
+   "conditional": [
+    {
+     "quintile": 1,
+     "prior_lo": -51.59,
+     "prior_hi": -9.1,
+     "trigger70": 14.64,
+     "trigger50": 11.32,
+     "n": 19
+    },
+    {
+     "quintile": 2,
+     "prior_lo": -9.1,
+     "prior_hi": -3.05,
+     "trigger70": 11.86,
+     "trigger50": 10.11,
+     "n": 19
+    },
+    {
+     "quintile": 3,
+     "prior_lo": -3.05,
+     "prior_hi": 3.36,
+     "trigger70": 13.93,
+     "trigger50": 8.81,
+     "n": 19
+    },
+    {
+     "quintile": 4,
+     "prior_lo": 3.36,
+     "prior_hi": 9.53,
+     "trigger70": 15.17,
+     "trigger50": 9.08,
+     "n": 19
+    },
+    {
+     "quintile": 5,
+     "prior_lo": 9.53,
+     "prior_hi": 107.99,
+     "trigger70": 23.51,
+     "trigger50": 15.1,
+     "n": 19
+    }
+   ]
+  },
+  "HOOD": {
+   "n_weeks": 96,
+   "unconditional_trigger": 11.18,
+   "prior_week_edges": [
+    -17.68,
+    -6.7,
+    -2.54,
+    3.29,
+    13.0,
+    31.16
+   ],
+   "conditional": [
+    {
+     "quintile": 1,
+     "prior_lo": -17.68,
+     "prior_hi": -6.7,
+     "trigger70": 15.51,
+     "trigger50": 8.25,
+     "n": 19
+    },
+    {
+     "quintile": 2,
+     "prior_lo": -6.7,
+     "prior_hi": -2.54,
+     "trigger70": 9.41,
+     "trigger50": 5.57,
+     "n": 19
+    },
+    {
+     "quintile": 3,
+     "prior_lo": -2.54,
+     "prior_hi": 3.29,
+     "trigger70": 13.04,
+     "trigger50": 6.05,
+     "n": 19
+    },
+    {
+     "quintile": 4,
+     "prior_lo": 3.29,
+     "prior_hi": 13.0,
+     "trigger70": 16.17,
+     "trigger50": 7.64,
+     "n": 19
+    },
+    {
+     "quintile": 5,
+     "prior_lo": 13.0,
+     "prior_hi": 31.16,
+     "trigger70": 7.27,
+     "trigger50": 4.3,
+     "n": 19
+    }
+   ]
+  },
+  "COHR": {
+   "n_weeks": 96,
+   "unconditional_trigger": 12.5,
+   "prior_week_edges": [
+    -23.05,
+    -5.61,
+    -1.66,
+    4.31,
+    9.41,
+    44.22
+   ],
+   "conditional": [
+    {
+     "quintile": 1,
+     "prior_lo": -23.05,
+     "prior_hi": -5.61,
+     "trigger70": 17.1,
+     "trigger50": 11.75,
+     "n": 19
+    },
+    {
+     "quintile": 2,
+     "prior_lo": -5.61,
+     "prior_hi": -1.66,
+     "trigger70": 11.09,
+     "trigger50": 7.57,
+     "n": 19
+    },
+    {
+     "quintile": 3,
+     "prior_lo": -1.66,
+     "prior_hi": 4.31,
+     "trigger70": 13.95,
+     "trigger50": 10.12,
+     "n": 19
+    },
+    {
+     "quintile": 4,
+     "prior_lo": 4.31,
+     "prior_hi": 9.41,
+     "trigger70": 11.27,
+     "trigger50": 9.16,
+     "n": 19
+    },
+    {
+     "quintile": 5,
+     "prior_lo": 9.41,
+     "prior_hi": 44.22,
+     "trigger70": 9.25,
+     "trigger50": 5.73,
+     "n": 19
+    }
+   ]
+  },
+  "SOUN": {
+   "n_weeks": 96,
+   "unconditional_trigger": 13.99,
+   "prior_week_edges": [
+    -33.91,
+    -9.93,
+    -4.85,
+    2.09,
+    12.1,
+    61.22
+   ],
+   "conditional": [
+    {
+     "quintile": 1,
+     "prior_lo": -33.91,
+     "prior_hi": -9.93,
+     "trigger70": 13.16,
+     "trigger50": 8.38,
+     "n": 19
+    },
+    {
+     "quintile": 2,
+     "prior_lo": -9.93,
+     "prior_hi": -4.85,
+     "trigger70": 11.33,
+     "trigger50": 6.17,
+     "n": 19
+    },
+    {
+     "quintile": 3,
+     "prior_lo": -4.85,
+     "prior_hi": 2.09,
+     "trigger70": 17.51,
+     "trigger50": 6.69,
+     "n": 19
+    },
+    {
+     "quintile": 4,
+     "prior_lo": 2.09,
+     "prior_hi": 12.1,
+     "trigger70": 8.05,
+     "trigger50": 5.82,
+     "n": 19
+    },
+    {
+     "quintile": 5,
+     "prior_lo": 12.1,
+     "prior_hi": 61.22,
+     "trigger70": 15.39,
+     "trigger50": 10.64,
+     "n": 19
+    }
+   ]
+  },
+  "MSTR": {
+   "n_weeks": 96,
+   "unconditional_trigger": 10.16,
+   "prior_week_edges": [
+    -26.86,
+    -7.14,
+    -2.72,
+    2.21,
+    6.06,
+    29.45
+   ],
+   "conditional": [
+    {
+     "quintile": 1,
+     "prior_lo": -26.86,
+     "prior_hi": -7.14,
+     "trigger70": 8.75,
+     "trigger50": 5.95,
+     "n": 19
+    },
+    {
+     "quintile": 2,
+     "prior_lo": -7.14,
+     "prior_hi": -2.72,
+     "trigger70": 7.7,
+     "trigger50": 5.68,
+     "n": 19
+    },
+    {
+     "quintile": 3,
+     "prior_lo": -2.72,
+     "prior_hi": 2.21,
+     "trigger70": 12.15,
+     "trigger50": 8.09,
+     "n": 19
+    },
+    {
+     "quintile": 4,
+     "prior_lo": 2.21,
+     "prior_hi": 6.06,
+     "trigger70": 8.86,
+     "trigger50": 7.47,
+     "n": 19
+    },
+    {
+     "quintile": 5,
+     "prior_lo": 6.06,
+     "prior_hi": 29.45,
+     "trigger70": 12.79,
+     "trigger50": 9.12,
+     "n": 19
+    }
+   ]
+  },
+  "OKLO": {
+   "n_weeks": 96,
+   "unconditional_trigger": 15.7,
+   "prior_week_edges": [
+    -30.1,
+    -10.32,
+    -4.64,
+    3.25,
+    13.44,
+    99.23
+   ],
+   "conditional": [
+    {
+     "quintile": 1,
+     "prior_lo": -30.1,
+     "prior_hi": -10.32,
+     "trigger70": 16.87,
+     "trigger50": 11.77,
+     "n": 19
+    },
+    {
+     "quintile": 2,
+     "prior_lo": -10.32,
+     "prior_hi": -4.64,
+     "trigger70": 9.69,
+     "trigger50": 3.7,
+     "n": 19
+    },
+    {
+     "quintile": 3,
+     "prior_lo": -4.64,
+     "prior_hi": 3.25,
+     "trigger70": 15.49,
+     "trigger50": 13.02,
+     "n": 19
+    },
+    {
+     "quintile": 4,
+     "prior_lo": 3.25,
+     "prior_hi": 13.44,
+     "trigger70": 22.16,
+     "trigger50": 10.44,
+     "n": 19
+    },
+    {
+     "quintile": 5,
+     "prior_lo": 13.44,
+     "prior_hi": 99.23,
+     "trigger70": 20.03,
+     "trigger50": 11.87,
+     "n": 19
+    }
+   ]
+  },
+  "WDC": {
+   "n_weeks": 96,
+   "unconditional_trigger": 11.59,
+   "prior_week_edges": [
+    -24.82,
+    -3.19,
+    0.93,
+    5.96,
+    9.39,
+    32.56
+   ],
+   "conditional": [
+    {
+     "quintile": 1,
+     "prior_lo": -24.82,
+     "prior_hi": -3.19,
+     "trigger70": 13.12,
+     "trigger50": 10.75,
+     "n": 19
+    },
+    {
+     "quintile": 2,
+     "prior_lo": -3.19,
+     "prior_hi": 0.93,
+     "trigger70": 8.41,
+     "trigger50": 6.12,
+     "n": 19
+    },
+    {
+     "quintile": 3,
+     "prior_lo": 0.93,
+     "prior_hi": 5.96,
+     "trigger70": 11.41,
+     "trigger50": 5.31,
+     "n": 19
+    },
+    {
+     "quintile": 4,
+     "prior_lo": 5.96,
+     "prior_hi": 9.39,
+     "trigger70": 11.17,
+     "trigger50": 8.13,
+     "n": 19
+    },
+    {
+     "quintile": 5,
+     "prior_lo": 9.39,
+     "prior_hi": 32.56,
+     "trigger70": 10.91,
+     "trigger50": 7.82,
+     "n": 19
+    }
+   ]
+  },
+  "AAPL": {
+   "n_weeks": 96,
+   "unconditional_trigger": 3.52,
+   "prior_week_edges": [
+    -13.55,
+    -2.57,
+    -0.17,
+    1.63,
+    3.43,
+    13.33
+   ],
+   "conditional": [
+    {
+     "quintile": 1,
+     "prior_lo": -13.55,
+     "prior_hi": -2.57,
+     "trigger70": 6.14,
+     "trigger50": 3.31,
+     "n": 19
+    },
+    {
+     "quintile": 2,
+     "prior_lo": -2.57,
+     "prior_hi": -0.17,
+     "trigger70": 3.39,
+     "trigger50": 2.54,
+     "n": 19
+    },
+    {
+     "quintile": 3,
+     "prior_lo": -0.17,
+     "prior_hi": 1.63,
+     "trigger70": 2.88,
+     "trigger50": 1.11,
+     "n": 19
+    },
+    {
+     "quintile": 4,
+     "prior_lo": 1.63,
+     "prior_hi": 3.43,
+     "trigger70": 4.12,
+     "trigger50": 3.09,
+     "n": 19
+    },
+    {
+     "quintile": 5,
+     "prior_lo": 3.43,
+     "prior_hi": 13.33,
+     "trigger70": 2.62,
+     "trigger50": 1.87,
+     "n": 19
+    }
+   ]
+  },
+  "ABT": {
+   "n_weeks": 96,
+   "unconditional_trigger": 3.06,
+   "prior_week_edges": [
+    -14.69,
+    -1.92,
+    -0.61,
+    0.76,
+    2.32,
+    11.33
+   ],
+   "conditional": [
+    {
+     "quintile": 1,
+     "prior_lo": -14.69,
+     "prior_hi": -1.92,
+     "trigger70": 2.85,
+     "trigger50": 2.5,
+     "n": 19
+    },
+    {
+     "quintile": 2,
+     "prior_lo": -1.92,
+     "prior_hi": -0.61,
+     "trigger70": 1.5,
+     "trigger50": 1.23,
+     "n": 19
+    },
+    {
+     "quintile": 3,
+     "prior_lo": -0.61,
+     "prior_hi": 0.76,
+     "trigger70": 3.04,
+     "trigger50": 1.81,
+     "n": 19
+    },
+    {
+     "quintile": 4,
+     "prior_lo": 0.76,
+     "prior_hi": 2.32,
+     "trigger70": 3.61,
+     "trigger50": 2.35,
+     "n": 19
+    },
+    {
+     "quintile": 5,
+     "prior_lo": 2.32,
+     "prior_hi": 11.33,
+     "trigger70": 2.95,
+     "trigger50": 2.02,
+     "n": 19
+    }
+   ]
+  },
+  "AI": {
+   "n_weeks": 96,
+   "unconditional_trigger": 8.29,
+   "prior_week_edges": [
+    -23.41,
+    -7.66,
+    -2.92,
+    0.96,
+    6.06,
+    43.98
+   ],
+   "conditional": [
+    {
+     "quintile": 1,
+     "prior_lo": -23.41,
+     "prior_hi": -7.66,
+     "trigger70": 11.12,
+     "trigger50": 6.63,
+     "n": 19
+    },
+    {
+     "quintile": 2,
+     "prior_lo": -7.66,
+     "prior_hi": -2.92,
+     "trigger70": 10.92,
+     "trigger50": 7.13,
+     "n": 19
+    },
+    {
+     "quintile": 3,
+     "prior_lo": -2.92,
+     "prior_hi": 0.96,
+     "trigger70": 7.43,
+     "trigger50": 6.11,
+     "n": 19
+    },
+    {
+     "quintile": 4,
+     "prior_lo": 0.96,
+     "prior_hi": 6.06,
+     "trigger70": 8.4,
+     "trigger50": 5.57,
+     "n": 19
+    },
+    {
+     "quintile": 5,
+     "prior_lo": 6.06,
+     "prior_hi": 43.98,
+     "trigger70": 7.11,
+     "trigger50": 5.53,
+     "n": 19
+    }
+   ]
+  },
+  "AVGO": {
+   "n_weeks": 96,
+   "unconditional_trigger": 6.9,
+   "prior_week_edges": [
+    -13.66,
+    -3.85,
+    -1.23,
+    1.48,
+    5.89,
+    25.22
+   ],
+   "conditional": [
+    {
+     "quintile": 1,
+     "prior_lo": -13.66,
+     "prior_hi": -3.85,
+     "trigger70": 7.49,
+     "trigger50": 4.0,
+     "n": 19
+    },
+    {
+     "quintile": 2,
+     "prior_lo": -3.85,
+     "prior_hi": -1.23,
+     "trigger70": 8.23,
+     "trigger50": 4.18,
+     "n": 19
+    },
+    {
+     "quintile": 3,
+     "prior_lo": -1.23,
+     "prior_hi": 1.48,
+     "trigger70": 5.73,
+     "trigger50": 3.89,
+     "n": 19
+    },
+    {
+     "quintile": 4,
+     "prior_lo": 1.48,
+     "prior_hi": 5.89,
+     "trigger70": 6.43,
+     "trigger50": 4.44,
+     "n": 19
+    },
+    {
+     "quintile": 5,
+     "prior_lo": 5.89,
+     "prior_hi": 25.22,
+     "trigger70": 6.41,
+     "trigger50": 2.57,
+     "n": 19
+    }
+   ]
+  },
+  "CRDO": {
+   "n_weeks": 96,
+   "unconditional_trigger": 14.11,
+   "prior_week_edges": [
+    -29.99,
+    -10.05,
+    -0.27,
+    5.2,
+    15.09,
+    51.61
+   ],
+   "conditional": [
+    {
+     "quintile": 1,
+     "prior_lo": -29.99,
+     "prior_hi": -10.05,
+     "trigger70": 18.13,
+     "trigger50": 9.77,
+     "n": 19
+    },
+    {
+     "quintile": 2,
+     "prior_lo": -10.05,
+     "prior_hi": -0.27,
+     "trigger70": 10.05,
+     "trigger50": 9.52,
+     "n": 19
+    },
+    {
+     "quintile": 3,
+     "prior_lo": -0.27,
+     "prior_hi": 5.2,
+     "trigger70": 13.08,
+     "trigger50": 8.95,
+     "n": 19
+    },
+    {
+     "quintile": 4,
+     "prior_lo": 5.2,
+     "prior_hi": 15.09,
+     "trigger70": 15.93,
+     "trigger50": 9.08,
+     "n": 19
+    },
+    {
+     "quintile": 5,
+     "prior_lo": 15.09,
+     "prior_hi": 51.61,
+     "trigger70": 12.05,
+     "trigger50": 9.77,
+     "n": 19
+    }
+   ]
+  },
+  "DELL": {
+   "n_weeks": 96,
+   "unconditional_trigger": 7.97,
+   "prior_week_edges": [
+    -22.39,
+    -4.29,
+    -0.87,
+    2.23,
+    7.72,
+    73.94
+   ],
+   "conditional": [
+    {
+     "quintile": 1,
+     "prior_lo": -22.39,
+     "prior_hi": -4.29,
+     "trigger70": 6.99,
+     "trigger50": 3.72,
+     "n": 19
+    },
+    {
+     "quintile": 2,
+     "prior_lo": -4.29,
+     "prior_hi": -0.87,
+     "trigger70": 9.31,
+     "trigger50": 4.42,
+     "n": 19
+    },
+    {
+     "quintile": 3,
+     "prior_lo": -0.87,
+     "prior_hi": 2.23,
+     "trigger70": 7.37,
+     "trigger50": 4.29,
+     "n": 19
+    },
+    {
+     "quintile": 4,
+     "prior_lo": 2.23,
+     "prior_hi": 7.72,
+     "trigger70": 10.6,
+     "trigger50": 5.86,
+     "n": 19
+    },
+    {
+     "quintile": 5,
+     "prior_lo": 7.72,
+     "prior_hi": 73.94,
+     "trigger70": 5.9,
+     "trigger50": 3.27,
+     "n": 19
+    }
+   ]
+  },
+  "ENPH": {
+   "n_weeks": 96,
+   "unconditional_trigger": 8.21,
+   "prior_week_edges": [
+    -21.38,
+    -7.88,
+    -4.65,
+    0.22,
+    6.03,
+    45.1
+   ],
+   "conditional": [
+    {
+     "quintile": 1,
+     "prior_lo": -21.38,
+     "prior_hi": -7.88,
+     "trigger70": 8.1,
+     "trigger50": 7.01,
+     "n": 19
+    },
+    {
+     "quintile": 2,
+     "prior_lo": -7.88,
+     "prior_hi": -4.65,
+     "trigger70": 9.23,
+     "trigger50": 5.97,
+     "n": 19
+    },
+    {
+     "quintile": 3,
+     "prior_lo": -4.65,
+     "prior_hi": 0.22,
+     "trigger70": 6.41,
+     "trigger50": 3.9,
+     "n": 19
+    },
+    {
+     "quintile": 4,
+     "prior_lo": 0.22,
+     "prior_hi": 6.03,
+     "trigger70": 8.65,
+     "trigger50": 4.97,
+     "n": 19
+    },
+    {
+     "quintile": 5,
+     "prior_lo": 6.03,
+     "prior_hi": 45.1,
+     "trigger70": 7.88,
+     "trigger50": 6.5,
+     "n": 19
+    }
+   ]
+  },
+  "HIMS": {
+   "n_weeks": 96,
+   "unconditional_trigger": 14.24,
+   "prior_week_edges": [
+    -32.1,
+    -10.09,
+    -4.36,
+    1.61,
+    13.83,
+    57.37
+   ],
+   "conditional": [
+    {
+     "quintile": 1,
+     "prior_lo": -32.1,
+     "prior_hi": -10.09,
+     "trigger70": 13.85,
+     "trigger50": 6.33,
+     "n": 19
+    },
+    {
+     "quintile": 2,
+     "prior_lo": -10.09,
+     "prior_hi": -4.36,
+     "trigger70": 9.46,
+     "trigger50": 6.34,
+     "n": 19
+    },
+    {
+     "quintile": 3,
+     "prior_lo": -4.36,
+     "prior_hi": 1.61,
+     "trigger70": 10.82,
+     "trigger50": 9.07,
+     "n": 19
+    },
+    {
+     "quintile": 4,
+     "prior_lo": 1.61,
+     "prior_hi": 13.83,
+     "trigger70": 17.6,
+     "trigger50": 11.34,
+     "n": 19
+    },
+    {
+     "quintile": 5,
+     "prior_lo": 13.83,
+     "prior_hi": 57.37,
+     "trigger70": 23.24,
+     "trigger50": 8.26,
+     "n": 19
+    }
+   ]
+  },
+  "JOBY": {
+   "n_weeks": 96,
+   "unconditional_trigger": 11.48,
+   "prior_week_edges": [
+    -24.12,
+    -7.84,
+    -3.97,
+    1.66,
+    9.06,
+    47.67
+   ],
+   "conditional": [
+    {
+     "quintile": 1,
+     "prior_lo": -24.12,
+     "prior_hi": -7.84,
+     "trigger70": 9.1,
+     "trigger50": 5.44,
+     "n": 19
+    },
+    {
+     "quintile": 2,
+     "prior_lo": -7.84,
+     "prior_hi": -3.97,
+     "trigger70": 9.7,
+     "trigger50": 7.35,
+     "n": 19
+    },
+    {
+     "quintile": 3,
+     "prior_lo": -3.97,
+     "prior_hi": 1.66,
+     "trigger70": 12.81,
+     "trigger50": 11.07,
+     "n": 19
+    },
+    {
+     "quintile": 4,
+     "prior_lo": 1.66,
+     "prior_hi": 9.06,
+     "trigger70": 16.9,
+     "trigger50": 8.24,
+     "n": 19
+    },
+    {
+     "quintile": 5,
+     "prior_lo": 9.06,
+     "prior_hi": 47.67,
+     "trigger70": 9.97,
+     "trigger50": 5.54,
+     "n": 19
+    }
+   ]
+  },
+  "MP": {
+   "n_weeks": 96,
+   "unconditional_trigger": 11.8,
+   "prior_week_edges": [
+    -18.22,
+    -7.12,
+    -1.38,
+    2.46,
+    9.06,
+    41.68
+   ],
+   "conditional": [
+    {
+     "quintile": 1,
+     "prior_lo": -18.22,
+     "prior_hi": -7.12,
+     "trigger70": 9.9,
+     "trigger50": 5.26,
+     "n": 19
+    },
+    {
+     "quintile": 2,
+     "prior_lo": -7.12,
+     "prior_hi": -1.38,
+     "trigger70": 9.45,
+     "trigger50": 7.15,
+     "n": 19
+    },
+    {
+     "quintile": 3,
+     "prior_lo": -1.38,
+     "prior_hi": 2.46,
+     "trigger70": 9.86,
+     "trigger50": 4.32,
+     "n": 19
+    },
+    {
+     "quintile": 4,
+     "prior_lo": 2.46,
+     "prior_hi": 9.06,
+     "trigger70": 11.84,
+     "trigger50": 8.54,
+     "n": 19
+    },
+    {
+     "quintile": 5,
+     "prior_lo": 9.06,
+     "prior_hi": 41.68,
+     "trigger70": 16.31,
+     "trigger50": 13.84,
+     "n": 19
+    }
+   ]
+  },
+  "NFLX": {
+   "n_weeks": 96,
+   "unconditional_trigger": 4.54,
+   "prior_week_edges": [
+    -9.12,
+    -4.07,
+    -1.69,
+    0.57,
+    3.93,
+    22.33
+   ],
+   "conditional": [
+    {
+     "quintile": 1,
+     "prior_lo": -9.12,
+     "prior_hi": -4.07,
+     "trigger70": 4.43,
+     "trigger50": 3.58,
+     "n": 19
+    },
+    {
+     "quintile": 2,
+     "prior_lo": -4.07,
+     "prior_hi": -1.69,
+     "trigger70": 2.48,
+     "trigger50": 1.8,
+     "n": 19
+    },
+    {
+     "quintile": 3,
+     "prior_lo": -1.69,
+     "prior_hi": 0.57,
+     "trigger70": 5.05,
+     "trigger50": 2.37,
+     "n": 19
+    },
+    {
+     "quintile": 4,
+     "prior_lo": 0.57,
+     "prior_hi": 3.93,
+     "trigger70": 5.14,
+     "trigger50": 3.63,
+     "n": 19
+    },
+    {
+     "quintile": 5,
+     "prior_lo": 3.93,
+     "prior_hi": 22.33,
+     "trigger70": 4.33,
+     "trigger50": 2.91,
+     "n": 19
+    }
+   ]
+  },
+  "NKE": {
+   "n_weeks": 96,
+   "unconditional_trigger": 3.9,
+   "prior_week_edges": [
+    -13.98,
+    -4.93,
+    -2.1,
+    0.11,
+    3.35,
+    20.49
+   ],
+   "conditional": [
+    {
+     "quintile": 1,
+     "prior_lo": -13.98,
+     "prior_hi": -4.93,
+     "trigger70": 5.76,
+     "trigger50": 3.78,
+     "n": 19
+    },
+    {
+     "quintile": 2,
+     "prior_lo": -4.93,
+     "prior_hi": -2.1,
+     "trigger70": 4.0,
+     "trigger50": 2.33,
+     "n": 19
+    },
+    {
+     "quintile": 3,
+     "prior_lo": -2.1,
+     "prior_hi": 0.11,
+     "trigger70": 3.3,
+     "trigger50": 1.91,
+     "n": 19
+    },
+    {
+     "quintile": 4,
+     "prior_lo": 0.11,
+     "prior_hi": 3.35,
+     "trigger70": 3.11,
+     "trigger50": 2.28,
+     "n": 19
+    },
+    {
+     "quintile": 5,
+     "prior_lo": 3.35,
+     "prior_hi": 20.49,
+     "trigger70": 4.23,
+     "trigger50": 2.04,
+     "n": 19
+    }
+   ]
+  },
+  "NVO": {
+   "n_weeks": 96,
+   "unconditional_trigger": 4.54,
+   "prior_week_edges": [
+    -32.79,
+    -4.64,
+    -1.98,
+    1.62,
+    4.47,
+    12.25
+   ],
+   "conditional": [
+    {
+     "quintile": 1,
+     "prior_lo": -32.79,
+     "prior_hi": -4.64,
+     "trigger70": 6.8,
+     "trigger50": 4.42,
+     "n": 19
+    },
+    {
+     "quintile": 2,
+     "prior_lo": -4.64,
+     "prior_hi": -1.98,
+     "trigger70": 4.9,
+     "trigger50": 2.93,
+     "n": 19
+    },
+    {
+     "quintile": 3,
+     "prior_lo": -1.98,
+     "prior_hi": 1.62,
+     "trigger70": 4.52,
+     "trigger50": 3.45,
+     "n": 19
+    },
+    {
+     "quintile": 4,
+     "prior_lo": 1.62,
+     "prior_hi": 4.47,
+     "trigger70": 3.68,
+     "trigger50": 2.55,
+     "n": 19
+    },
+    {
+     "quintile": 5,
+     "prior_lo": 4.47,
+     "prior_hi": 12.25,
+     "trigger70": 3.55,
+     "trigger50": 2.39,
+     "n": 19
+    }
+   ]
+  },
+  "PD": {
+   "n_weeks": 96,
+   "unconditional_trigger": 6.6,
+   "prior_week_edges": [
+    -24.15,
+    -5.17,
+    -1.27,
+    1.91,
+    5.93,
+    46.97
+   ],
+   "conditional": [
+    {
+     "quintile": 1,
+     "prior_lo": -24.15,
+     "prior_hi": -5.17,
+     "trigger70": 9.45,
+     "trigger50": 6.46,
+     "n": 19
+    },
+    {
+     "quintile": 2,
+     "prior_lo": -5.17,
+     "prior_hi": -1.27,
+     "trigger70": 5.21,
+     "trigger50": 4.35,
+     "n": 19
+    },
+    {
+     "quintile": 3,
+     "prior_lo": -1.27,
+     "prior_hi": 1.91,
+     "trigger70": 4.75,
+     "trigger50": 2.77,
+     "n": 19
+    },
+    {
+     "quintile": 4,
+     "prior_lo": 1.91,
+     "prior_hi": 5.93,
+     "trigger70": 7.49,
+     "trigger50": 4.19,
+     "n": 19
+    },
+    {
+     "quintile": 5,
+     "prior_lo": 5.93,
+     "prior_hi": 46.97,
+     "trigger70": 8.07,
+     "trigger50": 5.93,
+     "n": 19
+    }
+   ]
+  },
+  "PLTR": {
+   "n_weeks": 96,
+   "unconditional_trigger": 8.09,
+   "prior_week_edges": [
+    -16.21,
+    -5.3,
+    -0.79,
+    3.48,
+    8.15,
+    39.78
+   ],
+   "conditional": [
+    {
+     "quintile": 1,
+     "prior_lo": -16.21,
+     "prior_hi": -5.3,
+     "trigger70": 13.33,
+     "trigger50": 9.01,
+     "n": 19
+    },
+    {
+     "quintile": 2,
+     "prior_lo": -5.3,
+     "prior_hi": -0.79,
+     "trigger70": 7.26,
+     "trigger50": 4.89,
+     "n": 19
+    },
+    {
+     "quintile": 3,
+     "prior_lo": -0.79,
+     "prior_hi": 3.48,
+     "trigger70": 6.15,
+     "trigger50": 4.83,
+     "n": 19
+    },
+    {
+     "quintile": 4,
+     "prior_lo": 3.48,
+     "prior_hi": 8.15,
+     "trigger70": 8.9,
+     "trigger50": 5.27,
+     "n": 19
+    },
+    {
+     "quintile": 5,
+     "prior_lo": 8.15,
+     "prior_hi": 39.78,
+     "trigger70": 7.77,
+     "trigger50": 4.75,
+     "n": 19
+    }
+   ]
+  },
+  "SMH": {
+   "n_weeks": 96,
+   "unconditional_trigger": 4.93,
+   "prior_week_edges": [
+    -14.79,
+    -2.75,
+    0.57,
+    2.01,
+    4.66,
+    11.36
+   ],
+   "conditional": [
+    {
+     "quintile": 1,
+     "prior_lo": -14.79,
+     "prior_hi": -2.75,
+     "trigger70": 7.52,
+     "trigger50": 6.26,
+     "n": 19
+    },
+    {
+     "quintile": 2,
+     "prior_lo": -2.75,
+     "prior_hi": 0.57,
+     "trigger70": 4.83,
+     "trigger50": 4.2,
+     "n": 19
+    },
+    {
+     "quintile": 3,
+     "prior_lo": 0.57,
+     "prior_hi": 2.01,
+     "trigger70": 4.12,
+     "trigger50": 2.26,
+     "n": 19
+    },
+    {
+     "quintile": 4,
+     "prior_lo": 2.01,
+     "prior_hi": 4.66,
+     "trigger70": 3.4,
+     "trigger50": 3.06,
+     "n": 19
+    },
+    {
+     "quintile": 5,
+     "prior_lo": 4.66,
+     "prior_hi": 11.36,
+     "trigger70": 4.86,
+     "trigger50": 2.95,
+     "n": 19
+    }
+   ]
+  },
+  "APP": {
+   "n_weeks": 96,
+   "unconditional_trigger": 10.5,
+   "prior_week_edges": [
+    -21.57,
+    -9.06,
+    0.19,
+    3.01,
+    10.33,
+    77.34
+   ],
+   "conditional": [
+    {
+     "quintile": 1,
+     "prior_lo": -21.57,
+     "prior_hi": -9.06,
+     "trigger70": 10.12,
+     "trigger50": 7.87,
+     "n": 19
+    },
+    {
+     "quintile": 2,
+     "prior_lo": -9.06,
+     "prior_hi": 0.19,
+     "trigger70": 9.34,
+     "trigger50": 7.39,
+     "n": 19
+    },
+    {
+     "quintile": 3,
+     "prior_lo": 0.19,
+     "prior_hi": 3.01,
+     "trigger70": 17.13,
+     "trigger50": 10.58,
+     "n": 19
+    },
+    {
+     "quintile": 4,
+     "prior_lo": 3.01,
+     "prior_hi": 10.33,
+     "trigger70": 11.26,
+     "trigger50": 5.3,
+     "n": 19
+    },
+    {
+     "quintile": 5,
+     "prior_lo": 10.33,
+     "prior_hi": 77.34,
+     "trigger70": 7.25,
+     "trigger50": 4.32,
+     "n": 19
+    }
+   ]
+  },
+  "SMCI": {
+   "n_weeks": 96,
+   "unconditional_trigger": 11.64,
+   "prior_week_edges": [
+    -44.89,
+    -8.22,
+    -1.95,
+    1.81,
+    9.16,
+    78.42
+   ],
+   "conditional": [
+    {
+     "quintile": 1,
+     "prior_lo": -44.89,
+     "prior_hi": -8.22,
+     "trigger70": 15.65,
+     "trigger50": 7.49,
+     "n": 19
+    },
+    {
+     "quintile": 2,
+     "prior_lo": -8.22,
+     "prior_hi": -1.95,
+     "trigger70": 14.63,
+     "trigger50": 11.54,
+     "n": 19
+    },
+    {
+     "quintile": 3,
+     "prior_lo": -1.95,
+     "prior_hi": 1.81,
+     "trigger70": 9.43,
+     "trigger50": 5.94,
+     "n": 19
+    },
+    {
+     "quintile": 4,
+     "prior_lo": 1.81,
+     "prior_hi": 9.16,
+     "trigger70": 6.92,
+     "trigger50": 5.31,
+     "n": 19
+    },
+    {
+     "quintile": 5,
+     "prior_lo": 9.16,
+     "prior_hi": 78.42,
+     "trigger70": 7.94,
+     "trigger50": 3.7,
+     "n": 19
+    }
+   ]
+  },
+  "CMG": {
+   "n_weeks": 96,
+   "unconditional_trigger": 4.76,
+   "prior_week_edges": [
+    -23.06,
+    -4.72,
+    -1.71,
+    0.62,
+    4.4,
+    17.08
+   ],
+   "conditional": [
+    {
+     "quintile": 1,
+     "prior_lo": -23.06,
+     "prior_hi": -4.72,
+     "trigger70": 6.75,
+     "trigger50": 3.96,
+     "n": 19
+    },
+    {
+     "quintile": 2,
+     "prior_lo": -4.72,
+     "prior_hi": -1.71,
+     "trigger70": 5.72,
+     "trigger50": 2.6,
+     "n": 19
+    },
+    {
+     "quintile": 3,
+     "prior_lo": -1.71,
+     "prior_hi": 0.62,
+     "trigger70": 5.16,
+     "trigger50": 3.05,
+     "n": 19
+    },
+    {
+     "quintile": 4,
+     "prior_lo": 0.62,
+     "prior_hi": 4.4,
+     "trigger70": 4.17,
+     "trigger50": 2.46,
+     "n": 19
+    },
+    {
+     "quintile": 5,
+     "prior_lo": 4.4,
+     "prior_hi": 17.08,
+     "trigger70": 3.4,
+     "trigger50": 2.1,
+     "n": 19
+    }
+   ]
+  },
+  "SLV": {
+   "n_weeks": 96,
+   "unconditional_trigger": 5.46,
+   "prior_week_edges": [
+    -18.8,
+    -3.11,
+    -0.44,
+    2.36,
+    4.56,
+    28.36
+   ],
+   "conditional": [
+    {
+     "quintile": 1,
+     "prior_lo": -18.8,
+     "prior_hi": -3.11,
+     "trigger70": 7.57,
+     "trigger50": 3.87,
+     "n": 19
+    },
+    {
+     "quintile": 2,
+     "prior_lo": -3.11,
+     "prior_hi": -0.44,
+     "trigger70": 4.19,
+     "trigger50": 2.81,
+     "n": 19
+    },
+    {
+     "quintile": 3,
+     "prior_lo": -0.44,
+     "prior_hi": 2.36,
+     "trigger70": 4.25,
+     "trigger50": 3.55,
+     "n": 19
+    },
+    {
+     "quintile": 4,
+     "prior_lo": 2.36,
+     "prior_hi": 4.56,
+     "trigger70": 6.42,
+     "trigger50": 2.45,
+     "n": 19
+    },
+    {
+     "quintile": 5,
+     "prior_lo": 4.56,
+     "prior_hi": 28.36,
+     "trigger70": 8.93,
+     "trigger50": 4.28,
+     "n": 19
+    }
+   ]
+  },
+  "CRWV": {
+   "n_weeks": 73,
+   "unconditional_trigger": 16.47,
+   "prior_week_edges": [
+    -25.62,
+    -8.48,
+    -3.35,
+    2.45,
+    14.05,
+    56.32
+   ],
+   "conditional": [
+    {
+     "quintile": 1,
+     "prior_lo": -25.62,
+     "prior_hi": -8.48,
+     "trigger70": 13.19,
+     "trigger50": 7.92,
+     "n": 15
+    },
+    {
+     "quintile": 2,
+     "prior_lo": -8.48,
+     "prior_hi": -3.35,
+     "trigger70": 12.59,
+     "trigger50": 10.46,
+     "n": 14
+    },
+    {
+     "quintile": 3,
+     "prior_lo": -3.35,
+     "prior_hi": 2.45,
+     "trigger70": 21.34,
+     "trigger50": 12.55,
+     "n": 14
+    },
+    {
+     "quintile": 4,
+     "prior_lo": 2.45,
+     "prior_hi": 14.05,
+     "trigger70": 13.91,
+     "trigger50": 8.73,
+     "n": 14
+    },
+    {
+     "quintile": 5,
+     "prior_lo": 14.05,
+     "prior_hi": 56.32,
+     "trigger70": 19.49,
+     "trigger50": 14.86,
+     "n": 15
+    }
+   ]
+  },
+  "AAOI": {
+   "n_weeks": 96,
+   "unconditional_trigger": 17.39,
+   "prior_week_edges": [
+    -34.07,
+    -9.14,
+    -2.5,
+    4.49,
+    13.22,
+    64.85
+   ],
+   "conditional": [
+    {
+     "quintile": 1,
+     "prior_lo": -34.07,
+     "prior_hi": -9.14,
+     "trigger70": 19.9,
+     "trigger50": 13.33,
+     "n": 19
+    },
+    {
+     "quintile": 2,
+     "prior_lo": -9.14,
+     "prior_hi": -2.5,
+     "trigger70": 22.79,
+     "trigger50": 16.07,
+     "n": 19
+    },
+    {
+     "quintile": 3,
+     "prior_lo": -2.5,
+     "prior_hi": 4.49,
+     "trigger70": 16.01,
+     "trigger50": 9.12,
+     "n": 19
+    },
+    {
+     "quintile": 4,
+     "prior_lo": 4.49,
+     "prior_hi": 13.22,
+     "trigger70": 16.23,
+     "trigger50": 7.96,
+     "n": 19
+    },
+    {
+     "quintile": 5,
+     "prior_lo": 13.22,
+     "prior_hi": 64.85,
+     "trigger70": 13.66,
+     "trigger50": 12.31,
+     "n": 19
+    }
+   ]
+  },
+  "AMZN": {
+   "n_weeks": 96,
+   "unconditional_trigger": 4.17,
+   "prior_week_edges": [
+    -12.11,
+    -2.75,
+    -0.91,
+    0.74,
+    4.2,
+    17.0
+   ],
+   "conditional": [
+    {
+     "quintile": 1,
+     "prior_lo": -12.11,
+     "prior_hi": -2.75,
+     "trigger70": 5.56,
+     "trigger50": 3.6,
+     "n": 19
+    },
+    {
+     "quintile": 2,
+     "prior_lo": -2.75,
+     "prior_hi": -0.91,
+     "trigger70": 3.82,
+     "trigger50": 3.13,
+     "n": 19
+    },
+    {
+     "quintile": 3,
+     "prior_lo": -0.91,
+     "prior_hi": 0.74,
+     "trigger70": 3.59,
+     "trigger50": 2.48,
+     "n": 19
+    },
+    {
+     "quintile": 4,
+     "prior_lo": 0.74,
+     "prior_hi": 4.2,
+     "trigger70": 2.28,
+     "trigger50": 2.04,
+     "n": 19
+    },
+    {
+     "quintile": 5,
+     "prior_lo": 4.2,
+     "prior_hi": 17.0,
+     "trigger70": 5.83,
+     "trigger50": 3.71,
+     "n": 19
+    }
+   ]
+  },
+  "GOOGL": {
+   "n_weeks": 96,
+   "unconditional_trigger": 4.76,
+   "prior_week_edges": [
+    -9.16,
+    -3.13,
+    -0.49,
+    1.24,
+    4.28,
+    14.03
+   ],
+   "conditional": [
+    {
+     "quintile": 1,
+     "prior_lo": -9.16,
+     "prior_hi": -3.13,
+     "trigger70": 8.35,
+     "trigger50": 3.7,
+     "n": 19
+    },
+    {
+     "quintile": 2,
+     "prior_lo": -3.13,
+     "prior_hi": -0.49,
+     "trigger70": 4.65,
+     "trigger50": 2.98,
+     "n": 19
+    },
+    {
+     "quintile": 3,
+     "prior_lo": -0.49,
+     "prior_hi": 1.24,
+     "trigger70": 4.34,
+     "trigger50": 2.43,
+     "n": 19
+    },
+    {
+     "quintile": 4,
+     "prior_lo": 1.24,
+     "prior_hi": 4.28,
+     "trigger70": 4.2,
+     "trigger50": 3.25,
+     "n": 19
+    },
+    {
+     "quintile": 5,
+     "prior_lo": 4.28,
+     "prior_hi": 14.03,
+     "trigger70": 5.36,
+     "trigger50": 3.09,
+     "n": 19
+    }
+   ]
+  },
+  "STX": {
+   "n_weeks": 96,
+   "unconditional_trigger": 10.7,
+   "prior_week_edges": [
+    -21.42,
+    -3.7,
+    0.93,
+    4.45,
+    9.2,
+    24.0
+   ],
+   "conditional": [
+    {
+     "quintile": 1,
+     "prior_lo": -21.42,
+     "prior_hi": -3.7,
+     "trigger70": 12.95,
+     "trigger50": 7.19,
+     "n": 19
+    },
+    {
+     "quintile": 2,
+     "prior_lo": -3.7,
+     "prior_hi": 0.93,
+     "trigger70": 9.53,
+     "trigger50": 5.02,
+     "n": 19
+    },
+    {
+     "quintile": 3,
+     "prior_lo": 0.93,
+     "prior_hi": 4.45,
+     "trigger70": 8.98,
+     "trigger50": 4.35,
+     "n": 19
+    },
+    {
+     "quintile": 4,
+     "prior_lo": 4.45,
+     "prior_hi": 9.2,
+     "trigger70": 9.94,
+     "trigger50": 7.5,
+     "n": 19
+    },
+    {
+     "quintile": 5,
+     "prior_lo": 9.2,
+     "prior_hi": 24.0,
+     "trigger70": 10.45,
+     "trigger50": 9.89,
+     "n": 19
+    }
+   ]
+  },
+  "BE": {
+   "n_weeks": 96,
+   "unconditional_trigger": 16.56,
+   "prior_week_edges": [
+    -23.38,
+    -6.49,
+    -0.86,
+    6.09,
+    17.63,
+    60.52
+   ],
+   "conditional": [
+    {
+     "quintile": 1,
+     "prior_lo": -23.38,
+     "prior_hi": -6.49,
+     "trigger70": 18.51,
+     "trigger50": 11.05,
+     "n": 19
+    },
+    {
+     "quintile": 2,
+     "prior_lo": -6.49,
+     "prior_hi": -0.86,
+     "trigger70": 12.37,
+     "trigger50": 10.2,
+     "n": 19
+    },
+    {
+     "quintile": 3,
+     "prior_lo": -0.86,
+     "prior_hi": 6.09,
+     "trigger70": 16.83,
+     "trigger50": 9.61,
+     "n": 19
+    },
+    {
+     "quintile": 4,
+     "prior_lo": 6.09,
+     "prior_hi": 17.63,
+     "trigger70": 17.13,
+     "trigger50": 12.74,
+     "n": 19
+    },
+    {
+     "quintile": 5,
+     "prior_lo": 17.63,
+     "prior_hi": 60.52,
+     "trigger70": 15.29,
+     "trigger50": 9.69,
+     "n": 19
+    }
+   ]
+  },
+  "MU": {
+   "n_weeks": 96,
+   "unconditional_trigger": 11.41,
+   "prior_week_edges": [
+    -26.82,
+    -3.87,
+    1.07,
+    6.34,
+    10.57,
+    37.73
+   ],
+   "conditional": [
+    {
+     "quintile": 1,
+     "prior_lo": -26.82,
+     "prior_hi": -3.87,
+     "trigger70": 14.28,
+     "trigger50": 7.65,
+     "n": 19
+    },
+    {
+     "quintile": 2,
+     "prior_lo": -3.87,
+     "prior_hi": 1.07,
+     "trigger70": 11.71,
+     "trigger50": 5.05,
+     "n": 19
+    },
+    {
+     "quintile": 3,
+     "prior_lo": 1.07,
+     "prior_hi": 6.34,
+     "trigger70": 9.24,
+     "trigger50": 6.75,
+     "n": 19
+    },
+    {
+     "quintile": 4,
+     "prior_lo": 6.34,
+     "prior_hi": 10.57,
+     "trigger70": 11.17,
+     "trigger50": 7.52,
+     "n": 19
+    },
+    {
+     "quintile": 5,
+     "prior_lo": 10.57,
+     "prior_hi": 37.73,
+     "trigger70": 10.65,
+     "trigger50": 8.62,
+     "n": 19
+    }
+   ]
+  },
+  "SNDK": {
+   "n_weeks": 78,
+   "unconditional_trigger": 18.67,
+   "prior_week_edges": [
+    -38.51,
+    -6.44,
+    2.9,
+    7.87,
+    19.64,
+    47.83
+   ],
+   "conditional": [
+    {
+     "quintile": 1,
+     "prior_lo": -38.51,
+     "prior_hi": -6.44,
+     "trigger70": 23.46,
+     "trigger50": 18.9,
+     "n": 16
+    },
+    {
+     "quintile": 2,
+     "prior_lo": -6.44,
+     "prior_hi": 2.9,
+     "trigger70": 6.83,
+     "trigger50": 5.04,
+     "n": 15
+    },
+    {
+     "quintile": 3,
+     "prior_lo": 2.9,
+     "prior_hi": 7.87,
+     "trigger70": 12.55,
+     "trigger50": 10.42,
+     "n": 15
+    },
+    {
+     "quintile": 4,
+     "prior_lo": 7.87,
+     "prior_hi": 19.64,
+     "trigger70": 10.05,
+     "trigger50": 7.83,
+     "n": 15
+    },
+    {
+     "quintile": 5,
+     "prior_lo": 19.64,
+     "prior_hi": 47.83,
+     "trigger70": 26.33,
+     "trigger50": 18.22,
+     "n": 16
+    }
+   ]
+  }
+ }
+}
