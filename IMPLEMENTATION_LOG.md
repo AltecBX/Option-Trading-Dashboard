@@ -5762,3 +5762,11 @@ over, a stock off the board, last week's trigger never reused, failures
 retried; mutation-checked), `test_when_to_sell.WeeklyTrigger` (3: the
 scanner's trigger is the card's), the offered-once tests, and a render
 test on desktop and phone from the real engine.
+
+Codex on #427, each proven red first:
+- **A touch between two sweeps is a tap.** The scanner samples every 30
+  seconds, so a stock that traded through the trigger and back in between
+  was never alerted. The tap now also reads the session's high from the
+  quote; the alert says "Touched ... Today's high was $X; it is $Y now."
+- **"N of M names" counts the table stocks** added to the quote list, so
+  the status line can no longer say more names were quoted than exist.

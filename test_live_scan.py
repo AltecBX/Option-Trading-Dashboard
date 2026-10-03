@@ -768,3 +768,31 @@ class WhenToSell(Harness):
     def test_the_snapshot_carries_the_list(self):
         LS.refresh_sell(at(9, 0))
         self.assertEqual(2, len(LS.snapshot()["sell"]["rows"]))
+
+    # Codex, #427
+    def test_a_touch_between_two_sweeps_still_counts(self):
+        # Through the trigger and back inside 30 seconds: the quote's high
+        # of day remembers it even though no sampled price was above it.
+        self.only("sell_trigger_tap")
+        LS.refresh_sell(at(9, 0))
+        self.step(at(10, 0), AAA=quote(103.0, high=103.0))
+        self.step(at(10, 0, 30), AAA=quote(104.0, high=105.6))
+        a = self.alerts("sell_trigger_tap")
+        self.assertEqual(1, len(a))
+        self.assertIn("Touched its When to sell trigger of $105.00", a[0]["why"])
+        row = [r for r in LS.sell_list(at(10, 1))["rows"] if r["symbol"] == "AAA"][0]
+        self.assertEqual("tapped", row["status"])
+
+    def test_a_high_from_before_the_trigger_existed_is_not_a_tap_on_the_first_look(self):
+        # The first look only sets the baseline, as for every setup.
+        self.only("sell_trigger_tap")
+        LS.refresh_sell(at(9, 0))
+        self.step(at(10, 0), AAA=quote(103.0, high=103.0))
+        self.assertEqual([], self.alerts())
+
+    def test_the_universe_counts_the_table_stocks_too(self):
+        LS.refresh_sell(at(9, 0))
+        self.step(at(10, 0), AAA=quote(101.0), BBB=quote(99.0), ZZZ=quote(50.0))
+        snap = LS.snapshot()
+        self.assertEqual(3, snap["universe_n"], "AAA and BBB on the board, ZZZ from the table")
+        self.assertLessEqual(snap["quoted_n"], snap["universe_n"])

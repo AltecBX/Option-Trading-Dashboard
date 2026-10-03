@@ -666,6 +666,14 @@ def _sell_for(sym: str, now: datetime) -> dict | None:
     return rec
 
 
+def _sell_touched(p: dict, rec: dict) -> bool:
+    """Has the price reached this week's trigger today: the last price, or
+    the session's high since a touch can fall between two sweeps."""
+    tp = rec["trigger_price"]
+    return ((p.get("last") is not None and p["last"] >= tp)
+            or (p.get("high") is not None and p["high"] >= tp))
+
+
 def _sell_row(rec: dict) -> str:
     reg = rec.get("regime") or {}
     if reg.get("on") and reg.get("prior_week_pct") is not None:
@@ -737,14 +745,20 @@ def _trigger_state(trig: str, p: dict, prev_p: dict | None, st: dict, params: di
             return False, False, None, NO_SELL
         tp = rec["trigger_price"]
         live = last >= tp
+        # A touch between two sweeps still shows in the session's high
+        # (Codex, #427): a 30-second sample alone missed brief taps.
+        touched = _sell_touched(p, rec)
         tapped = rec.get("tapped")
         # Once a week: a tap on an earlier day this week already said it.
-        crossed = live and (tapped is None or tapped == now.date().isoformat())
-        if live:
+        crossed = touched and (tapped is None or tapped == now.date().isoformat())
+        if touched:
+            where = ("" if live else
+                     f" Today's high was {_fmt_money(p['high'])}; it is {_fmt_money(last)} now.")
             return live, crossed, "short", (
-                f"Reached its When to sell trigger of {_fmt_money(tp)} "
+                f"{'Reached' if live else 'Touched'} its When to sell trigger of {_fmt_money(tp)} "
                 f"({rec['trigger_pct'] * 100:+.1f}% from Friday's {_fmt_money(rec['anchor'])}"
-                f"{_sell_row(rec)}). Your system sells the call on the tap: open {p['symbol']} for the strike.")
+                f"{_sell_row(rec)}).{where} Your system sells the call on the tap: "
+                f"open {p['symbol']} for the strike.")
         if tapped:
             return False, False, None, (f"Tapped its trigger of {_fmt_money(tp)} on {tapped}; "
                                         f"now {abs(_pct(tp, last) or 0):.1f}% below it.")
@@ -1038,12 +1052,13 @@ def sweep(now: datetime | None = None) -> dict:
             s = str(r.get("symbol") or r.get("ticker") or "").upper().strip()
             if s:
                 by_sym[s] = r
-        _STATE["universe_n"] = len(by_sym)
         setups_now = [s for s in _SETUPS if s.get("enabled")]
         # The When to sell stocks are watched whether or not they are on the
-        # watchlist board (v5.38).
+        # watchlist board (v5.38), and counted in the universe so "N of M
+        # names" stays true (Codex, #427).
         for sym in (_STATE.get("sell") or {}):
             by_sym.setdefault(sym, {})
+        _STATE["universe_n"] = len(by_sym)
     if not by_sym or _QUOTES_FN is None:
         return {"ok": False, "phase": ph, "error": "no universe or no quote source"}
 
@@ -1120,8 +1135,7 @@ def sweep(now: datetime | None = None) -> dict:
             # A tap is a fact of the week whatever the setups say: the
             # When to sell list shows it and the alert does not repeat.
             rec = pic.get("sell")
-            if (ph == "open" and rec and pic["last"] is not None and pic["last"] >= rec["trigger_price"]
-                    and not rec.get("tapped")):
+            if ph == "open" and rec and not rec.get("tapped") and _sell_touched(pic, rec):
                 rec["tapped"] = now.date().isoformat()
                 _save_sell_taps()
         graded = _grade(now)
