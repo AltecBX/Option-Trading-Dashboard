@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "5.36";
+const APP_VERSION = "5.37";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -5400,6 +5400,17 @@ function App() {
                                  emBand={emBand && emBand.symbol === ticker ? emBand : null}
                                  emStraddle={straddle > 0 ? straddle : null}
                                  expiration={(window.__LIVE && window.__LIVE.expiration) || null} />
+          </CardErrorBoundary>
+        </div>
+
+        {/* When to sell (v5.37): this week's trigger and the wait-or-sell call. */}
+        <div id="jump-when-to-sell" className="jump-anchor" aria-hidden="true"></div>
+        <div style={{marginTop: "var(--row-gap)"}}>
+          <CardErrorBoundary label="When to sell">
+            <WhenToSellCard ticker={ticker}
+                            plan={(window.__LIVE && window.__LIVE.whenToSell) || null}
+                            planTicker={(window.__LIVE && window.__LIVE.ticker) || null}
+                            currentPrice={getLivePrice(ticker) ?? currentPrice} />
           </CardErrorBoundary>
         </div>
 

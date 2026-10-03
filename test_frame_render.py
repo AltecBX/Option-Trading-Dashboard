@@ -250,6 +250,11 @@ def sell_payload(symbol="DELL", strikes=range(82, 119)):
     plan = weekly_sell.build_plan(
         spot=spot, bars=bars, calls=calls, puts=puts, expiration=expiry.isoformat(),
         now=datetime.combine(last, datetime.min.time()) + timedelta(hours=13))
+    # v5.37: When to sell, from the real decision on the same bars and chain
+    # and Jerry's committed regime table (DELL is in it).
+    import when_to_sell
+    when = when_to_sell.build(symbol, spot=spot, bars=bars, calls=calls, puts=puts,
+                              today=last, data_dir=None)
 
     return {
         "ticker": symbol, "fetchedAt": "2026-09-11 13:31",
@@ -264,6 +269,7 @@ def sell_payload(symbol="DELL", strikes=range(82, 119)):
                     "days_to_earnings": None, "week_start": wk.isoformat()},
         "chain": {"calls": calls, "puts": puts, "atm": spot},
         "sellPlan": plan,
+        "whenToSell": when,
         "volRank": None, "volPct": None, "volRankN": None,
         "volRankKind": "hv_proxy", "hvCurrent": None,
         # A past earnings week inside the window, so the chart draws its
@@ -821,6 +827,24 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                   return {found: true, text: (c.innerText || ''),
                           plain: pl ? pl.innerText.trim() : '',
                           clipped: clipped.slice(0, 8)};
+                })(),
+                // v5.37: the When to sell card, with the same overflow guard.
+                wts: (() => {
+                  const c = document.querySelector('.wts-card');
+                  if (!c) return {found: false, text: '', clipped: [], width: 0};
+                  const clipped = [];
+                  for (const e of c.querySelectorAll('*')) {
+                    const cs = getComputedStyle(e);
+                    if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+                    if (e.scrollWidth > e.clientWidth + 1 && e.clientWidth > 0)
+                      clipped.push(String(e.getAttribute('class') || e.tagName).split(' ')[0]
+                                   + ' ' + e.scrollWidth + '>' + e.clientWidth);
+                  }
+                  const v = c.querySelector('.wts-verdict b');
+                  const opts = [...c.querySelectorAll('.wts-opt')].map(o => o.getBoundingClientRect());
+                  return {found: true, text: c.innerText || '', verdict: v ? v.innerText.trim() : '',
+                          clipped: clipped.slice(0, 8), width: c.getBoundingClientRect().width,
+                          sideBySide: opts.length === 2 && Math.abs(opts[0].top - opts[1].top) < 2};
                 })(),
                 oi: (() => {
                   const row = document.querySelector('.oi-chart-row');
@@ -2682,6 +2706,45 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         geo, _ = self._sell_probe(payload=pay)
         self.assertTrue(geo["sell"]["found"], "the panel disappeared without a plan")
         self.assertIn("RANGE LOCATION", geo["sell"]["text"].upper())
+
+    # ── v5.37: When to sell ───────────────────────────────────────────────
+    def test_when_to_sell_shows_the_verdict_and_the_trigger(self):
+        geo, pay = self._sell_probe()
+        w, plan = geo["wts"], pay["whenToSell"]
+        self.assertTrue(w["found"], "the When to sell card did not render")
+        self.assertTrue(plan["trigger_price"], plan.get("reason"))
+        self.assertEqual(plan["headline"], w["verdict"])
+        self.assertIn(f"${plan['trigger_price']:.2f}", w["text"], "the trigger price is not on screen")
+        self.assertIn("SELL NOW", w["text"].upper())
+        self.assertIn("a contract", w["text"])
+        if plan["regime"]["on"]:
+            self.assertIn(f"row {plan['regime']['quintile']} of 5", w["text"])
+        self.assertTrue(w["sideBySide"], "the two choices should sit side by side on a desktop")
+        self.assertEqual(w["clipped"], [])
+
+    def test_when_to_sell_survives_a_phone(self):
+        geo, _ = self._sell_probe(width=440, height=956)
+        w = geo["wts"]
+        self.assertTrue(w["found"])
+        self.assertEqual(w["clipped"], [])
+        self.assertFalse(w["sideBySide"], "on a phone the two choices stack")
+        self.assertLessEqual(geo["doc"]["scrollW"], 440 + 1, "the card pushed the page sideways")
+
+    def test_when_to_sell_says_why_its_trigger_is_the_percentile(self):
+        # Codex, #426: a stock in the table whose last week could not be
+        # read must not be called "not in your table".
+        pay = sell_payload()
+        pay["whenToSell"]["regime"].update({"on": False, "source": "percentile", "why": "no_last_week"})
+        text = self._sell_probe(payload=pay)[0]["wts"]["text"]
+        self.assertIn("Last week's move could not be read", text)
+        self.assertNotIn("not in your table", text)
+
+    def test_when_to_sell_without_an_answer_says_so(self):
+        pay = sell_payload()
+        pay["whenToSell"] = None
+        geo, _ = self._sell_probe(payload=pay)
+        self.assertTrue(geo["wts"]["found"])
+        self.assertIn("Could not work out", geo["wts"]["text"])
 
     def test_the_app_bar_has_one_way_into_the_shortcuts_not_two(self):
         # The bar's "?" and the status line's "Shortcuts" opened the same

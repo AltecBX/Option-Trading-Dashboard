@@ -697,5 +697,24 @@ class TableWithoutEdges(unittest.TestCase):
         self.assertAlmostEqual(full["wait"]["ev"], bare["wait"]["ev"])
 
 
+
+class ATriggerNeverReached(unittest.TestCase):
+    """v5.37: when no past week ever reached the trigger, the tap has no
+    price, but its odds are zero, so waiting is worth the Thursday fallback
+    alone. The decision is still made rather than refused."""
+
+    def test_waiting_is_the_fallback_alone(self):
+        bars = tape(30, GRIND_UP)                 # weekly highs of +2% at most
+        mon = next_monday(30)
+        tbl = {"GRD": {"unconditional_trigger": 15.0}}
+        d = ts.decide(bars[-1]["close"], bars, mon + timedelta(days=1), mon + timedelta(days=4), 0.4,
+                      ticker="GRD", regime_table=tbl)
+        self.assertTrue(d["ok"], d.get("reason"))
+        self.assertEqual(0.0, d["wait"]["p_hit"])
+        self.assertEqual(0, d["wait"]["tap_weeks"])
+        self.assertAlmostEqual(max(0.0, d["wait"]["fallback"]["ev"]), d["wait"]["ev"])
+        self.assertIn(d["action"], ("sell_now", "wait", "skip"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

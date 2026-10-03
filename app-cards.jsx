@@ -15935,6 +15935,121 @@ function FridayWallsCard({ ticker, currentPrice, apiFetch, uwHealth }) {
   );
 }
 
+// ── When to sell (v5.37) ───────────────────────────────────────────────────
+// trigger_sell.py's answer for this week, computed with the ticker page
+// (payload.whenToSell): wait for the trigger, sell now, sell the tap, or
+// skip. The trigger comes from Jerry's regime table: last week's move picks
+// the row. Money is shown per contract (100 shares).
+const WTS_TONE = { wait: "wts-wait", sell_now: "wts-sell", sell_at_trigger: "wts-sell", skip: "wts-skip" };
+function wtsPct(v, dp = 1) { return v == null ? "—" : `${v >= 0 ? "+" : ""}${(v * 100).toFixed(dp)}%`; }
+function wtsUsd(v) { return v == null ? "—" : `$${Number(v).toFixed(2)}`; }
+function wtsContract(v) {
+  if (v == null) return "—";
+  const n = Math.round(v * 100);
+  return `${n < 0 ? "-" : ""}$${Math.abs(n).toLocaleString()}`;
+}
+function wtsDay(iso) {
+  if (!iso) return "";
+  const d = new Date(`${String(iso).slice(0, 10)}T12:00:00`);
+  return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+}
+function WhenToSellCard({ ticker, plan, planTicker, currentPrice }) {
+  if (!ticker) return null;
+  const same = String(planTicker || "").toUpperCase() === String(ticker).toUpperCase();
+  const mine = plan && same ? plan : null;
+  if (!mine) {
+    return (
+      <div className="card wts-card">
+        <div className="card-head"><div>
+          <div className="kicker">Your trigger system</div>
+          <div className="card-title">When to sell · {ticker}</div>
+        </div></div>
+        {same ? <CardNote kind="empty">Could not work out this week's trigger for {ticker} right now.</CardNote>
+              : <CardNote kind="loading">Working out this week's trigger…</CardNote>}
+      </div>
+    );
+  }
+  const p = mine;
+  const reg = p.regime || {};
+  const spot = currentPrice != null && currentPrice > 0 ? currentPrice : p.spot;
+  const toGo = p.trigger_price && spot ? p.trigger_price / spot - 1 : null;
+  const tap = p.tap || {};
+  const now = p.now || {}, wait = p.wait || {};
+  const kicker = p.weekend ? `Your trigger system · Monday plan for the week of ${wtsDay(p.decision_day)}`
+                           : `Your trigger system · expiry ${wtsDay(p.expiry)}`;
+  return (
+    <div className="card wts-card">
+      <div className="card-head"><div>
+        <div className="kicker">{kicker}</div>
+        <div className="card-title">When to sell · {ticker}</div>
+      </div></div>
+      {p.trigger_price == null ? (
+        <CardNote kind="empty">{p.reason || "Not enough history to set a trigger for this stock."}</CardNote>
+      ) : (<>
+        <div className={`wts-verdict ${WTS_TONE[p.action] || ""}`}>
+          <b>{p.headline || "No answer"}</b>
+          {p.monday_rule ? <span className="wts-rule">No Monday sales: re-check Tuesday</span> : null}
+        </div>
+        <div className="wts-trigger">
+          <div className="wts-big">
+            <span className="wts-label">Trigger</span>
+            <span className="wts-px">{wtsUsd(p.trigger_price)}</span>
+            <span className="wts-pct">{wtsPct(p.trigger_pct)} from Friday's {wtsUsd(p.anchor)}</span>
+          </div>
+          <div className="wts-where">
+            {tap.tapped
+              ? (tap.at_spot ? <>Price {wtsUsd(spot)} is at the trigger now.</>
+                             : <>Tapped {tap.first_seen ? wtsDay(tap.first_seen) : "earlier this week"}; price is {wtsUsd(spot)} now.</>)
+              : toGo != null && toGo <= 0
+                ? <>Price {wtsUsd(spot)} is past the trigger now: reload to price the sale.</>
+                : <>Price {wtsUsd(spot)} needs <b>{wtsPct(toGo)}</b> more to reach it.</>}
+          </div>
+        </div>
+        <p className="wts-why">
+          {reg.on
+            ? <>Last week closed <b>{wtsPct(reg.prior_week_pct / 100)}</b>, so this week uses row <b>{reg.quintile} of 5</b> of your table
+                {reg.unconditional != null ? <> (normally {wtsPct(reg.unconditional)})</> : null}.
+                {reg.basis === "quintile" ? ` Odds below come from the ${reg.weeks} past weeks that started like this one.`
+                                          : ` Only ${reg.weeks} past weeks started like this one, so the odds use all weeks.`}</>
+            : reg.why === "no_quintiles"
+              ? <>Your table has one trigger for this stock, not one per row, so that is the trigger.</>
+              : <>{reg.why === "no_last_week" ? "Last week's move could not be read (a missing or short week)"
+                   : reg.why === "no_table" ? "No regime table is loaded"
+                   : reg.why === "not_in_table" ? "This stock is not in your table"
+                   : "The table could not answer for this stock"}, so the trigger is the 70th percentile of its own weekly highs over the last year ({p.weeks} weeks).</>}
+        </p>
+        <div className="wts-pair">
+          <div className="wts-opt">
+            <div className="wts-h">Sell now</div>
+            <div className="wts-line">{now.delta != null ? `${now.delta.toFixed(2)}-delta` : ""} call, strike <b>{wtsUsd(now.strike)}</b></div>
+            <div className="wts-line">Credit about <b>{wtsContract(now.credit)}</b> a contract</div>
+            <div className="wts-line wts-ev">Average on past weeks: <b>{wtsContract(now.ev)}</b></div>
+          </div>
+          <div className="wts-opt">
+            <div className="wts-h">{tap.tapped ? "Sell the tap" : "Wait for the trigger"}</div>
+            <div className="wts-line">{wait.delta != null ? `${wait.delta.toFixed(2)}-delta` : ""} call, strike <b>{wtsUsd(wait.strike)}</b></div>
+            <div className="wts-line">Credit about <b>{wtsContract(wait.credit)}</b> a contract</div>
+            {!tap.tapped && wait.p_hit != null
+              ? (wait.p_hit === 0 && !wait.tap_weeks
+                  ? <div className="wts-line">Never reached in past weeks like this</div>
+                  : <div className="wts-line">Trigger reached in <b>{Math.round(wait.p_hit * 100)}%</b> of weeks like this</div>)
+              : null}
+            <div className="wts-line wts-ev">Average on past weeks{tap.tapped ? "" : ", misses included"}: <b>{wtsContract(wait.ev)}</b></div>
+          </div>
+        </div>
+        {p.trigger_too_far ? <p className="wts-note wts-note-warn">{p.note || "Waiting cost more time value than it gained two weeks running: the trigger is too far out for this stock."}</p> : null}
+        {p.delta && p.delta.capped
+          ? <p className="wts-note">Delta held at {Number(p.delta.adaptive).toFixed(2)} (at the money): in past weeks {reg.on ? "like this one" : "for this stock"}, a stretched tap did not pull back harder, so a deeper call is not earned yet.</p>
+          : null}
+        {p.iv_source === "realized" ? <p className="wts-note">No option IV came back, so prices use the stock's realized volatility.</p> : null}
+        {p.reason && (!p.ok || p.action === "skip")
+          ? <p className="wts-reason">{p.reason.charAt(0).toUpperCase() + p.reason.slice(1)}.</p> : null}
+        {p.table && p.table_as_of ? <p className="wts-foot">Regime table as of {p.table_as_of}.</p> : null}
+      </>)}
+    </div>
+  );
+}
+
 const _memo = React.memo;
 Object.assign(window, { TickerLogo, MarketBreadthCard: _memo(MarketBreadthCard),
   FridayCard: _memo(FridayCard),
@@ -15965,7 +16080,7 @@ Object.assign(window, { TickerLogo, MarketBreadthCard: _memo(MarketBreadthCard),
   StrategyReferenceCard: _memo(StrategyReferenceCard), WatchlistManager, QuickAddRow,
   WatchlistRow, FlashOnChange, SortableTh, PercentCalc: _memo(PercentCalc),
   RollManagerCard: _memo(RollManagerCard),
-  FlowScoreCard: _memo(FlowScoreCard), MoneyMapCard: _memo(MoneyMapCard), FridayWallsCard: _memo(FridayWallsCard), PullbackBacktest,
+  FlowScoreCard: _memo(FlowScoreCard), MoneyMapCard: _memo(MoneyMapCard), FridayWallsCard: _memo(FridayWallsCard), WhenToSellCard: _memo(WhenToSellCard), PullbackBacktest,
   TradeBuilderCard: _memo(TradeBuilderCard), AnalystCard: _memo(AnalystCard),
   PullbackProfileCard: _memo(PullbackProfileCard), BasingCard: _memo(BasingCard),
   Recommendation, RecommendationPair, StrategyCard: _memo(StrategyCard),

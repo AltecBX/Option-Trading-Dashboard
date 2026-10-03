@@ -15483,6 +15483,43 @@ body { overflow: hidden; overscroll-behavior: none; }
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
+   When to sell (v5.37). The verdict first, then the trigger price and how
+   far price has to go, then the two choices side by side. Tokens only.
+   ══════════════════════════════════════════════════════════════════════════ */
+.wts-verdict { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 12px; }
+.wts-verdict b { font-size: 16px; padding: 4px 12px; border-radius: 8px; color: var(--fg);
+                 background: var(--bg-3); border: 1px solid var(--line); }
+.wts-verdict.wts-wait b { background: color-mix(in srgb, var(--warn) 16%, transparent); border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
+.wts-verdict.wts-sell b { background: color-mix(in srgb, var(--up) 18%, transparent); border-color: color-mix(in srgb, var(--up) 55%, transparent); }
+.wts-verdict.wts-skip b { background: color-mix(in srgb, var(--down) 16%, transparent); border-color: color-mix(in srgb, var(--down) 55%, transparent); }
+.wts-rule { font-size: 12.5px; font-weight: 600; color: var(--fg-2); }
+.wts-trigger { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px;
+               padding: 10px 12px; border-radius: 10px; background: var(--bg-2); border: 1px solid var(--line); }
+.wts-big { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.wts-label { font-size: 11.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-3); }
+.wts-px { font-family: var(--font-mono); font-size: 22px; font-weight: 700; color: var(--fg); }
+.wts-pct { font-size: 13px; color: var(--fg-2); }
+.wts-where { font-size: 13px; color: var(--fg-2); }
+.wts-where b { color: var(--fg); font-family: var(--font-mono); }
+.wts-why { margin: 10px 0 12px; font-size: 13px; line-height: 1.5; color: var(--fg-2); }
+.wts-why b { color: var(--fg); }
+.wts-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.wts-opt { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg-2); }
+.wts-h { font-size: 12px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--fg-3); margin-bottom: 6px; }
+.wts-line { font-size: 13px; line-height: 1.5; color: var(--fg-2); }
+.wts-line b { color: var(--fg); font-family: var(--font-mono); }
+.wts-ev { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--line); }
+.wts-note { margin: 10px 0 0; padding: 6px 10px; border-radius: 8px; font-size: 12.5px; line-height: 1.45; color: var(--fg-2);
+            border-left: 3px solid var(--line-2); background: var(--bg-2); }
+.wts-note-warn { color: var(--fg); border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.wts-reason { margin: 10px 0 0; font-size: 12.5px; line-height: 1.45; color: var(--fg-3); }
+.wts-foot { margin: 6px 0 0; font-size: 11.5px; color: var(--fg-3); }
+@media (max-width: 900px) {
+  .wts-pair { grid-template-columns: minmax(0, 1fr); }
+  .wts-px { font-size: 20px; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
    v5.26 — EVERY DESTINATION ON A PHONE
    ──────────────────────────────────────────────────────────────────────────
    Jerry: "Optimize the rest of the tabs for my phone too."

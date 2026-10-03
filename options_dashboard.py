@@ -4127,6 +4127,32 @@ def build_payload(
         print(f"[weekly_sell] {ticker}: {exc}", file=sys.stderr)
         sell_plan = None
 
+    # ── When to sell (when_to_sell.py, v5.37): wait for this week's trigger,
+    # sell now, sell the tap, or skip — trigger_sell's decision on the same
+    # bars and chain, with Jerry's regime table. Never fatal.
+    when_to_sell = None
+    try:
+        import when_to_sell as _wts
+        when_to_sell = _wts.build(
+            ticker,
+            spot=cur_price,
+            bars=daily,
+            calls=calls,
+            puts=puts,
+            earnings_dates=list((earnings_history or {}).get("past") or []) + [earnings_date],
+            today=(datetime.now(_ET).date() if _ET is not None else date.today()),
+            data_dir=_STABLE_DIR,
+            hv=hv_current,
+            # The page's chain may be another week's (a later expiry picked,
+            # or next Friday's on a Friday): then this week's is fetched.
+            chain_expiry=exp,
+            chain_fn=lambda d: (lambda r: (r[0], r[1]) if r[2] == d.isoformat() else ((), ()))(
+                load_option_chain(ticker, d, d.isoformat())),
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"[when_to_sell] {ticker}: {exc}", file=sys.stderr)
+        when_to_sell = None
+
     return {
         "ticker": ticker.upper(),
         "fetchedAt": datetime.now().strftime("%Y-%m-%d %H:%M"),
@@ -4153,6 +4179,7 @@ def build_payload(
         },
         "chain": {"calls": calls, "puts": puts, "atm": atm},
         "sellPlan": sell_plan,
+        "whenToSell": when_to_sell,
         # HV rank — realized-vol proxy for IV rank (labeled as such in the
         # UI). volRankN = sample size (days of 30d-window HV readings).
         "volRank": vol_rank,
