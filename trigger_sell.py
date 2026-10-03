@@ -34,6 +34,39 @@ the timing decision in between, and it encodes one trader's system exactly:
      theta dominates two weeks running, the trigger is set too far out for
      that stock.
 
+  6. THE TRIGGER DEPENDS ON LAST WEEK. A static trigger goes dead after
+     a big up week (COHR's 12.5% hit only 16% of the time the week after a
+     +11.6% week, whose true wick top was 9.25%) and sells too early after
+     a crash (LITE off a -8.6% week typically ran to a 21.5% wick top). A
+     REGIME TABLE (one entry per ticker: `unconditional_trigger`,
+     `prior_week_edges`, and `conditional[]` with `trigger70` /
+     `trigger50` / `prior_lo` / `prior_hi` per quintile of last week's
+     Friday-to-Friday close) picks the trigger from last week's move
+     (`regime_trigger`). `calibrate` and `decide` accept it; given one,
+     `decide` takes the trigger price, the extension metric, the
+     sessions-left lookup and the odds of a tap from the SAME quintile's
+     weeks, and the earned-delta guardrail asks for the pullback evidence
+     inside that quintile only. `optimize_percentile` lets the percentile
+     itself depend on the regime.
+
+THE THETA HISTORY THE APP KEEPS. `decide` returns `history_record`, which
+the app persists once a week per ticker and passes back, most recent last,
+as `theta_history`:
+
+    {"week": "2026-09-28",        # Monday of the decision week (ISO)
+     "ticker": "LITE",            # or None
+     "quintile": 5,               # regime quintile used, None without a table
+     "trigger_pct": 0.145,        # the trigger used, fraction of Friday's close
+     "theta_dominant": true,      # theta loss > strike + delta uplift that week
+     "theta_decay": -0.66,        # per share, as priced
+     "uplift": 0.41}              # strike + delta uplift, per share
+
+`trigger_too_far` compares like for like: it fires when this week's theta
+dominates AND the most recent earlier record in the SAME quintile did too.
+A quiet week after a crash week says nothing about a trigger set for
+breakout weeks. Plain booleans (the v1 contract) are still accepted and
+compared as before.
+
 What this deliberately does NOT claim. Daily bars cannot see the time of
 day a trigger was tapped, so the tap day's whole remaining range is
 charged to the seller. Option prices here are Black-Scholes at today's
@@ -99,6 +132,15 @@ NO_MONDAY_SALE = True      # the rule this system starts from: a flat 20-delta
 FALLBACK_SESSIONS = 2      # no tap by Thursday: sell the 20-delta then, two
                            # sessions of risk (Thursday and Friday)
 
+# ── the regime layer (last week's move picks the trigger) ──
+QUINTILES = 5
+MIN_REGIME_WEEKS = 6       # below this many clean weeks in the quintile, the
+                           # tap odds, sessions left and wick spread come from
+                           # all weeks (and say so). The earned-delta guardrail
+                           # never falls back: too few weeks is no proof.
+PCTILE_GRID = tuple(round(0.30 + 0.05 * i, 2) for i in range(13))   # 0.30 .. 0.90
+                           # the percentiles `optimize_percentile` searches
+
 SESSIONS_PER_YEAR = ws.SESSIONS_PER_YEAR
 _EPS = 1e-9
 
@@ -160,6 +202,8 @@ def friday_weeks(bars: Sequence[dict]) -> list[dict]:
       prior_median  median of the last PRIOR_CLOSES weekly closes up to and
                     including the anchor (None with fewer than
                     MIN_PRIOR_CLOSES): what "recently" means for extension
+      prior_week_pct  LAST week's Friday-to-Friday close, in percent points
+                    (+11.6 = up 11.6%): the regime this week starts in
 
     A week with fewer bars than the calendar has sessions is partial (the
     current week, a gap in the data) and is dropped, as is the first week,
@@ -204,6 +248,8 @@ def friday_weeks(bars: Sequence[dict]) -> list[dict]:
                           "high_pct": r["high"] / anchor - 1.0,
                           "close_pct": r["close"] / anchor - 1.0} for r in g],
                 "prior_median": median(recent) if len(recent) >= MIN_PRIOR_CLOSES else None,
+                "prior_week_pct": ((closes[-1] / closes[-2] - 1.0) * 100.0
+                                   if len(closes) >= 2 and closes[-2] > 0 else None),
             })
         closes.append(g[-1]["close"])
     return out
@@ -271,14 +317,25 @@ def iv_scale(iv_now: Any = None, iv_median: Any = None) -> float:
 
 def calibrate(bars: Sequence[dict], earnings_dates: Iterable[Any] = (),
               pctile: float = TRIGGER_PCTILE, iv_now: Any = None,
-              iv_median: Any = None) -> dict:
+              iv_median: Any = None, regime_table: Any = None,
+              prior_week_close_pct: float | None = None,
+              ticker: str | None = None) -> dict:
     """This stock's trigger: the `pctile` percentile of its clean weekly
     highs from Friday's close, scaled by the volatility regime.
 
+    With `regime_table` and `prior_week_close_pct` (percent points), the
+    raw trigger comes from `regime_trigger` instead: the trigger70 of the
+    quintile last week's move falls in. `regime_table` is the whole table
+    (then `ticker` picks the entry) or one ticker's entry. A ticker the
+    table cannot answer keeps the percentile and says so in
+    `trigger_source`. The IV scaling, the earnings exclusion and the
+    MIN_WEEKS refusal are the same either way.
+
     Returns ok=False with the reason when there are fewer than MIN_WEEKS
     clean weeks. Otherwise: trigger_pct (scaled), raw_trigger_pct, iv_scale,
-    wick_score, p50 / p90 of weekly highs, and the median sessions left in
-    the week after its high printed."""
+    wick_score, p50 / p90 of weekly highs, the median sessions left in the
+    week after its high printed, `trigger_source` ("percentile" or
+    "regime" or "unconditional") and `regime` (what the table said)."""
     moves = weekly_high_moves(bars, earnings_dates)
     n = len(moves)
     if n < MIN_WEEKS:
@@ -288,10 +345,16 @@ def calibrate(bars: Sequence[dict], earnings_dates: Iterable[Any] = (),
                 "moves": moves}
     highs = [w["high_pct"] for w in moves]
     raw = ws.percentile(highs, pctile)
+    source, info = "percentile", None
+    if regime_table is not None and prior_week_close_pct is not None:
+        info = regime_info(ticker, prior_week_close_pct, regime_table)
+        if info["trigger"] is not None:
+            raw, source = info["trigger"], info["source"]
     scale = iv_scale(iv_now, iv_median)
     return {
         "schema": SCHEMA, "ok": True, "n_weeks": n, "reason": None,
-        "pctile": pctile,
+        "pctile": pctile if source == "percentile" else None,
+        "trigger_source": source, "regime": info,
         "raw_trigger_pct": raw,
         "iv_scale": scale,
         "trigger_pct": raw * scale,
@@ -302,6 +365,172 @@ def calibrate(bars: Sequence[dict], earnings_dates: Iterable[Any] = (),
         "median_hit_idx": median(w["hit_idx"] for w in moves),
         "moves": moves,
     }
+
+
+# ── 4b. the regime: last week's move picks this week's trigger ────────────
+def _table_entry(table: Any, ticker: str | None) -> dict | None:
+    """One ticker's entry from the regime table. Accepts {TICKER: entry},
+    {"tickers": {...}}, a list of entries carrying "ticker"/"symbol", or a
+    single entry passed directly (then `ticker` is not needed)."""
+    if not table:
+        return None
+    if isinstance(table, Mapping) and ("unconditional_trigger" in table or "conditional" in table):
+        return dict(table)
+    t = str(ticker or "").upper().strip()
+    if not t:
+        return None
+    if isinstance(table, Mapping):
+        if isinstance(table.get("tickers"), (Mapping, list)):
+            return _table_entry(table["tickers"], t)
+        for k, v in table.items():
+            if str(k).upper() == t and isinstance(v, Mapping):
+                return dict(v)
+        return None
+    if isinstance(table, list):
+        for v in table:
+            if isinstance(v, Mapping) and str(v.get("ticker") or v.get("symbol") or "").upper() == t:
+                return dict(v)
+    return None
+
+
+def _entry_scale(entry: Mapping) -> float:
+    """1/100 when the entry quotes triggers in percent points (12.5), 1 when
+    in fractions (0.125). Read from the triggers themselves: no stock's
+    weekly wick trigger is over 100%, and none worth trading is under 1%."""
+    vals = [ws._f(entry.get("unconditional_trigger"))]
+    for c in entry.get("conditional") or []:
+        if isinstance(c, Mapping):
+            vals += [ws._f(c.get("trigger70")), ws._f(c.get("trigger50"))]
+    vals = [abs(v) for v in vals if v is not None]
+    return 0.01 if vals and max(vals) > 1.0 else 1.0
+
+
+def _edges_pct(entry: Mapping, scale: float) -> list[float] | None:
+    """The quintile cut points of last week's close, in percent points."""
+    e = [ws._f(x) for x in (entry.get("prior_week_edges") or [])]
+    e = [x for x in e if x is not None]
+    if len(e) < QUINTILES - 1:
+        return None
+    k = 100.0 * scale              # fraction-unit tables are lifted to percent points
+    return sorted(x * k for x in e)
+
+
+def quintile_of(value_pct: float, edges_pct: Sequence[float]) -> int:
+    """Which quintile last week's close falls in. With the six edges
+    [min, q20, q40, q60, q80, max], value <= edges[i+1] falls in quintile
+    i+1, so a value exactly on an edge lands in the LOWER quintile; below
+    the first edge is quintile 1 and above the last is quintile 5. Four
+    interior cut points work the same way."""
+    e = list(edges_pct)
+    inner = e[1:-1] if len(e) == QUINTILES + 1 else e
+    for i, cut in enumerate(inner[:QUINTILES - 1]):
+        if value_pct <= cut + _EPS:
+            return i + 1
+    return QUINTILES
+
+
+def regime_info(ticker: str | None, prior_week_close_pct: float | None, table: Any) -> dict:
+    """Everything the table says for this ticker and last week's move.
+
+    trigger      the trigger to use, as a fraction of Friday's close: the
+                 quintile's trigger70, or the entry's unconditional_trigger
+                 when it has no quintiles (or no move was given), or None
+                 when the table has no entry at all
+    source       "regime", "unconditional" or "missing"
+    quintile     1..5, None unless the regime answered
+    trigger50 / prior_lo / prior_hi / n   from the quintile, as given
+    edges_pct    the cut points in percent points (for classifying weeks)
+    """
+    out: dict[str, Any] = {"ticker": (str(ticker).upper() if ticker else None), "source": "missing",
+                           "trigger": None, "quintile": None, "trigger50": None,
+                           "prior_lo": None, "prior_hi": None, "n": None,
+                           "unconditional": None, "edges_pct": None,
+                           "prior_week_close_pct": prior_week_close_pct}
+    entry = _table_entry(table, ticker)
+    if entry is None:
+        return out
+    sc = _entry_scale(entry)
+    unc = ws._f(entry.get("unconditional_trigger"))
+    out["unconditional"] = unc * sc if unc is not None else None
+    edges = _edges_pct(entry, sc)
+    out["edges_pct"] = edges
+    cond = [c for c in (entry.get("conditional") or []) if isinstance(c, Mapping)]
+    pw = ws._f(prior_week_close_pct)
+    q = None
+    if pw is not None and cond:
+        if edges:
+            q = quintile_of(pw, edges)
+        else:
+            # No edges: the quintiles' own bounds, clamped at the ends.
+            bounds = sorted(((ws._f(c.get("prior_lo")), ws._f(c.get("prior_hi")), i + 1)
+                             for i, c in enumerate(cond)), key=lambda t: (t[0] is None, t[0]))
+            q = bounds[-1][2]
+            for lo, hi, qi in bounds:
+                if hi is not None and pw <= hi * 100.0 * sc + _EPS:
+                    q = qi
+                    break
+    chosen = None
+    if q is not None:
+        chosen = next((c for c in cond if int(ws._f(c.get("quintile")) or 0) == q), None)
+        if chosen is None and 1 <= q <= len(cond):
+            chosen = cond[q - 1]
+    t70 = ws._f(chosen.get("trigger70")) if chosen else None
+    if t70 is not None:
+        out.update({"source": "regime", "trigger": t70 * sc, "quintile": q,
+                    "trigger50": (ws._f(chosen.get("trigger50")) * sc
+                                  if ws._f(chosen.get("trigger50")) is not None else None),
+                    "prior_lo": ws._f(chosen.get("prior_lo")), "prior_hi": ws._f(chosen.get("prior_hi")),
+                    "n": chosen.get("n") or chosen.get("weeks")})
+    elif out["unconditional"] is not None:
+        out.update({"source": "unconditional", "trigger": out["unconditional"]})
+    return out
+
+
+def regime_trigger(ticker: str | None, prior_week_close_pct: float | None, table: Any) -> float | None:
+    """This week's trigger (a fraction of Friday's close) from last week's
+    Friday-to-Friday close in percent points: the trigger70 of its
+    quintile, the ticker's unconditional_trigger when the table has no
+    quintiles for it, None when the table has no entry for it at all."""
+    return regime_info(ticker, prior_week_close_pct, table)["trigger"]
+
+
+def empirical_edges(moves: Sequence[dict]) -> list[float] | None:
+    """Quintile edges of last week's close from the weeks themselves, for
+    when no table is given: [min, p20, p40, p60, p80, max] in percent points."""
+    v = [w["prior_week_pct"] for w in moves if w.get("prior_week_pct") is not None]
+    if len(v) < QUINTILES:
+        return None
+    return [ws.percentile(v, i / QUINTILES) for i in range(QUINTILES + 1)]
+
+
+def regime_weeks(moves: Sequence[dict], quintile: int, edges_pct: Sequence[float] | None) -> list[dict]:
+    """The weeks that STARTED in this quintile (by their prior week's close)."""
+    if not edges_pct:
+        return []
+    return [w for w in moves if w.get("prior_week_pct") is not None
+            and quintile_of(w["prior_week_pct"], edges_pct) == quintile]
+
+
+def _left_after_first_tap(weeks: Sequence[dict], trigger_pct: float) -> list[int]:
+    out = []
+    for w in weeks:
+        j = _first_cross(w, trigger_pct)
+        if j is not None:
+            out.append(len(w["days"]) - 1 - j)
+    return out
+
+
+def quintile_sessions_left(bars: Sequence[dict], quintile: int, trigger_pct: float, *,
+                           edges_pct: Sequence[float] | None = None,
+                           earnings_dates: Iterable[Any] = ()) -> float | None:
+    """Median sessions left in the week after the FIRST tap of
+    `trigger_pct`, over the clean weeks that started in `quintile` only.
+    Edges from the regime table when given, else from the weeks themselves.
+    None when no week in the quintile reached the trigger."""
+    moves = weekly_high_moves(bars, earnings_dates)
+    weeks = regime_weeks(moves, quintile, edges_pct or empirical_edges(moves))
+    left = _left_after_first_tap(weeks, trigger_pct)
+    return median(left) if left else None
 
 
 # ── 5. what happens after the tap ─────────────────────────────────────────
@@ -449,6 +678,107 @@ def ev_short_call(spot: float, strike: float, credit: float,
     return total / len(windows)
 
 
+# ── 6b. the percentile, by regime ─────────────────────────────────────────
+def realized_vol(bars: Sequence[dict]) -> float | None:
+    """Annualised standard deviation of daily log returns, the volatility
+    used when no implied volatility is given."""
+    c = [r["close"] for r in _rows(bars)]
+    lr = [math.log(b / a) for a, b in zip(c, c[1:]) if a > 0 and b > 0]
+    if len(lr) < 20:
+        return None
+    m = sum(lr) / len(lr)
+    var = sum((x - m) ** 2 for x in lr) / (len(lr) - 1)
+    return math.sqrt(var * SESSIONS_PER_YEAR) or None
+
+
+def _regime_context(ticker, quintile, bars, regime_table, earnings_dates):
+    moves = weekly_high_moves(bars, earnings_dates)
+    entry = _table_entry(regime_table, ticker) if regime_table is not None else None
+    edges = _edges_pct(entry, _entry_scale(entry)) if entry else None
+    edges = edges or empirical_edges(moves)
+    return moves, regime_weeks(moves, quintile, edges)
+
+
+def _premium_detail(weeks: Sequence[dict], trigger_pct: float, sigma: float,
+                    r: float = 0.045) -> dict | None:
+    if not weeks or not sigma:
+        return None
+    n = len(weeks)
+    hits = [w for w in weeks if w["high_pct"] >= trigger_pct - _EPS]
+    p = len(hits) / n
+    left = _left_after_first_tap(weeks, trigger_pct)
+    if not left:
+        return {"p_hit": p, "premium": 0.0, "price": 0.0, "sessions": None, "delta": None, "n_weeks": n}
+    sessions = max(1, int(round(median(left) + 1)))          # the tap day counts
+    spread = _spread(weeks)
+    exts = [e for e in (extension(w["anchor"] * (1.0 + trigger_pct), w.get("prior_median"), spread)
+                        for w in hits) if e is not None]
+    raw = delta_for_extension(median(exts) if exts else None)
+    proven = after_trigger_stats(weeks, trigger_pct)["deep_retrace_proven"]
+    delta = raw if (raw <= DELTA_MID or proven) else DELTA_MID
+    spot = 1.0 + trigger_pct                                  # anchor = 1: a fraction of Friday's close
+    k = delta_strike(spot, sessions, sigma, delta, r=r)
+    price = call_price(spot, k, sessions, sigma, r=r) if k else 0.0
+    return {"p_hit": p, "premium": p * price, "price": price, "sessions": sessions,
+            "delta": delta, "delta_capped": delta < raw, "n_weeks": n}
+
+
+def expected_weekly_premium(ticker: str | None, quintile: int, trigger_pct: float,
+                            bars: Sequence[dict], regime_table: Any = None, *,
+                            iv: Any = None, earnings_dates: Iterable[Any] = (),
+                            r: float = 0.045) -> float | None:
+    """P(weekly high >= trigger | quintile) x the Black-Scholes price
+    (`metrics._bs_price`) of the adaptive-delta call sold AT the trigger,
+    with that quintile's median sessions left after the first tap (plus
+    the tap day). Per unit of Friday's close (0.012 = 1.2% of it).
+
+    The delta is the same adaptive map `decide` uses, from the quintile's
+    median extension at this trigger, and capped at the money unless the
+    quintile's own stretched weeks proved the pullback. Volatility is `iv`,
+    or the bars' realized volatility. Premium only, as specified: what the
+    trigger collects, not what assignment costs. That is why it leans to
+    lower percentiles, and why `decide` (which does charge assignment) has
+    the last word. None without enough weeks in the quintile."""
+    _moves, weeks = _regime_context(ticker, quintile, bars, regime_table, earnings_dates)
+    if len(weeks) < MIN_REGIME_WEEKS:
+        return None
+    sigma = _sigma(iv) or realized_vol(bars)
+    d = _premium_detail(weeks, trigger_pct, sigma, r=r)
+    return d["premium"] if d else None
+
+
+def optimize_percentile(ticker: str | None, quintile: int, bars: Sequence[dict],
+                        regime_table: Any = None, *, iv: Any = None,
+                        earnings_dates: Iterable[Any] = (), grid: Sequence[float] = PCTILE_GRID,
+                        r: float = 0.045) -> dict:
+    """The trigger percentile that maximizes `expected_weekly_premium` for
+    this regime: each percentile on `grid` (0.30 to 0.90) is turned into a
+    trigger from the quintile's OWN weekly highs and scored. The percentile
+    stops being a fixed 0.70 and becomes a property of the regime.
+
+    Returns {ok, percentile, trigger_pct, premium, n_weeks, grid: [{pctile,
+    trigger_pct, p_hit, price, sessions, delta, premium}]}; ok=False with
+    the reason when the quintile has fewer than MIN_REGIME_WEEKS weeks."""
+    _moves, weeks = _regime_context(ticker, quintile, bars, regime_table, earnings_dates)
+    if len(weeks) < MIN_REGIME_WEEKS:
+        return {"ok": False, "quintile": quintile, "n_weeks": len(weeks),
+                "reason": f"only {len(weeks)} clean weeks in quintile {quintile} (need {MIN_REGIME_WEEKS})"}
+    sigma = _sigma(iv) or realized_vol(bars)
+    if not sigma:
+        return {"ok": False, "quintile": quintile, "n_weeks": len(weeks),
+                "reason": "no implied volatility and too little history for a realized one"}
+    highs = [w["high_pct"] for w in weeks]
+    rows = []
+    for p in grid:
+        t = ws.percentile(highs, p)
+        d = _premium_detail(weeks, t, sigma, r=r)
+        rows.append({"pctile": p, "trigger_pct": t, **(d or {"premium": 0.0})})
+    best = max(rows, key=lambda x: (x["premium"], -abs(x["pctile"] - TRIGGER_PCTILE)))
+    return {"ok": True, "quintile": quintile, "n_weeks": len(weeks), "sigma": sigma,
+            "percentile": best["pctile"], "trigger_pct": best["trigger_pct"],
+            "premium": best["premium"], "grid": rows}
+
+
 # ── 7. wait or sell ───────────────────────────────────────────────────────
 def _anchor_close(rows: list[dict], today: date) -> float | None:
     """The close the trigger is measured from: the last bar before this
@@ -461,7 +791,8 @@ def _anchor_close(rows: list[dict], today: date) -> float | None:
 def decide(spot: float, bars: Sequence[dict], today: Any, friday_expiry: Any,
            iv_now: Any, *, iv_median: Any = None, earnings_dates: Iterable[Any] = (),
            anchor_close: float | None = None,
-           theta_history: Sequence[bool] = (), tapped: bool | None = None,
+           theta_history: Sequence[Any] = (), tapped: bool | None = None,
+           ticker: str | None = None, regime_table: Any = None,
            r: float = 0.045) -> dict:
     """Wait for the trigger, or sell now? Both priced, per share.
 
@@ -504,6 +835,16 @@ def decide(spot: float, bars: Sequence[dict], today: Any, friday_expiry: Any,
     numbers kept: that is the rule the system starts from. The Thursday
     fallback shrinks to the sessions that will actually be left after
     today and vanishes on Friday.
+
+    REGIME. With `regime_table` (and `ticker`, unless the table is one
+    ticker's entry), last week's Friday-to-Friday close is read from
+    `bars`, its quintile is found, and that quintile's trigger70 is the
+    trigger (IV-scaled as usual). The same quintile's weeks then supply the
+    extension's wick spread, the odds of a tap and the sessions left after
+    one, and the shortfall pool. Below MIN_REGIME_WEEKS those fall back to
+    all weeks, and `regime.basis` says so. The earned-delta guardrail is
+    evaluated inside the quintile only and never falls back. A ticker the
+    table cannot answer keeps the v1 percentile trigger.
     """
     today_d, exp_d = ws._as_date(today), ws._as_date(friday_expiry)
     out: dict[str, Any] = {"schema": SCHEMA, "ok": False, "action": None, "reason": None}
@@ -512,14 +853,37 @@ def decide(spot: float, bars: Sequence[dict], today: Any, friday_expiry: Any,
     if spot <= 0 or today_d is None or exp_d is None or not sigma:
         out["reason"] = "needs a live price, today's date, the Friday expiry and implied volatility"
         return out
-    cal = calibrate(bars, earnings_dates, iv_now=iv_now, iv_median=iv_median)
+    rows = _rows(bars)
+    wk_closes = [r_["close"] for r_ in _weekly_closes(rows, today_d)]
+    prior_pct = ((wk_closes[-1] / wk_closes[-2] - 1.0) * 100.0
+                 if len(wk_closes) >= 2 and wk_closes[-2] > 0 else None)
+    cal = calibrate(bars, earnings_dates, iv_now=iv_now, iv_median=iv_median,
+                    regime_table=regime_table,
+                    prior_week_close_pct=prior_pct if regime_table is not None else None,
+                    ticker=ticker)
     out["calibration"] = {k: v for k, v in cal.items() if k != "moves"}
     if not cal["ok"]:
         out["reason"] = cal["reason"]
         return out
     moves = cal["moves"]
     tp = cal["trigger_pct"]
-    rows = _rows(bars)
+    # ── the regime, when a table is given: one quintile for every input below
+    info = cal.get("regime")
+    regime_on = bool(info and info.get("source") == "regime")
+    quintile = info["quintile"] if regime_on else None
+    if regime_on:
+        edges = info.get("edges_pct") or empirical_edges(moves)
+        rmoves = regime_weeks(moves, quintile, edges)
+        guard_moves = rmoves
+        base = rmoves if len(rmoves) >= MIN_REGIME_WEEKS else moves
+    else:
+        rmoves, guard_moves, base = [], moves, moves
+    out["regime"] = {"on": regime_on, "ticker": (str(ticker).upper() if ticker else None),
+                     "prior_week_close_pct": prior_pct,
+                     "quintile": quintile, "source": (info or {}).get("source") if info else None,
+                     "table_trigger": (info or {}).get("trigger") if info else None,
+                     "weeks_in_quintile": len(rmoves) if regime_on else None,
+                     "basis": ("quintile" if regime_on and base is rmoves else "all weeks")}
     anchor = ws._f(anchor_close) or _anchor_close(rows, today_d)
     if not anchor:
         out["reason"] = "no prior Friday close to measure the trigger from"
@@ -532,10 +896,12 @@ def decide(spot: float, bars: Sequence[dict], today: Any, friday_expiry: Any,
     out.update({"anchor": anchor, "trigger_pct": tp, "trigger_price": trigger_price,
                 "spot": spot, "sessions_now": s_now, "sigma": sigma})
 
-    stats = after_trigger_stats(moves, tp)
+    # The guardrail's evidence: this stock's own trigger weeks, and with a
+    # regime only those that started in the same quintile.
+    stats = after_trigger_stats(guard_moves, tp)
     out["after_trigger"] = stats
-    spread = _spread(moves)
-    closes = [r_["close"] for r_ in _weekly_closes(rows, today_d)]
+    spread = _spread(base)
+    closes = wk_closes
     pm = median(closes[-PRIOR_CLOSES:]) if len(closes[-PRIOR_CLOSES:]) >= MIN_PRIOR_CLOSES else None
     ext = extension(trigger_price, pm, spread)
     raw_delta = delta_for_extension(ext)
@@ -544,9 +910,16 @@ def decide(spot: float, bars: Sequence[dict], today: Any, friday_expiry: Any,
     if raw_delta > DELTA_MID and not stats["deep_retrace_proven"]:
         delta_w, capped = DELTA_MID, True
     out["extension"] = ext
-    out["delta"] = {"adaptive": delta_w, "uncapped": raw_delta, "capped": capped,
-                    "why_capped": ("deep extension has not shown a harder retrace in this stock's "
-                                   "own trigger weeks, so the delta stays at the money") if capped else None}
+    if capped and regime_on:
+        why = (f"in quintile {quintile} (weeks after a prior week like this one's {prior_pct:+.1f}%), "
+               f"the stretched trigger weeks have not shown a harder pullback than the shallow ones "
+               f"({len(guard_moves)} weeks in that quintile), so the delta stays at the money")
+    elif capped:
+        why = ("deep extension has not shown a harder retrace in this stock's "
+               "own trigger weeks, so the delta stays at the money")
+    else:
+        why = None
+    out["delta"] = {"adaptive": delta_w, "uncapped": raw_delta, "capped": capped, "why_capped": why}
 
     # ── EV(now)
     windows_now = ws.forward_windows(bars, s_now, drop_last_dated=today_d)
@@ -566,7 +939,7 @@ def decide(spot: float, bars: Sequence[dict], today: Any, friday_expiry: Any,
     # ── p_hit and the sessions left after a tap, from today's weekday on
     idx_today = today_d.weekday()
     still_open, crossed_later, left_after = 0, [], []
-    for w in moves:
+    for w in base:
         j = _first_cross(w, tp)
         if j is not None and w["days"][j]["idx"] < idx_today:
             continue                      # already tapped before today: not this decision
@@ -584,7 +957,7 @@ def decide(spot: float, bars: Sequence[dict], today: Any, friday_expiry: Any,
     sale_price = spot if tapped else trigger_price
     k_w = delta_strike(sale_price, s_hit, sigma, delta_w, r=r)
     c_w = call_price(sale_price, k_w, s_hit, sigma, r=r)
-    pool = crossed_later or [w for w in moves if _first_cross(w, tp) is not None]
+    pool = crossed_later or [w for w in base if _first_cross(w, tp) is not None]
     if pool:
         short = [max(0.0, sale_price * ((1.0 + w["term_pct"]) / (1.0 + tp)) - k_w) for w in pool]
         ev_hit = c_w - sum(short) / len(short)
@@ -623,15 +996,19 @@ def decide(spot: float, bars: Sequence[dict], today: Any, friday_expiry: Any,
     weighted = {"theta_decay": p_hit * theta, "strike_uplift": p_hit * strike_up,
                 "delta_uplift": p_hit * delta_up}
     theta_dominant = (-theta) > (strike_up + delta_up)
-    history = list(theta_history or [])
     out["legs"] = {
         "theta_decay": theta, "strike_uplift": strike_up, "delta_uplift": delta_up,
         "weighted": weighted,
         "risk_and_miss": (diff - sum(weighted.values())) if diff is not None else None,
         "ev_diff": diff,
         "theta_dominant": theta_dominant,
-        "trigger_too_far": bool(theta_dominant and history and history[-1]),
+        "trigger_too_far": theta_too_far(theta_dominant, theta_history, quintile),
     }
+    out["history_record"] = {"week": _monday(today_d).isoformat(),
+                             "ticker": (str(ticker).upper() if ticker else None),
+                             "quintile": quintile, "trigger_pct": tp,
+                             "theta_dominant": bool(theta_dominant),
+                             "theta_decay": theta, "uplift": strike_up + delta_up}
     if out["legs"]["trigger_too_far"]:
         out["legs"]["note"] = ("Theta has outweighed the uplift two weeks running: the trigger "
                                "is set too far out for this stock.")
@@ -674,6 +1051,23 @@ def decide(spot: float, bars: Sequence[dict], today: Any, friday_expiry: Any,
                              f"{ev_now:.2f} a share against {ev_wait:.2f} for waiting, so re-check "
                              f"Tuesday or sell the tap at {trigger_price:.2f}")
     return out
+
+
+def theta_too_far(theta_dominant: bool, history: Sequence[Any], quintile: int | None) -> bool:
+    """Two weeks running, like for like. `history` items are the records
+    `decide` returns as `history_record` (see the module docstring), most
+    recent last; the most recent one in the SAME quintile must have been
+    theta-dominant too. Plain booleans (the v1 contract) compare to the
+    last entry, as before."""
+    if not theta_dominant:
+        return False
+    items = list(history or [])
+    if not items:
+        return False
+    if not isinstance(items[-1], Mapping):
+        return bool(items[-1])
+    same = [h for h in items if isinstance(h, Mapping) and h.get("quintile") == quintile]
+    return bool(same and same[-1].get("theta_dominant"))
 
 
 def _weekly_closes(rows: list[dict], today: date) -> list[dict]:

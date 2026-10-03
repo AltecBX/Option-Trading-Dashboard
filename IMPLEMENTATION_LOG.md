@@ -5606,3 +5606,55 @@ Codex on #424, all five right and fixed (the tests fail on the old code):
 - **No Monday sale (`NO_MONDAY_SALE`).** On Monday a "sell_now" becomes
   "wait" with `monday_rule` set and the numbers kept. A Monday TAP still
   sells: that is the system working, not the flat Monday sale it replaces.
+
+## trigger_sell v2 — regime-conditional triggers
+
+Jerry: the static 70th-percentile trigger goes dead after big weeks and
+sells too early after crashes. COHR's 12.5% hit only 16% of the time the
+week after a +11.6% week, whose real wick top was 9.25%. LITE off a −8.6%
+week ran to a 21.5% wick top. His regime table (per ticker:
+`unconditional_trigger`, `prior_week_edges`, and `conditional[]` with
+trigger70/trigger50/prior_lo/prior_hi per quintile of last week's
+Friday-to-Friday close) now picks the trigger.
+
+- **`regime_trigger` / `regime_info`.** The quintile comes from the
+  edges. A value on an edge falls in the lower quintile; outliers clamp to
+  1 or 5; four interior cut points also work. It returns that quintile's
+  trigger70. A ticker with no quintiles uses its `unconditional_trigger`,
+  and one not in the table returns None (callers keep the v1 percentile).
+  Units are read per ticker (percent points or fractions), and the table
+  may be a map, a `{"tickers": ...}` wrapper, a list, or a single entry.
+- **`friday_weeks`** records each week's `prior_week_pct`, the regime it
+  started in.
+- **`calibrate(..., regime_table, prior_week_close_pct, ticker)`.** The
+  regime's trigger70 replaces the percentile. The IV scaling, earnings
+  exclusion and MIN_WEEKS refusal are unchanged; the result carries
+  `trigger_source` and `regime`.
+- **`decide(..., ticker, regime_table)`.**
+  - It reads last week's close from the bars.
+  - From that ONE quintile it takes the trigger price, the extension's
+    wick spread, the odds of a tap, the sessions left after one, and the
+    shortfall pool. Those fall back to all weeks below MIN_REGIME_WEEKS
+    (6), and `regime.basis` says so.
+  - The earned-delta guardrail is evaluated inside the quintile only and
+    never falls back. Its reason names the quintile and last week's move.
+- **`quintile_sessions_left`**: median sessions after the first tap, over
+  that quintile's weeks only.
+- **`expected_weekly_premium`** = P(high ≥ trigger | quintile) × the BS
+  price of the adaptive-delta call at the trigger, using the quintile's
+  sessions left. **`optimize_percentile`** grid-searches 0.30–0.90 per
+  regime. The objective is premium only, as specified, so it leans low;
+  `decide` still charges assignment.
+- **Theta history is now per regime.** `decide` returns `history_record`
+  {week, ticker, quintile, trigger_pct, theta_dominant, theta_decay,
+  uplift} for the app to persist. `trigger_too_far` needs the most recent
+  record in the SAME quintile to have been theta-dominant. v1 booleans
+  still work.
+
+Everything existing is unchanged without a table: all 29 v1 tests pass.
+20 new tests: (b)–(f) on synthetic tapes and a synthetic table in the real
+table's shape, plus units/shapes, the calibration contract, quintile
+sessions, the premium formula, thin quintiles and like-for-like theta.
+(a) and the real (c) read the real table from `$JERRY_REGIME_TABLE` or
+`data/conditional_triggers.json`, and skip with that message until it is
+there.
