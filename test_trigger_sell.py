@@ -64,6 +64,25 @@ class Weeks(unittest.TestCase):
         bars = tape(3)[:-2]                      # the last week stops on Wednesday
         self.assertEqual(2, len(ts.friday_weeks(bars)))
 
+    def test_a_week_after_a_cut_short_week_is_not_anchored_mid_week(self):
+        """Codex, #424: if Thursday and Friday are missing, the next week must
+        not be measured from Wednesday's close. Both weeks drop."""
+        bars = tape(4)
+        wk1 = START + timedelta(weeks=1)
+        cut = {(wk1 + timedelta(days=3)).isoformat(), (wk1 + timedelta(days=4)).isoformat()}
+        weeks = ts.friday_weeks([b for b in bars if b["date"] not in cut])
+        self.assertEqual([START.isoformat(), (START + timedelta(weeks=3)).isoformat()],
+                         [w["start"] for w in weeks])
+
+    def test_a_holiday_friday_still_anchors_the_next_week(self):
+        # Good Friday 2025-04-18: the week ends Thursday, and that is its close.
+        bars = [b for b in tape(16) if b["date"] != "2025-04-18"]
+        weeks = ts.friday_weeks(bars)
+        self.assertEqual(16, len(weeks))
+        after = [w for w in weeks if w["start"] == "2025-04-21"][0]
+        thursday = [b for b in bars if b["date"] == "2025-04-17"][0]["close"]
+        self.assertAlmostEqual(thursday, after["anchor"])
+
     def test_the_first_week_without_an_anchor_is_dropped(self):
         bars = tape(3)[1:]                       # no Friday before week one
         self.assertEqual(2, len(ts.friday_weeks(bars)))
@@ -237,6 +256,67 @@ class Decide(unittest.TestCase):
         d = ts.decide(self.anchor * 1.095, self.bars, self.monday + timedelta(days=2), self.friday, 0.45)
         self.assertEqual("sell_at_trigger", d["action"])
         self.assertEqual(3, d["wait"]["sessions_at_tap"])
+
+    def test_a_tap_earlier_this_week_counts_even_after_a_pullback(self):
+        """Codex, #424: the trigger was tapped Tuesday and price slipped back.
+        That is the sale, not a reason to wait for a second tap."""
+        trig = self.anchor * 1.09
+        week = [{"date": self.monday.isoformat(), "close": self.anchor * 1.03,
+                 "high": self.anchor * 1.035, "low": self.anchor * 1.0},
+                {"date": (self.monday + timedelta(days=1)).isoformat(), "close": self.anchor * 1.06,
+                 "high": trig * 1.001, "low": self.anchor * 1.03}]
+        wed = self.monday + timedelta(days=2)
+        d = ts.decide(self.anchor * 1.07, self.bars + week, wed, self.friday, 0.45)
+        self.assertEqual("sell_at_trigger", d["action"], d["reason"])
+        self.assertEqual((self.monday + timedelta(days=1)).isoformat(), d["tap"]["first_seen"])
+        self.assertFalse(d["tap"]["at_spot"])
+        self.assertIn("was tapped", d["reason"])
+        self.assertEqual(3, d["wait"]["sessions_at_tap"], "priced on the sessions actually left")
+        # and the caller can say so directly
+        d = ts.decide(self.anchor * 1.07, self.bars, wed, self.friday, 0.45, tapped=True)
+        self.assertEqual("sell_at_trigger", d["action"])
+
+    def test_a_tapped_skip_does_not_say_sell(self):
+        """Codex, #424: when the tap has lost money historically, the reason
+        must not tell the caller to sell."""
+        def climb(g):
+            return [(g * (i + 1) / 5, g * (i + 1) / 5) for i in range(5)]
+        gains = [0.05, 0.08, 0.11, 0.14, 0.17, 0.20]
+        bars = tape(30, overrides={i: climb(gains[i % len(gains)]) for i in range(30)})
+        mon = next_monday(30)
+        anchor = bars[-1]["close"]
+        d = ts.decide(anchor * 1.30, bars, mon + timedelta(days=3), mon + timedelta(days=4), 0.20)
+        self.assertEqual("skip", d["action"], d["reason"])
+        self.assertIn("do not sell", d["reason"])
+        self.assertNotIn("sell the", d["reason"])
+
+    def test_on_expiry_friday_there_is_no_fallback_to_wait_for(self):
+        """Codex, #424: a two-session Thursday fallback priced on Friday made
+        'wait' possible on the day the option expires."""
+        early = [(0.09, 0.07), (0.06, 0.05), (0.05, 0.04), (0.04, 0.03), (0.03, 0.02)]
+        bars = tape(30, early)
+        mon = next_monday(30)
+        fri = mon + timedelta(days=4)
+        d = ts.decide(bars[-1]["close"], bars, fri, fri, 0.45)
+        self.assertEqual(0, d["wait"]["fallback"]["sessions"])
+        self.assertEqual(0.0, d["wait"]["p_hit"])
+        self.assertNotEqual("wait", d["action"], d["reason"])
+        thu = ts.decide(bars[-1]["close"], bars, fri - timedelta(days=1), fri, 0.45)
+        self.assertEqual(1, thu["wait"]["fallback"]["sessions"], "Thursday's fallback is Friday alone")
+
+    def test_monday_never_says_sell_now(self):
+        """Codex, #424: the rule the system starts from. The same tape that
+        says sell_now on Tuesday says wait on Monday, numbers kept."""
+        late = [(0.005, 0.0), (0.01, -0.005), (0.015, -0.01), (0.02, -0.015), (0.03, -0.03)]
+        bars = tape(30, late)
+        mon = next_monday(30)
+        tue = ts.decide(bars[-1]["close"], bars, mon + timedelta(days=1), mon + timedelta(days=4), 0.45)
+        self.assertEqual("sell_now", tue["action"])
+        d = ts.decide(bars[-1]["close"], bars, mon, mon + timedelta(days=4), 0.45)
+        self.assertEqual("wait", d["action"])
+        self.assertTrue(d["monday_rule"])
+        self.assertIn("no Monday sale", d["reason"])
+        self.assertGreater(d["now"]["ev"], d["wait"]["ev"], "the numbers are reported as they are")
 
     def test_a_wednesday_decision_is_not_credited_with_monday_taps(self):
         early = [(0.09, 0.07), (0.06, 0.05), (0.05, 0.04), (0.04, 0.03), (0.03, 0.02)]

@@ -5587,3 +5587,22 @@ Tests: `test_trigger_sell.py` (23), covering the five asked for:
 Plus week construction, the percentile, the IV clamp, the delta inversion,
 EV parity with `weekly_sell`, legs summing, the delta cap, Monday-tap
 crediting, theta two weeks running, skip, and retiming.
+
+Codex on #424, all five right and fixed (the tests fail on the old code):
+- **The anchor must be a real end-of-week close.** A gap that cut the
+  prior week short (Thursday and Friday missing) anchored the next week to
+  Wednesday. Now the prior week's last bar must be its final session.
+  Friday, or Thursday when Friday is a holiday: a Good Friday test guards
+  that side.
+- **A tap earlier this week counts.** If any of this week's highs in the
+  bars reached the trigger, or `tapped=True` is passed, it is a tap, even
+  after a pullback. The answer is "sell_at_trigger", priced at the current
+  spot with the sessions actually left, and `tap.first_seen` says when.
+- **A tapped skip no longer says "sell".** It says the tap has lost money
+  on this stock's own trigger weeks.
+- **The fallback is a later sale.** Its horizon is min(2, sessions after
+  today): two from Monday to Wednesday, one on Thursday, none on Friday. A
+  Friday decision can no longer "wait" for a fallback that can't happen.
+- **No Monday sale (`NO_MONDAY_SALE`).** On Monday a "sell_now" becomes
+  "wait" with `monday_rule` set and the numbers kept. A Monday TAP still
+  sells: that is the system working, not the flat Monday sale it replaces.

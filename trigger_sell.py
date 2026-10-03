@@ -91,6 +91,11 @@ PRIOR_CLOSES = 8           # "recent" = the last 8 weekly closes
 MIN_PRIOR_CLOSES = 4       # ...and at least this many to measure extension at all
 MIN_TERCILE = 3            # each extension bucket needs this many trigger weeks
                            # before it can prove anything
+NO_MONDAY_SALE = True      # the rule this system starts from: a flat 20-delta
+                           # sold on Monday kept going in the money the same
+                           # day, so a Monday decision never says "sell now".
+                           # A TAP of the trigger is the system working, so a
+                           # Monday tap still sells.
 FALLBACK_SESSIONS = 2      # no tap by Thursday: sell the 20-delta then, two
                            # sessions of risk (Thursday and Friday)
 
@@ -122,6 +127,15 @@ def _rows(bars: Sequence[dict]) -> list[dict]:
         out.append({"date": d, "close": c, "high": max(h, c), "low": min(lo, c)})
     out.sort(key=lambda r: r["date"])
     return out
+
+
+def _last_session(monday: date) -> date:
+    """The week's final trading day: Friday, or earlier when it is a holiday."""
+    for i in range(4, -1, -1):
+        d = monday + timedelta(days=i)
+        if ws._is_trading_day(d):
+            return d
+    return monday + timedelta(days=4)
 
 
 def _expected_sessions(monday: date) -> int:
@@ -164,7 +178,13 @@ def friday_weeks(bars: Sequence[dict]) -> list[dict]:
     closes: list[float] = []          # weekly closes, complete weeks or not
     for i, g in enumerate(groups):
         prev_close = closes[-1] if closes else None
-        prev_ok = i > 0 and (_monday(g[0]["date"]) - _monday(groups[i - 1][0]["date"])).days == 7
+        # The anchor must be the prior week's FINAL session (Friday, or
+        # Thursday when Friday was a holiday). A gap that cut the prior
+        # week short would otherwise anchor this week to, say, Wednesday's
+        # close and quietly distort every trigger built on it (Codex, #424).
+        prev_ok = (i > 0
+                   and (_monday(g[0]["date"]) - _monday(groups[i - 1][0]["date"])).days == 7
+                   and groups[i - 1][-1]["date"] >= _last_session(_monday(groups[i - 1][0]["date"])))
         complete = len(g) >= _expected_sessions(_monday(g[0]["date"]))
         if prev_close is not None and prev_ok and complete:
             anchor = prev_close
@@ -441,7 +461,8 @@ def _anchor_close(rows: list[dict], today: date) -> float | None:
 def decide(spot: float, bars: Sequence[dict], today: Any, friday_expiry: Any,
            iv_now: Any, *, iv_median: Any = None, earnings_dates: Iterable[Any] = (),
            anchor_close: float | None = None,
-           theta_history: Sequence[bool] = (), r: float = 0.045) -> dict:
+           theta_history: Sequence[bool] = (), tapped: bool | None = None,
+           r: float = 0.045) -> dict:
     """Wait for the trigger, or sell now? Both priced, per share.
 
     EV(now)   a DELTA_NOW call priced today with `metrics._bs_price`, minus
@@ -473,8 +494,16 @@ def decide(spot: float, bars: Sequence[dict], today: Any, friday_expiry: Any,
     Recommends "wait" only when EV(wait) > EV(now) + WAIT_MARGIN x |EV(now)|
     (that is EV(now) x 1.10 when EV(now) is positive); "skip" when both
     are <= 0; otherwise "sell_now". When the trigger has already been
-    tapped (spot >= trigger price) the answer is "sell_at_trigger", with
-    the adaptive strike priced on the sessions actually left.
+    tapped (spot >= trigger price, or any of this week's highs in `bars`
+    already reached it, or `tapped=True`) the answer is "sell_at_trigger",
+    with the adaptive strike priced at the current spot on the sessions
+    actually left: a tap that has since pulled back is not a reason to
+    wait for a second one.
+
+    On Monday, with NO_MONDAY_SALE, "sell_now" becomes "wait" with the
+    numbers kept: that is the rule the system starts from. The Thursday
+    fallback shrinks to the sessions that will actually be left after
+    today and vanishes on Friday.
     """
     today_d, exp_d = ws._as_date(today), ws._as_date(friday_expiry)
     out: dict[str, Any] = {"schema": SCHEMA, "ok": False, "action": None, "reason": None}
@@ -527,7 +556,13 @@ def decide(spot: float, bars: Sequence[dict], today: Any, friday_expiry: Any,
     out["now"] = {"strike": k_now, "credit": c_now, "ev": ev_now, "delta": DELTA_NOW,
                   "sessions": s_now, "windows": len(windows_now)}
 
-    tapped = spot >= trigger_price - _EPS
+    mon = _monday(today_d)
+    week_hi = [r_ for r_ in rows if mon <= r_["date"] <= today_d and r_["high"] >= trigger_price - _EPS]
+    tap_seen = (week_hi[0]["date"].isoformat() if week_hi else None)
+    if tapped is None:
+        tapped = spot >= trigger_price - _EPS or bool(week_hi)
+    out["tap"] = {"tapped": bool(tapped), "first_seen": tap_seen,
+                  "at_spot": spot >= trigger_price - _EPS}
     # ── p_hit and the sessions left after a tap, from today's weekday on
     idx_today = today_d.weekday()
     still_open, crossed_later, left_after = 0, [], []
@@ -556,17 +591,25 @@ def decide(spot: float, bars: Sequence[dict], today: Any, friday_expiry: Any,
     else:
         ev_hit = None
     # ── the Thursday fallback
-    win_fb = ws.forward_windows(bars, FALLBACK_SESSIONS, drop_last_dated=today_d)
-    k_fb = delta_strike(spot, FALLBACK_SESSIONS, sigma, DELTA_NOW, r=r)
-    c_fb = call_price(spot, k_fb, FALLBACK_SESSIONS, sigma, r=r)
-    ev_fb = ev_short_call(spot, k_fb, c_fb, win_fb)
+    # It is a LATER sale, so it can only use sessions left after today:
+    # two from Monday-Wednesday, one on Thursday (Friday's), none on
+    # Friday, when "waiting" for a fallback is selling nothing (Codex, #424).
+    s_fb = min(FALLBACK_SESSIONS, s_now - 1)
+    if s_fb >= 1:
+        win_fb = ws.forward_windows(bars, s_fb, drop_last_dated=today_d)
+        k_fb = delta_strike(spot, s_fb, sigma, DELTA_NOW, r=r)
+        c_fb = call_price(spot, k_fb, s_fb, sigma, r=r)
+        ev_fb = ev_short_call(spot, k_fb, c_fb, win_fb)
+    else:
+        k_fb = c_fb = None
+        ev_fb = 0.0
     ev_wait = None
     if ev_hit is not None:
         ev_wait = p_hit * ev_hit + (1.0 - p_hit) * max(0.0, ev_fb or 0.0)
     out["wait"] = {"p_hit": p_hit, "sessions_at_tap": s_hit, "sale_price": sale_price,
                    "strike": k_w, "credit": c_w, "delta": delta_w, "ev_at_tap": ev_hit,
                    "itm_at_sale": bool(k_w is not None and k_w < sale_price),
-                   "fallback": {"strike": k_fb, "credit": c_fb, "ev": ev_fb, "sessions": FALLBACK_SESSIONS},
+                   "fallback": {"strike": k_fb, "credit": c_fb, "ev": ev_fb, "sessions": max(0, s_fb)},
                    "ev": ev_wait, "tap_weeks": len(pool)}
 
     # ── the legs: A -> B (theta) -> C (strike) -> D (delta)
@@ -599,9 +642,17 @@ def decide(spot: float, bars: Sequence[dict], today: Any, friday_expiry: Any,
         out["reason"] = "not enough forward windows to price both choices"
         return out
     if tapped:
-        out["action"] = "sell_at_trigger" if ev_hit is not None and ev_hit > 0 else "skip"
-        out["reason"] = (f"price {spot:.2f} has reached the trigger {trigger_price:.2f}: sell the "
-                         f"{delta_w:.2f}-delta call now with {s_hit} session(s) left")
+        where = (f"price {spot:.2f} is at the trigger {trigger_price:.2f}" if out["tap"]["at_spot"]
+                 else f"the trigger {trigger_price:.2f} was tapped {tap_seen or 'earlier this week'} "
+                      f"and price is now {spot:.2f}")
+        if ev_hit is not None and ev_hit > 0:
+            out["action"] = "sell_at_trigger"
+            out["reason"] = (f"{where}: sell the {delta_w:.2f}-delta call now with "
+                             f"{s_hit} session(s) left")
+        else:
+            out["action"] = "skip"
+            out["reason"] = (f"{where}, but a {delta_w:.2f}-delta call sold at the trigger has lost "
+                             f"money on this stock's own trigger weeks: do not sell this one")
     elif ev_wait <= 0 and ev_now <= 0:
         out["action"] = "skip"
         out["reason"] = "neither selling now nor waiting for the trigger has paid on this stock's history"
@@ -614,6 +665,14 @@ def decide(spot: float, bars: Sequence[dict], today: Any, friday_expiry: Any,
         out["action"] = "sell_now"
         out["reason"] = (f"waiting is worth {ev_wait:.2f} a share, not clearly more than "
                          f"{ev_now:.2f} for selling the {DELTA_NOW:.2f}-delta call now")
+        if NO_MONDAY_SALE and idx_today == 0:
+            # The rule this system exists for (Codex, #424). The numbers stay
+            # on the answer; the action does not become a Monday sale.
+            out["action"] = "wait"
+            out["monday_rule"] = True
+            out["reason"] = (f"no Monday sale: a {DELTA_NOW:.2f}-delta call now would be worth "
+                             f"{ev_now:.2f} a share against {ev_wait:.2f} for waiting, so re-check "
+                             f"Tuesday or sell the tap at {trigger_price:.2f}")
     return out
 
 
