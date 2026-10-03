@@ -5672,3 +5672,42 @@ Codex on #425, each fix proven red first (7 new tests, 56 in all):
   those same cut points, not by fresh ones from the weeks.
 - **`python test_trigger_sell.py`** ran only the first 29 tests: the
   `unittest.main()` guard now sits at the end of the file.
+
+## v5.37 — the When to sell card
+
+Jerry: "add the When to sell card". `trigger_sell.decide` now has a face
+on the ticker page (Analyze), right under the weekly option selling setup.
+
+- **`when_to_sell.py`** feeds `decide` what the ticker payload already
+  loads (a year of daily bars, the live price, the chain's at-the-money
+  IV, past and next earnings) plus Jerry's regime table
+  (`data/conditional_triggers.json`, re-read when the file changes). The
+  answer rides on the payload as `whenToSell`. Never fatal.
+- **The week it decides for.** This week's expiry (Friday, or Thursday
+  before a holiday Friday). On a weekend it shows Monday's plan for the
+  coming week, from Friday's close, with the Monday rule applied.
+- **Theta two weeks running** needs last week's answer: one
+  `history_record` per ticker per week is kept in
+  `<data dir>/trigger_sell/history.json` (12 weeks; the last look of a
+  week replaces earlier ones, and this week's own record is never read
+  back as "last week"). Weekend previews keep nothing.
+- **No chain IV** falls back to realized volatility, and the card says so.
+- **The card**: the verdict (Wait for the trigger / Sell now / Sell the
+  tap now / Skip this week), the trigger price and how far the live price
+  has to go, which row of the table last week's move picked (and the
+  normal trigger), then the two choices side by side, priced per
+  contract: strike, credit, odds of a tap, and the average result on past
+  weeks. Notes for the Monday rule, a trigger set too far, and a delta
+  held at the money. Stacks on a phone.
+- **A trigger no past week reached** used to leave `decide` with no answer
+  ("not enough forward windows"). The tap's odds are zero there, so the
+  wait is now priced as the Thursday fallback alone and the decision is
+  still made.
+
+Tests: `test_when_to_sell.py` (15: weekend and holiday days, ATM IV, the
+weekly records, the committed table, the card on the synthetic regime
+tape, no table, no chain, never raises; mutation-checked), one new
+`test_trigger_sell` test (proven red), and three render tests (verdict and
+trigger on screen from the real engine on DELL with the real table,
+side by side on a desktop and stacked with nothing clipped on a phone, a
+missing answer says so).

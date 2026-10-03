@@ -1009,6 +1009,10 @@ def decide(spot: float, bars: Sequence[dict], today: Any, friday_expiry: Any,
     ev_wait = None
     if ev_hit is not None:
         ev_wait = p_hit * ev_hit + (1.0 - p_hit) * max(0.0, ev_fb or 0.0)
+    elif not tapped and p_hit == 0.0:
+        # No past week ever reached the trigger: the tap has no price, but
+        # its odds are zero, so the wait is the fallback alone (v5.37).
+        ev_wait = max(0.0, ev_fb or 0.0)
     out["wait"] = {"p_hit": p_hit, "sessions_at_tap": s_hit, "sale_price": sale_price,
                    "strike": k_w, "credit": c_w, "delta": delta_w, "ev_at_tap": ev_hit,
                    "itm_at_sale": bool(k_w is not None and k_w < sale_price),

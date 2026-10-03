@@ -20512,6 +20512,136 @@ function FridayWallsCard({
     className: "mm-why"
   }, l.meaning)))) : null);
 }
+
+// ── When to sell (v5.37) ───────────────────────────────────────────────────
+// trigger_sell.py's answer for this week, computed with the ticker page
+// (payload.whenToSell): wait for the trigger, sell now, sell the tap, or
+// skip. The trigger comes from Jerry's regime table: last week's move picks
+// the row. Money is shown per contract (100 shares).
+const WTS_TONE = {
+  wait: "wts-wait",
+  sell_now: "wts-sell",
+  sell_at_trigger: "wts-sell",
+  skip: "wts-skip"
+};
+function wtsPct(v, dp = 1) {
+  return v == null ? "—" : `${v >= 0 ? "+" : ""}${(v * 100).toFixed(dp)}%`;
+}
+function wtsUsd(v) {
+  return v == null ? "—" : `$${Number(v).toFixed(2)}`;
+}
+function wtsContract(v) {
+  if (v == null) return "—";
+  const n = Math.round(v * 100);
+  return `${n < 0 ? "-" : ""}$${Math.abs(n).toLocaleString()}`;
+}
+function wtsDay(iso) {
+  if (!iso) return "";
+  const d = new Date(`${String(iso).slice(0, 10)}T12:00:00`);
+  return d.toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric"
+  });
+}
+function WhenToSellCard({
+  ticker,
+  plan,
+  planTicker,
+  currentPrice
+}) {
+  if (!ticker) return null;
+  const same = String(planTicker || "").toUpperCase() === String(ticker).toUpperCase();
+  const mine = plan && same ? plan : null;
+  if (!mine) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "card wts-card"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "card-head"
+    }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+      className: "kicker"
+    }, "Your trigger system"), /*#__PURE__*/React.createElement("div", {
+      className: "card-title"
+    }, "When to sell \xB7 ", ticker))), same ? /*#__PURE__*/React.createElement(CardNote, {
+      kind: "empty"
+    }, "Could not work out this week's trigger for ", ticker, " right now.") : /*#__PURE__*/React.createElement(CardNote, {
+      kind: "loading"
+    }, "Working out this week's trigger\u2026"));
+  }
+  const p = mine;
+  const reg = p.regime || {};
+  const spot = currentPrice != null && currentPrice > 0 ? currentPrice : p.spot;
+  const toGo = p.trigger_price && spot ? p.trigger_price / spot - 1 : null;
+  const tap = p.tap || {};
+  const now = p.now || {},
+    wait = p.wait || {};
+  const kicker = p.weekend ? `Your trigger system · Monday plan for the week of ${wtsDay(p.decision_day)}` : `Your trigger system · expiry ${wtsDay(p.expiry)}`;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "card wts-card"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-head"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "kicker"
+  }, kicker), /*#__PURE__*/React.createElement("div", {
+    className: "card-title"
+  }, "When to sell \xB7 ", ticker))), p.trigger_price == null ? /*#__PURE__*/React.createElement(CardNote, {
+    kind: "empty"
+  }, p.reason || "Not enough history to set a trigger for this stock.") : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: `wts-verdict ${WTS_TONE[p.action] || ""}`
+  }, /*#__PURE__*/React.createElement("b", null, p.headline || "No answer"), p.monday_rule ? /*#__PURE__*/React.createElement("span", {
+    className: "wts-rule"
+  }, "No Monday sales: re-check Tuesday") : null), /*#__PURE__*/React.createElement("div", {
+    className: "wts-trigger"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "wts-big"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "wts-label"
+  }, "Trigger"), /*#__PURE__*/React.createElement("span", {
+    className: "wts-px"
+  }, wtsUsd(p.trigger_price)), /*#__PURE__*/React.createElement("span", {
+    className: "wts-pct"
+  }, wtsPct(p.trigger_pct), " from Friday's ", wtsUsd(p.anchor))), /*#__PURE__*/React.createElement("div", {
+    className: "wts-where"
+  }, tap.tapped ? tap.at_spot ? /*#__PURE__*/React.createElement(React.Fragment, null, "Price ", wtsUsd(spot), " is at the trigger now.") : /*#__PURE__*/React.createElement(React.Fragment, null, "Tapped ", tap.first_seen ? wtsDay(tap.first_seen) : "earlier this week", "; price is ", wtsUsd(spot), " now.") : toGo != null && toGo <= 0 ? /*#__PURE__*/React.createElement(React.Fragment, null, "Price ", wtsUsd(spot), " is past the trigger now: reload to price the sale.") : /*#__PURE__*/React.createElement(React.Fragment, null, "Price ", wtsUsd(spot), " needs ", /*#__PURE__*/React.createElement("b", null, wtsPct(toGo)), " more to reach it."))), /*#__PURE__*/React.createElement("p", {
+    className: "wts-why"
+  }, reg.on ? /*#__PURE__*/React.createElement(React.Fragment, null, "Last week closed ", /*#__PURE__*/React.createElement("b", null, wtsPct(reg.prior_week_pct / 100)), ", so this week uses row ", /*#__PURE__*/React.createElement("b", null, reg.quintile, " of 5"), " of your table", reg.unconditional != null ? /*#__PURE__*/React.createElement(React.Fragment, null, " (normally ", wtsPct(reg.unconditional), ")") : null, ".", reg.basis === "quintile" ? ` Odds below come from the ${reg.weeks} past weeks that started like this one.` : ` Only ${reg.weeks} past weeks started like this one, so the odds use all weeks.`) : reg.source === "unconditional" ? /*#__PURE__*/React.createElement(React.Fragment, null, "Last week's move could not be read, so this uses the stock's normal trigger from your table.") : /*#__PURE__*/React.createElement(React.Fragment, null, "Not in your table: the trigger is the 70th percentile of this stock's own weekly highs over the last year (", p.weeks, " weeks).")), /*#__PURE__*/React.createElement("div", {
+    className: "wts-pair"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "wts-opt"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "wts-h"
+  }, "Sell now"), /*#__PURE__*/React.createElement("div", {
+    className: "wts-line"
+  }, now.delta != null ? `${now.delta.toFixed(2)}-delta` : "", " call, strike ", /*#__PURE__*/React.createElement("b", null, wtsUsd(now.strike))), /*#__PURE__*/React.createElement("div", {
+    className: "wts-line"
+  }, "Credit about ", /*#__PURE__*/React.createElement("b", null, wtsContract(now.credit)), " a contract"), /*#__PURE__*/React.createElement("div", {
+    className: "wts-line wts-ev"
+  }, "Average on past weeks: ", /*#__PURE__*/React.createElement("b", null, wtsContract(now.ev)))), /*#__PURE__*/React.createElement("div", {
+    className: "wts-opt"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "wts-h"
+  }, tap.tapped ? "Sell the tap" : "Wait for the trigger"), /*#__PURE__*/React.createElement("div", {
+    className: "wts-line"
+  }, wait.delta != null ? `${wait.delta.toFixed(2)}-delta` : "", " call, strike ", /*#__PURE__*/React.createElement("b", null, wtsUsd(wait.strike))), /*#__PURE__*/React.createElement("div", {
+    className: "wts-line"
+  }, "Credit about ", /*#__PURE__*/React.createElement("b", null, wtsContract(wait.credit)), " a contract"), !tap.tapped && wait.p_hit != null ? wait.p_hit === 0 && !wait.tap_weeks ? /*#__PURE__*/React.createElement("div", {
+    className: "wts-line"
+  }, "Never reached in past weeks like this") : /*#__PURE__*/React.createElement("div", {
+    className: "wts-line"
+  }, "Trigger reached in ", /*#__PURE__*/React.createElement("b", null, Math.round(wait.p_hit * 100), "%"), " of weeks like this") : null, /*#__PURE__*/React.createElement("div", {
+    className: "wts-line wts-ev"
+  }, "Average on past weeks", tap.tapped ? "" : ", misses included", ": ", /*#__PURE__*/React.createElement("b", null, wtsContract(wait.ev))))), p.trigger_too_far ? /*#__PURE__*/React.createElement("p", {
+    className: "wts-note wts-note-warn"
+  }, p.note || "Waiting cost more time value than it gained two weeks running: the trigger is too far out for this stock.") : null, p.delta && p.delta.capped ? /*#__PURE__*/React.createElement("p", {
+    className: "wts-note"
+  }, "Delta held at ", Number(p.delta.adaptive).toFixed(2), " (at the money): in past weeks ", reg.on ? "like this one" : "for this stock", ", a stretched tap did not pull back harder, so a deeper call is not earned yet.") : null, p.iv_source === "realized" ? /*#__PURE__*/React.createElement("p", {
+    className: "wts-note"
+  }, "No option IV came back, so prices use the stock's realized volatility.") : null, p.reason && (!p.ok || p.action === "skip") ? /*#__PURE__*/React.createElement("p", {
+    className: "wts-reason"
+  }, p.reason.charAt(0).toUpperCase() + p.reason.slice(1), ".") : null, p.table && p.table_as_of ? /*#__PURE__*/React.createElement("p", {
+    className: "wts-foot"
+  }, "Regime table as of ", p.table_as_of, ".") : null));
+}
 const _memo = React.memo;
 Object.assign(window, {
   TickerLogo,
@@ -20566,6 +20696,7 @@ Object.assign(window, {
   FlowScoreCard: _memo(FlowScoreCard),
   MoneyMapCard: _memo(MoneyMapCard),
   FridayWallsCard: _memo(FridayWallsCard),
+  WhenToSellCard: _memo(WhenToSellCard),
   PullbackBacktest,
   TradeBuilderCard: _memo(TradeBuilderCard),
   AnalystCard: _memo(AnalystCard),
