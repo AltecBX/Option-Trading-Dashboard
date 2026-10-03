@@ -5660,3 +5660,15 @@ sessions, the premium formula, thin quintiles and like-for-like theta.
 years, 39 tickers) is now committed there and they pass on it: LITE after
 +15% → 14.54%, LITE after −9% → 21.49%, COHR after +12% → 9.25%.
 49 tests, none skipped.
+
+Codex on #425, each fix proven red first (7 new tests, 56 in all):
+- **Last week's move must be last week's.** It is read only from the
+  final-session closes of two back-to-back weeks, and in `decide` the
+  later one must be the week just before today's. A missing week (a
+  two-week move) or one cut short on Wednesday gives no move: no regime,
+  and the past week is left out of every quintile.
+- **A table with no `prior_week_edges`** takes its cut points from the
+  quintiles' own `prior_lo`/`prior_hi`, and the past weeks are sorted by
+  those same cut points, not by fresh ones from the weeks.
+- **`python test_trigger_sell.py`** ran only the first 29 tests: the
+  `unittest.main()` guard now sits at the end of the file.

@@ -370,9 +370,6 @@ class Retime(unittest.TestCase):
         self.assertEqual(3, r["sessions"], "Wednesday to Friday")
 
 
-if __name__ == "__main__":
-    unittest.main(verbosity=2)
-
 
 # ── v2: regime-conditional triggers ─────────────────────────────────────────
 import json
@@ -628,3 +625,77 @@ class PercentileByRegime(unittest.TestCase):
         res = ts.optimize_percentile("SYN", 2, regime_tape(), TABLE, iv=0.45)
         self.assertFalse(res["ok"])
         self.assertIn("quintile 2", res["reason"])
+
+
+class LastWeekIsARealWeek(unittest.TestCase):
+    """Codex, #425: last week's move is read only from the Friday closes of
+    two back-to-back weeks. A missing or cut-short week would otherwise
+    pass off a two-week (or Wednesday-to-Friday) move as last week's and
+    pick the wrong quintile."""
+
+    def _without(self, bars, week, days=range(5)):
+        mon = START + timedelta(weeks=week)
+        drop = {(mon + timedelta(days=i)).isoformat() for i in days}
+        return [b for b in bars if b["date"] not in drop]
+
+    def test_a_missing_calendar_week_is_not_a_prior_week_move(self):
+        weeks = {w["start"]: w for w in ts.friday_weeks(self._without(tape(6), 2))}
+        after_gap = weeks[(START + timedelta(weeks=4)).isoformat()]
+        self.assertIsNone(after_gap["prior_week_pct"], "week 1's Friday to week 3's is two weeks")
+        self.assertAlmostEqual(2.0, weeks[(START + timedelta(weeks=5)).isoformat()]["prior_week_pct"])
+
+    def test_a_cut_short_week_is_not_a_prior_week_move(self):
+        weeks = {w["start"]: w for w in ts.friday_weeks(self._without(tape(5), 1, days=(3, 4)))}
+        self.assertIsNone(weeks[(START + timedelta(weeks=3)).isoformat()]["prior_week_pct"],
+                          "week 1 ended on Wednesday")
+        self.assertAlmostEqual(2.0, weeks[(START + timedelta(weeks=4)).isoformat()]["prior_week_pct"])
+
+    def _decide(self, bars):
+        mon = next_monday(38)
+        return ts.decide(bars[-1]["close"], bars, mon + timedelta(days=1), mon + timedelta(days=4),
+                         0.45, ticker="SYN", regime_table=TABLE)
+
+    def test_decide_needs_last_week_itself(self):
+        d = self._decide(self._without(regime_tape(), 37))
+        self.assertIsNone(d["regime"]["prior_week_close_pct"])
+        self.assertFalse(d["regime"]["on"])
+        self.assertIsNone(d["regime"]["quintile"])
+
+    def test_decide_needs_last_week_to_end_on_its_last_session(self):
+        d = self._decide(self._without(regime_tape(), 37, days=(3, 4)))
+        self.assertIsNone(d["regime"]["prior_week_close_pct"])
+        self.assertFalse(d["regime"]["on"])
+
+    def test_decide_needs_the_week_before_to_end_on_its_last_session(self):
+        d = self._decide(self._without(regime_tape(), 36, days=(4,)))
+        self.assertIsNone(d["regime"]["prior_week_close_pct"])
+        self.assertTrue(self._decide(regime_tape())["regime"]["on"], "the full tape still reads it")
+
+
+class TableWithoutEdges(unittest.TestCase):
+    """Codex, #425: a table that gives only each quintile's prior_lo/prior_hi
+    sorts the past weeks by those same bounds, not by cut points worked out
+    afresh from the weeks."""
+
+    BARE = {"SYN": {k: v for k, v in TABLE["SYN"].items() if k != "prior_week_edges"}}
+
+    def test_the_bounds_become_the_edges(self):
+        info = ts.regime_info("SYN", 11.0, self.BARE)
+        self.assertEqual(5, info["quintile"])
+        self.assertEqual(TABLE["SYN"]["prior_week_edges"], info["edges_pct"])
+        self.assertEqual(1, ts.regime_info("SYN", -0.5, self.BARE)["quintile"], "on a bound: the lower one")
+
+    def test_decide_sorts_history_the_same_way(self):
+        bars = regime_tape()
+        mon = next_monday(38)
+        args = (bars[-1]["close"], bars, mon + timedelta(days=1), mon + timedelta(days=4), 0.45)
+        full = ts.decide(*args, ticker="SYN", regime_table=TABLE)
+        bare = ts.decide(*args, ticker="SYN", regime_table=self.BARE)
+        self.assertEqual(full["regime"]["weeks_in_quintile"], bare["regime"]["weeks_in_quintile"])
+        self.assertEqual("quintile", bare["regime"]["basis"])
+        self.assertAlmostEqual(full["wait"]["p_hit"], bare["wait"]["p_hit"])
+        self.assertAlmostEqual(full["wait"]["ev"], bare["wait"]["ev"])
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

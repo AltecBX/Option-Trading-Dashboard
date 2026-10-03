@@ -184,6 +184,24 @@ def _expected_sessions(monday: date) -> int:
     return sum(1 for i in range(5) if ws._is_trading_day(monday + timedelta(days=i)))
 
 
+def _week_end(last: date) -> bool:
+    """Is `last` its week's final session (Friday, or Thursday before a
+    holiday Friday)?"""
+    return last >= _last_session(_monday(last))
+
+
+def _week_move_pct(prev_last: dict, last: dict) -> float | None:
+    """Friday-to-Friday close in percent points, or None unless both bars
+    end their weeks and the weeks are back to back. A missing week would
+    pass off a two-week move as one, and a week cut short on Wednesday a
+    Wednesday-to-Friday one (Codex, #425)."""
+    if not (_week_end(prev_last["date"]) and _week_end(last["date"])
+            and (_monday(last["date"]) - _monday(prev_last["date"])).days == 7
+            and prev_last["close"] > 0):
+        return None
+    return (last["close"] / prev_last["close"] - 1.0) * 100.0
+
+
 # ── 1. the weeks ──────────────────────────────────────────────────────────
 def friday_weeks(bars: Sequence[dict]) -> list[dict]:
     """Group daily bars into Monday-Friday weeks, each measured from the
@@ -228,7 +246,7 @@ def friday_weeks(bars: Sequence[dict]) -> list[dict]:
         # close and quietly distort every trigger built on it (Codex, #424).
         prev_ok = (i > 0
                    and (_monday(g[0]["date"]) - _monday(groups[i - 1][0]["date"])).days == 7
-                   and groups[i - 1][-1]["date"] >= _last_session(_monday(groups[i - 1][0]["date"])))
+                   and _week_end(groups[i - 1][-1]["date"]))
         complete = len(g) >= _expected_sessions(_monday(g[0]["date"]))
         if prev_close is not None and prev_ok and complete:
             anchor = prev_close
@@ -248,8 +266,8 @@ def friday_weeks(bars: Sequence[dict]) -> list[dict]:
                           "high_pct": r["high"] / anchor - 1.0,
                           "close_pct": r["close"] / anchor - 1.0} for r in g],
                 "prior_median": median(recent) if len(recent) >= MIN_PRIOR_CLOSES else None,
-                "prior_week_pct": ((closes[-1] / closes[-2] - 1.0) * 100.0
-                                   if len(closes) >= 2 and closes[-2] > 0 else None),
+                "prior_week_pct": (_week_move_pct(groups[i - 2][-1], groups[i - 1][-1])
+                                   if i >= 2 else None),
             })
         closes.append(g[-1]["close"])
     return out
@@ -405,14 +423,36 @@ def _entry_scale(entry: Mapping) -> float:
     return 0.01 if vals and max(vals) > 1.0 else 1.0
 
 
+def _quintile_rows(entry: Mapping) -> list[dict]:
+    """The entry's quintiles, in order: by their `quintile` number, else
+    as listed."""
+    cond = [c for c in (entry.get("conditional") or []) if isinstance(c, Mapping)]
+    if all(ws._f(c.get("quintile")) is not None for c in cond):
+        cond = sorted(cond, key=lambda c: ws._f(c.get("quintile")))
+    return cond
+
+
 def _edges_pct(entry: Mapping, scale: float) -> list[float] | None:
-    """The quintile cut points of last week's close, in percent points."""
+    """The quintile cut points of last week's close, in percent points:
+    `prior_week_edges`, or without them the bounds the quintiles declare
+    (prior_hi of quintiles 1-4, with quintile 1's prior_lo and 5's
+    prior_hi at the ends). The live week and the past weeks are then
+    sorted by the same cut points (Codex, #425)."""
+    k = 100.0 * scale              # fraction-unit tables are lifted to percent points
     e = [ws._f(x) for x in (entry.get("prior_week_edges") or [])]
     e = [x for x in e if x is not None]
-    if len(e) < QUINTILES - 1:
+    if len(e) >= QUINTILES - 1:
+        return sorted(x * k for x in e)
+    cond = _quintile_rows(entry)
+    if len(cond) != QUINTILES:
         return None
-    k = 100.0 * scale              # fraction-unit tables are lifted to percent points
-    return sorted(x * k for x in e)
+    cuts = [ws._f(c.get("prior_hi")) for c in cond[:-1]]
+    if any(x is None for x in cuts) or cuts != sorted(cuts):
+        return None
+    lo, hi = ws._f(cond[0].get("prior_lo")), ws._f(cond[-1].get("prior_hi"))
+    if lo is not None and hi is not None and lo <= cuts[0] and hi >= cuts[-1]:
+        cuts = [lo] + cuts + [hi]
+    return [x * k for x in cuts]
 
 
 def quintile_of(value_pct: float, edges_pct: Sequence[float]) -> int:
@@ -454,21 +494,9 @@ def regime_info(ticker: str | None, prior_week_close_pct: float | None, table: A
     out["unconditional"] = unc * sc if unc is not None else None
     edges = _edges_pct(entry, sc)
     out["edges_pct"] = edges
-    cond = [c for c in (entry.get("conditional") or []) if isinstance(c, Mapping)]
+    cond = _quintile_rows(entry)
     pw = ws._f(prior_week_close_pct)
-    q = None
-    if pw is not None and cond:
-        if edges:
-            q = quintile_of(pw, edges)
-        else:
-            # No edges: the quintiles' own bounds, clamped at the ends.
-            bounds = sorted(((ws._f(c.get("prior_lo")), ws._f(c.get("prior_hi")), i + 1)
-                             for i, c in enumerate(cond)), key=lambda t: (t[0] is None, t[0]))
-            q = bounds[-1][2]
-            for lo, hi, qi in bounds:
-                if hi is not None and pw <= hi * 100.0 * sc + _EPS:
-                    q = qi
-                    break
+    q = quintile_of(pw, edges) if pw is not None and cond and edges else None
     chosen = None
     if q is not None:
         chosen = next((c for c in cond if int(ws._f(c.get("quintile")) or 0) == q), None)
@@ -854,9 +882,12 @@ def decide(spot: float, bars: Sequence[dict], today: Any, friday_expiry: Any,
         out["reason"] = "needs a live price, today's date, the Friday expiry and implied volatility"
         return out
     rows = _rows(bars)
-    wk_closes = [r_["close"] for r_ in _weekly_closes(rows, today_d)]
-    prior_pct = ((wk_closes[-1] / wk_closes[-2] - 1.0) * 100.0
-                 if len(wk_closes) >= 2 and wk_closes[-2] > 0 else None)
+    # Last week's move: its own Friday close against the Friday before. A
+    # missing or cut-short week gives no move, and so no regime (Codex, #425).
+    wk = _weekly_closes(rows, today_d)
+    prior_pct = (_week_move_pct(wk[-2], wk[-1])
+                 if len(wk) >= 2 and _monday(wk[-1]["date"]) == _monday(today_d) - timedelta(days=7)
+                 else None)
     cal = calibrate(bars, earnings_dates, iv_now=iv_now, iv_median=iv_median,
                     regime_table=regime_table,
                     prior_week_close_pct=prior_pct if regime_table is not None else None,
@@ -872,8 +903,7 @@ def decide(spot: float, bars: Sequence[dict], today: Any, friday_expiry: Any,
     regime_on = bool(info and info.get("source") == "regime")
     quintile = info["quintile"] if regime_on else None
     if regime_on:
-        edges = info.get("edges_pct") or empirical_edges(moves)
-        rmoves = regime_weeks(moves, quintile, edges)
+        rmoves = regime_weeks(moves, quintile, info["edges_pct"])
         guard_moves = rmoves
         base = rmoves if len(rmoves) >= MIN_REGIME_WEEKS else moves
     else:
@@ -901,7 +931,7 @@ def decide(spot: float, bars: Sequence[dict], today: Any, friday_expiry: Any,
     stats = after_trigger_stats(guard_moves, tp)
     out["after_trigger"] = stats
     spread = _spread(base)
-    closes = wk_closes
+    closes = [r_["close"] for r_ in wk]
     pm = median(closes[-PRIOR_CLOSES:]) if len(closes[-PRIOR_CLOSES:]) >= MIN_PRIOR_CLOSES else None
     ext = extension(trigger_price, pm, spread)
     raw_delta = delta_for_extension(ext)
