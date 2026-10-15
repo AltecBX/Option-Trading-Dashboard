@@ -441,7 +441,9 @@ def shorted_debt(rows: Iterable[Mapping], live: Optional[Mapping[str, Mapping]] 
             continue
         q = (live or {}).get(sym) or {}
         last = _f(q.get("last")) if _f(q.get("last")) is not None else _f(r.get("last"))
-        chg = _f(q.get("change_pct")) if _f(q.get("change_pct")) is not None else _f(r.get("change_pct"))
+        # the watchlist row keeps the day's move as "change" (Codex, #428)
+        chg = next((v for v in (_f(q.get("change_pct")), _f(r.get("change")), _f(r.get("change_pct")))
+                    if v is not None), None)
         out.append({"symbol": sym, "level": level, "debt_score": r.get("debt_score"),
                     "short_pct": round(pct, 2) if pct is not None else None,
                     "change_pct": round(chg, 2) if chg is not None else None, "last": last,

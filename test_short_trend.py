@@ -189,7 +189,7 @@ class ShortedDebt(Harness):
         # alerted. HEAVY: High, 8% short (Yahoo's figure, no FINRA row), not
         # alerted. LIGHTSHORT: High but 3% short. LOWDEBT: heavily short, Low debt.
         return [dict(r) for r in ROWS] + [
-            {"symbol": "HEAVY", "debt_risk": "High", "short_pct": 8.0, "last": 20.0, "change_pct": -1.0,
+            {"symbol": "HEAVY", "debt_risk": "High", "short_pct": 8.0, "last": 20.0, "change": -1.0,
              "debt_reasons": ["Burning cash."]},
             {"symbol": "LIGHTSHORT", "debt_risk": "High", "short_pct": 3.0},
             {"symbol": "LOWDEBT2", "debt_risk": "Low", "short_pct": 30.0},

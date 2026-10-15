@@ -1039,3 +1039,15 @@ class PushRetry(Harness):
         self.step(at(10, 0, 30), AAA=quote(96.5))
         self.step(at(10, 2), AAA=quote(96.4))
         self.assertEqual(1, len(self.sent))
+
+    def test_retries_go_on_after_the_close(self):
+        # Codex, #428: the background loop sweeps only before and during the
+        # session; a retry due after 4 PM still goes.
+        self.answers = [{"ok": False, "configured": True}]
+        self.step(at(15, 58), AAA=quote(98.0))
+        self.step(at(15, 59, 30), AAA=quote(96.5))
+        self.assertEqual(1, len(self.sent))
+        self.assertEqual("post", LS.phase(at(16, 1)))
+        LS._tick(at(16, 1))
+        self.assertEqual(2, len(self.sent))
+        self.assertEqual(self.sent[0][0], self.sent[1][0])

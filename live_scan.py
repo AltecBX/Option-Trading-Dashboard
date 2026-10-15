@@ -1599,27 +1599,41 @@ def meta() -> dict:
 
 
 # ── the background loop ────────────────────────────────────────────────────
+def _tick(now: datetime) -> int:
+    """One pass of the background loop. Returns the seconds to wait."""
+    wait = 120
+    ph = phase(now)
+    if ph in ("pre", "open"):
+        refresh_shorted(now)
+        sweep(now)
+        wait = SWEEP_OPEN_S if ph == "open" else SWEEP_PRE_S
+        if ph == "open":
+            refresh_levels(now)
+    else:
+        # A push that failed just before the close is still due after it;
+        # the sweep that retries it runs only before and during the session
+        # (Codex, #428).
+        retry_pushes(now.timestamp())
+        if ph == "post":
+            with _LOCK:
+                if _STATE["day"] == now.date().isoformat():
+                    _save_session_hl()
+                    _grade(now)
+                    _write_json(f"alerts-{_STATE['day']}.json", _STATE["alerts"])
+            wait = 300
+        if _STATE.get("push_retry"):
+            wait = min(wait, PUSH_RETRY_EVERY_S)
+    refresh_sell(now)
+    return wait
+
+
 def _loop() -> None:
     last_cleanup = 0.0
     while _STATE.get("scanning"):
         wait = 120
         try:
             now = _now()
-            ph = phase(now)
-            if ph in ("pre", "open"):
-                refresh_shorted(now)
-                sweep(now)
-                wait = SWEEP_OPEN_S if ph == "open" else SWEEP_PRE_S
-                if ph == "open":
-                    refresh_levels(now)
-            elif ph == "post":
-                with _LOCK:
-                    if _STATE["day"] == now.date().isoformat():
-                        _save_session_hl()
-                        _grade(now)
-                        _write_json(f"alerts-{_STATE['day']}.json", _STATE["alerts"])
-                wait = 300
-            refresh_sell(now)
+            wait = _tick(now)
             if time.time() - last_cleanup > 6 * 3600:
                 cleanup_history()
                 last_cleanup = time.time()

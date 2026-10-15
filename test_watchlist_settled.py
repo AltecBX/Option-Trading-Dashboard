@@ -28,9 +28,20 @@ class SettledRows(unittest.TestCase):
             def download(*a, **k):
                 return DF()
 
+        self.bad_download = set()
+        self.bad_symbol = set()
+
+        def download(tickers, *a, **k):
+            if set(tickers.split()) & self.bad_download:
+                raise RuntimeError("Yahoo throttled the chunk")
+            return DF()
+        FakeYF.download = staticmethod(download)
+
         def scan_one(sym, sub, flow_fn, fresh, prior):
             self.seen.append((sym, [r["symbol"] for r in W.settled_rows()],
                               [r["symbol"] for r in W.get_board()["rows"]]))
+            if sym in self.bad_symbol:
+                return None
             return {"symbol": sym, "market_cap": {"AAA": 3, "BBB": 2, "CCC": 1}.get(sym, 0)}
 
         def persist():
@@ -85,6 +96,29 @@ class SettledRows(unittest.TestCase):
         self.scan(["AAA", "BBB", "CCC"])
         self.assertEqual(["AAA", "BBB"], self.seen[1][1],
                          "the next scan stands on the last good board, not the broken one")
+
+    def test_a_chunk_that_failed_keeps_its_stocks_from_the_held_board(self):
+        # Codex, #428: a failed download is swallowed per chunk and the scan
+        # still finishes; the held board fills in the stocks it lost.
+        self.bad_download = {"BBB"}
+        self.scan(["AAA", "BBB", "CCC"])
+        self.assertEqual(["AAA", "CCC"], [r["symbol"] for r in W.get_board()["rows"]],
+                         "the table shows what was scanned, as before")
+        self.assertEqual(["AAA", "BBB", "CCC"], sorted(r["symbol"] for r in W.settled_rows()))
+        bbb = next(r for r in W.settled_rows() if r["symbol"] == "BBB")
+        self.assertEqual(2, bbb["market_cap"], "BBB as the last good scan had it")
+        self.bad_download = set()
+        self.scan(["AAA", "BBB", "CCC"])
+        self.assertIsNone(W._STATE.get("settled"), "a whole scan needs nothing held")
+
+    def test_a_stock_that_failed_alone_is_kept_too(self):
+        self.bad_symbol = {"BBB"}
+        self.scan(["AAA", "BBB", "CCC"])
+        self.assertEqual(["AAA", "BBB", "CCC"], sorted(r["symbol"] for r in W.settled_rows()))
+
+    def test_a_stock_taken_off_the_watchlist_is_not_carried(self):
+        self.scan(["AAA", "CCC"])
+        self.assertEqual(["AAA", "CCC"], [r["symbol"] for r in W.settled_rows()])
 
 
 if __name__ == "__main__":

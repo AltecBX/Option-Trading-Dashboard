@@ -1015,7 +1015,16 @@ def _scan_worker(symbols: list[str]) -> None:
             _STATE["rows"] = rows
             _STATE["last_scan"] = _now_iso()
             _STATE["error"] = None
-            _STATE["settled"] = None
+            # A chunk whose download failed, or a stock that failed on its
+            # own, is left off the table; the board held for settled_rows()
+            # keeps it as the last good scan had it (Codex, #428). A scan
+            # that got every stock needs nothing held.
+            got = {r.get("symbol") for r in rows}
+            wanted = set(symbols)
+            lost = [r for r in (_STATE.get("settled") or [])
+                    if r.get("symbol") in wanted and r.get("symbol") not in got]
+            _STATE["settled"] = (sorted(rows + lost, key=lambda r: -(r.get("market_cap") or 0))
+                                 if lost else None)
         _persist()  # cache to /data so the board survives restarts/redeploys
         # Morning Prime-setup push (only after the 9 AM auto-scan fired it).
         global _ALERT_PENDING
@@ -1060,7 +1069,9 @@ def settled_rows() -> list[dict]:
     """The board as of the last finished scan. A scan publishes after every
     chunk, so while one runs the board holds only the stocks done so far:
     this keeps the board the scan started from (the saved one at boot)
-    until a scan finishes, and through a scan that failed part way. For
+    until a scan finishes, and through a scan that failed part way; a
+    finished scan that lost a chunk or a stock has the last good row for
+    it filled in. For
     readers that need every stock rather than the freshest numbers: the
     Live Scanner's quotes and its Shorted high-debt list (Codex, #428)."""
     with _LOCK:

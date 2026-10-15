@@ -6036,3 +6036,24 @@ the old code):
 Tests: `test_watchlist_settled` (3, the real scan worker with a fake
 download), `test_short_trend.SettledBoard`, `test_debt_risk.Codex428e`
 (4) and `test_live_scan.PushRetry` (4).
+
+Codex on #428, sixth review, all three right and fixed (the tests fail on
+the old code):
+
+- **The board's own field for the day's move.** The Shorted list fell
+  back to `change_pct` on the watchlist row, which keeps it as `change`;
+  the test's fixture had the same wrong name. Before the scanner's first
+  quote (or after a failed quote) the list now shows the board's move.
+- **A finished scan that lost a chunk.** A failed download is swallowed
+  per chunk and the scan still finishes, so the board held for
+  `settled_rows()` was dropped with those stocks missing. Now a finished
+  scan that lost any requested stock (a chunk, or one on its own) keeps a
+  held board of its rows plus the last good row for each lost stock; one
+  that got every stock holds nothing. The table itself is unchanged.
+- **Push retries after the close.** The loop sweeps only before and
+  during the session, so a retry due after 4 PM never ran. The loop's
+  pass is now `_tick`, which retries in every other phase too and wakes
+  each minute while a retry is waiting.
+
+Tests: `test_watchlist_settled` (3 more), `test_short_trend.ShortedDebt`
+(fixture corrected), `test_live_scan.PushRetry.test_retries_go_on_after_the_close`.
