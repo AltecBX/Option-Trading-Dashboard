@@ -25,7 +25,7 @@ const LV_TIP = {
   setups: "Rename, tune or switch off any setup, set the conditions a stock must pass, how long before the same stock can fire again, and whether it pushes to your phone.",
   sound: "Play a short beep in this browser when a new alert arrives.",
   sell: "Your When to sell system, for every stock in your regime table: this week's trigger (Friday's close plus the rise the table expects after a week like last week), the live price, and how far it has to go. A tap alerts here and on your phone. Tap a stock to open its When to sell card.",
-  shorted: "Watchlist stocks rated High or Elevated on Debt risk with at least 5% of their tradable shares sold short (FINRA's latest report), or where shorts just piled in. Today's move is live. Tap a stock to open its Debt & rates card. When one falls 3% or more on the day, the \"Shorted high-debt stock dropping\" setup pushes to your phone (change the drop, or switch it off, in Setups).",
+  shorted: "Watchlist stocks rated High or Elevated on Debt risk with at least 5% of their tradable shares sold short (FINRA's latest report), or where shorts just piled in. Today's move is live. Tap a stock to open its Debt & rates card. When one falls 3% or more on the day (\"Shorted high-debt stock dropping\") or breaks below its lowest close of the last year (\"Shorted high-debt stock at a new low\"), your phone gets a push; change or switch either off in Setups.",
   lists: "Ranked lists from the same prices. Only stocks over $5 with at least 500K shares a day are listed, so the lists are names you can trade options on.",
 };
 
@@ -338,7 +338,7 @@ function LvShortDebt({ data, onOpen }) {
           <button className="lv-btn" onClick={() => setAll(v => !v)}>{all ? "Show fewer" : `Show all ${rows.length}`}</button>
         ) : null}
       </div>
-      {rows.length ? <p className="lv-short-push">Your phone gets a push when one drops sharply on the day (set the drop in Setups).</p> : null}
+      {rows.length ? <p className="lv-short-push">Your phone gets a push when one drops sharply on the day or breaks to a new 52-week low (both in Setups).</p> : null}
       {shown.length ? (
         <table className="scan-table lv-sell-table lv-short-table">
           <thead>

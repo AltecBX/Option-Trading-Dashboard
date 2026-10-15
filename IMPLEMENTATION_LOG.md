@@ -5920,3 +5920,26 @@ and push, off-list stocks never fire, the run of rising reports named,
 the threshold as a setting, the five-minute read kept on failure;
 mutation-checked), the offered-once tests, and the article in
 `test_short_trend`.
+
+## v5.43 — A push when a shorted high-debt stock breaks a new low
+
+Jerry: "Add a push when a shorted high-debt stock breaks a new low."
+
+- **A Live Scanner setup, "Shorted high-debt stock at a new low"**
+  (`shorted_debt_new_low`): a stock on the Shorted high-debt list trades
+  below its lowest close of the last year (the board's 52-week low). A new
+  52-week low rather than a low of the day: the day's low moves with every
+  dip, a year's low is the breakdown. Fires on the crossing, so a stock
+  already below at the scanner's first look is not news; once a day per
+  stock; pushes to the phone; no other condition; SHORT side for grading.
+  Saved setup lists are offered it once.
+- The sentence shares the drop alert's description of the stock
+  (`_shorted_context`): "New 52-week low at $94.80, under the $95.00 low of
+  the last year: a High-debt stock with 15.2% of its float short, shorts
+  +14% in the latest report. Net debt is ..."
+- The Shorted section's note names both pushes.
+
+Tests: `test_live_scan.ShortedDebtNewLow` (3: the break fires once with
+its reason and push, a stock already below at the first look does not,
+off the list or without a range never; mutation-checked) and the
+offered-once tests.

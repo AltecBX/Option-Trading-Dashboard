@@ -193,6 +193,12 @@ TRIGGERS = {
         "help": "A stock on the Shorted high-debt list (High or Elevated debt with at least 5% of its float sold short, or shorts just piling in) is down at least X% on the day. Fires once a day per stock.",
         "params": {"drop_pct": (3.0, 1.0, 20.0, "Down on the day at least (%)")},
     },
+    # v5.43 — the same list breaking to a new 52-week low.
+    "shorted_debt_new_low": {
+        "label": "Shorted high-debt stock at a new low", "side": "short", "once": True, "session": "open",
+        "help": "A stock on the Shorted high-debt list (High or Elevated debt with at least 5% of its float sold short, or shorts just piling in) trades below its lowest close of the last year. Fires once a day per stock.",
+        "params": {},
+    },
     "premarket_mover": {
         "label": "Pre-market mover", "side": "either", "once": True, "session": "pre",
         "help": "Before the open: at least X% from yesterday's close on at least N shares traded.",
@@ -236,6 +242,8 @@ DEFAULT_SETUPS = [
     # The list already chose the stocks, and the drop is the news: no other
     # condition, and it goes to the phone.
     ("shorted_debt_drop", "Shorted high-debt stock dropping", {},
+     {"min_price": 0, "min_avg_volume": 0, "min_market_cap": 0}, 0, True),
+    ("shorted_debt_new_low", "Shorted high-debt stock at a new low", {},
      {"min_price": 0, "min_avg_volume": 0, "min_market_cap": 0}, 0, True),
 ]
 # The triggers a setups.json written before a release already knew. A
@@ -694,6 +702,24 @@ def _sell_touched(p: dict, rec: dict) -> bool:
             or (p.get("high") is not None and p["high"] >= tp))
 
 
+NOT_SHORTED = ("Not on the Shorted high-debt list (High or Elevated debt with at least 5% of its "
+               "float short, or shorts piling in).")
+
+
+def _shorted_context(rec: dict) -> str:
+    """What makes a stock on the Shorted high-debt list one: its debt, its
+    short, the short trend and the first debt reason, as a clause."""
+    level = str(rec.get("level") or "High")
+    short = f"{rec['short_pct']:.1f}% of its float short" if rec.get("short_pct") is not None else "heavily shorted"
+    trend = ""
+    if rec.get("si_rises") and rec["si_rises"] >= 2 and rec.get("si_run") is not None:
+        trend = f", shorts up {rec['si_rises']} reports in a row ({rec['si_run']:+.0f}%)"
+    elif rec.get("si_chg") is not None:
+        trend = f", shorts {rec['si_chg']:+.0f}% in the latest report"
+    why = f" {rec['reason']}" if rec.get("reason") else ""
+    return f"{'an' if level[:1] in 'AEIOU' else 'a'} {level}-debt stock with {short}{trend}.{why}"
+
+
 def _sell_row(rec: dict) -> str:
     reg = rec.get("regime") or {}
     if reg.get("on") and reg.get("prior_week_pct") is not None:
@@ -785,26 +811,26 @@ def _trigger_state(trig: str, p: dict, prev_p: dict | None, st: dict, params: di
         return False, False, None, (f"This week's trigger is {_fmt_money(tp)}, "
                                     f"{abs(_pct(tp, last) or 0):.1f}% above the price.")
 
-    if trig == "shorted_debt_drop":
+    if trig in ("shorted_debt_drop", "shorted_debt_new_low"):
         rec = p.get("shorted")
         if not rec:
-            return False, False, None, ("Not on the Shorted high-debt list (High or Elevated debt with "
-                                        "at least 5% of its float short, or shorts piling in).")
-        chg = p.get("change_pct")
-        if chg is None:
-            return False, False, None, "No move on the day yet."
-        live = chg <= -params.get("drop_pct", 3.0)
-        short = f"{rec['short_pct']:.1f}% of its float short" if rec.get("short_pct") is not None else "heavily shorted"
-        trend = ""
-        if rec.get("si_rises") and rec["si_rises"] >= 2 and rec.get("si_run") is not None:
-            trend = f", shorts up {rec['si_rises']} reports in a row ({rec['si_run']:+.0f}%)"
-        elif rec.get("si_chg") is not None:
-            trend = f", shorts {rec['si_chg']:+.0f}% in the latest report"
-        why = f" {rec['reason']}" if rec.get("reason") else ""
-        return live, live, "short", (
-            f"Down {abs(chg):.1f}% today at {_fmt_money(last)}{rv}: "
-            f"{'an' if str(rec.get('level', 'High'))[:1] in 'AEIOU' else 'a'} {rec.get('level', 'High')}-debt stock "
-            f"with {short}{trend}.{why}")
+            return False, False, None, NOT_SHORTED
+        if trig == "shorted_debt_drop":
+            chg = p.get("change_pct")
+            if chg is None:
+                return False, False, None, "No move on the day yet."
+            live = chg <= -params.get("drop_pct", 3.0)
+            return live, live, "short", (f"Down {abs(chg):.1f}% today at {_fmt_money(last)}{rv}: "
+                                         + _shorted_context(rec))
+        lvl = p.get("low_52w")
+        if not lvl:
+            return False, False, None, "No 52-week range on the board for this name."
+        live = last < lvl
+        prev_last = was("last")
+        prev_live = prev_last is not None and prev_last < lvl
+        return live, live and not prev_live, "short", (
+            f"New 52-week low at {_fmt_money(last)}, under the {_fmt_money(lvl)} low of the last year{rv}: "
+            + _shorted_context(rec))
 
     if trig in ("new_hod", "new_lod"):
         hi = trig == "new_hod"

@@ -603,11 +603,13 @@ class NewTriggersReachASavedList(unittest.TestCase):
 
     def test_offered_once(self):
         got = self.load()
-        self.assertEqual(7, len(got), "the two v5.34 setups, v5.38's When to sell and v5.42's shorted drop")
+        self.assertEqual(8, len(got), "the two v5.34 setups, v5.38's When to sell, v5.42's shorted drop "
+                                      "and v5.43's shorted new low")
         self.assertIn("gamma_flip_cross", got)
         self.assertIn("dark_pool_level", got)
         self.assertIn("sell_trigger_tap", got)
         self.assertIn("shorted_debt_drop", got)
+        self.assertIn("shorted_debt_new_low", got)
         keep = [s for s in LS.setups() if s["trigger"] != "dark_pool_level"]
         self.assertTrue(LS.save_setups(keep)["ok"])
         self.assertNotIn("dark_pool_level", self.load(), "a deleted setup came back")
@@ -880,3 +882,52 @@ class ShortedDebtDrop(Harness):
         self.step(at(10, 0), AAA=quote(99.0))
         self.step(at(10, 0, 30), AAA=quote(96.0))
         self.assertEqual(1, len(self.alerts("shorted_debt_drop")), "and still alerts on it")
+
+
+
+class ShortedDebtNewLow(Harness):
+    """v5.43: a push when a stock on the Shorted high-debt list breaks to a
+    new 52-week low."""
+
+    ROWS = ShortedDebtDrop.ROWS
+
+    def setUp(self):
+        super().setUp()
+        self.rows = [row("AAA", lo52=95.0), row("BBB", lo52=95.0)]
+        LS.configure(quotes_fn=lambda syms: {s: self.quotes[s] for s in syms if s in self.quotes},
+                     universe_fn=lambda: self.rows,
+                     notify_fn=lambda t, m, p=0: self.pushes.append((t, m)),
+                     now_fn=lambda: self.clock, data_dir=self.tmp.name, shorted_fn=lambda: self.ROWS)
+        self.only("shorted_debt_new_low")
+        LS.refresh_shorted(at(9, 30), force=True)
+
+    def test_breaking_the_low_fires_once_with_its_reason_and_pushes(self):
+        self.step(at(10, 0), AAA=quote(96.0, prev=97.0))
+        self.step(at(10, 0, 30), AAA=quote(95.5, prev=97.0))
+        self.assertEqual([], self.alerts(), "above the low")
+        self.step(at(10, 1), AAA=quote(94.8, prev=97.0))
+        a = self.alerts("shorted_debt_new_low")
+        self.assertEqual(1, len(a))
+        self.assertEqual("short", a[0]["side"])
+        self.assertIn("New 52-week low at $94.80, under the $95.00 low of the last year", a[0]["why"])
+        self.assertIn("a High-debt stock with 15.2% of its float short", a[0]["why"])
+        self.assertEqual(1, len(self.pushes))
+        self.step(at(10, 1, 30), AAA=quote(96.0, prev=97.0))
+        self.step(at(10, 2), AAA=quote(94.0, prev=97.0))
+        self.assertEqual(1, len(self.alerts("shorted_debt_new_low")), "once a day")
+
+    def test_a_stock_already_below_at_the_first_look_is_not_news(self):
+        self.step(at(10, 0), AAA=quote(94.0, prev=94.5))
+        self.step(at(10, 0, 30), AAA=quote(93.8, prev=94.5))
+        self.assertEqual([], self.alerts(), "it broke the low before the scanner looked")
+
+    def test_off_the_list_or_without_a_range(self):
+        self.step(at(10, 0), BBB=quote(96.0))
+        self.step(at(10, 0, 30), BBB=quote(90.0))
+        self.assertEqual([], self.alerts(), "BBB is not on the shorted list")
+        self.rows = [row("AAA")]
+        self.step(at(10, 1), AAA=quote(96.0))
+        self.step(at(10, 1, 30), AAA=quote(80.0))
+        self.assertEqual([], self.alerts())
+        chk = {r["setup_id"]: r for r in LS.check("AAA", at(10, 2))["setups"]}
+        self.assertIn("No 52-week range", chk["shorted_debt_new_low"]["detail"])
