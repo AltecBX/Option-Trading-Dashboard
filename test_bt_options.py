@@ -4,7 +4,7 @@ dividends, expiry settlement, buying power, and the no-look-ahead fill.
 No network, no randomness.  Run:  python3 -m unittest test_bt_options
 """
 import unittest
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from metrics import _bs_price, year_fraction
 import bt_options as bo
@@ -338,6 +338,24 @@ class TestPortfolio(unittest.TestCase):
 class TestEndToEnd(unittest.TestCase):
     """Grammar → rules → run_backtest → lifecycle portfolio, on a stubbed
     data client. The full v2 path with zero network."""
+
+    # The bars are fixed-date fixtures (400 days from 2026-01-02) and "last
+    # 1 year" is measured back from now, so the window held less and less of
+    # them as the real date moved on (CI's 400-days-ahead run found it).
+    # The backtest's clock is pinned to the day after the last bar.
+    AS_OF = datetime(2027, 2, 6, 16, 0)
+
+    def setUp(self):
+        import backtest as bt
+        as_of = self.AS_OF
+
+        class Pinned(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls(as_of.year, as_of.month, as_of.day, as_of.hour, as_of.minute)
+        orig = bt.datetime
+        bt.datetime = Pinned
+        self.addCleanup(setattr, bt, "datetime", orig)
 
     def _run(self, text, closes=None, n=400):
         import backtest as bt

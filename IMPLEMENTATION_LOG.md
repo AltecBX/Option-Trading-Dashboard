@@ -6118,3 +6118,14 @@ old code):
 
 Tests: `test_live_scan.PushRetry.test_a_restart_does_not_lose_a_waiting_push`
 and `test_debt_risk.Codex428j`.
+
+CI on #428: the 400-days-ahead step went red on
+`test_bt_options.TestEndToEnd.test_csp_managed_end_to_end` (3 trades, not
+more than 3). Not this PR's: it fails the same way on main from about 399
+days ahead; main's last run (Oct 3) was just inside the line. The test's
+bars are fixed-date fixtures (400 days from 2026-01-02) while "last 1
+year" is measured back from the real clock, so the window held less of
+them every day. The class now pins the backtest's clock to the day after
+the last bar (as the time-travel step asks: pin the clock, don't loosen
+the assertion); it passes today, 400 and 800 days ahead, and
+`test_time_travel.py 400` is green.
