@@ -508,3 +508,17 @@ class Codex428i(unittest.TestCase):
         body = src[src.index("def card("):]
         nxt = body.find("\ndef ")
         self.assertIn("maturities(facts, as_of=bs_as_of)", body if nxt < 0 else body[:nxt])
+
+
+class Codex428j(unittest.TestCase):
+    """Codex, #428 (tenth review): the latest balance sheet, not the latest debt figure."""
+
+    def test_a_schedule_as_old_as_the_last_debt_figure_is_still_old(self):
+        f = facts_with(_annual(M, "2022-12-31", "2023-02-20"),
+                       _annual({"LongTermDebt": 5e9}, "2022-12-31", "2023-02-20"),
+                       _annual({"Assets": 9e10}, "2026-06-30", "2026-08-01", form="10-Q"))
+        c = D.card("x", D.row_fields(HEAVY, None, None), f, {})
+        self.assertIsNone(c["maturities"], "the balance sheet is from 2026: that schedule is gone")
+        g = facts_with(_annual(M, "2025-12-31", "2026-02-20"),
+                       _annual({"Assets": 9e10}, "2026-06-30", "2026-08-01", form="10-Q"))
+        self.assertIsNotNone(D.card("x", D.row_fields(HEAVY, None, None), g, {})["maturities"])

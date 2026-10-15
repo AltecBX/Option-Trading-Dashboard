@@ -6102,3 +6102,19 @@ the old code):
   the latest balance sheet, as the interest figure already did.
 
 Tests: `test_short_trend.Codex428h` (2) and `test_debt_risk.Codex428i` (3).
+
+Codex on #428, tenth review, both right and fixed (the tests fail on the
+old code):
+
+- **A push owed to the phone survives a restart.** The retry queue lived
+  in memory; the alert itself is saved and does not fire again, so a
+  redeploy inside the ten-minute window lost the push. The queue is now
+  saved (`push-retry.json`) on every change and read back by `configure`.
+- **Staleness is dated by the latest balance sheet.** The card dated its
+  interest and schedule checks by the latest long-term-debt fact; a
+  company that repaid that debt stops tagging it, so its last schedule
+  never aged out. The date is now the latest of total assets, equity and
+  long-term debt.
+
+Tests: `test_live_scan.PushRetry.test_a_restart_does_not_lose_a_waiting_push`
+and `test_debt_risk.Codex428j`.

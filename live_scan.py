@@ -330,6 +330,9 @@ def configure(quotes_fn=None, universe_fn=None, notify_fn=None, now_fn=None,
         _STATE.clear()
         _STATE.update(_fresh_state())
         _STATE.update(keep)
+        # pushes still owed to the phone from before a restart (Codex, #428)
+        _STATE["push_retry"] = [p for p in (_read_json("push-retry.json", []) or [])
+                                if isinstance(p, dict) and {"title", "msg", "first", "next"} <= set(p)]
         _SETUPS[:] = _load_setups()
         _RECORDS_CACHE.update({"at": 0.0, "val": None})
 
@@ -1079,6 +1082,7 @@ def _maybe_push(alert: dict, setup: dict) -> None:
     if not _send_push(push, now_ts):
         with _LOCK:
             _STATE.setdefault("push_retry", []).append(push)
+            _write_json("push-retry.json", _STATE["push_retry"])
 
 
 def _send_push(push: dict, now_ts: float) -> bool:
@@ -1104,8 +1108,11 @@ def retry_pushes(now_ts: float) -> int:
     if _NOTIFY_FN is None:
         return 0
     with _LOCK:
+        queued = list(_STATE.get("push_retry") or [])
+        if not queued:
+            return 0
         due, keep = [], []
-        for p in _STATE.get("push_retry") or []:
+        for p in queued:
             if now_ts - p["first"] > PUSH_RETRY_S:
                 continue
             (due if p["next"] <= now_ts else keep).append(p)
@@ -1118,6 +1125,9 @@ def retry_pushes(now_ts: float) -> int:
         p["next"] = now_ts + PUSH_RETRY_EVERY_S
         with _LOCK:
             _STATE["push_retry"].append(p)
+    with _LOCK:
+        # saved, so a restart inside the window still sends it
+        _write_json("push-retry.json", _STATE["push_retry"])
     return sent
 
 

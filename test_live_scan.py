@@ -1051,3 +1051,26 @@ class PushRetry(Harness):
         LS._tick(at(16, 1))
         self.assertEqual(2, len(self.sent))
         self.assertEqual(self.sent[0][0], self.sent[1][0])
+
+    def test_a_restart_does_not_lose_a_waiting_push(self):
+        # Codex, #428: the alert is saved and will not fire again; the push
+        # still owed to the phone is saved with it.
+        self.answers = [{"ok": False, "configured": True}]
+        self.step(at(10, 0), AAA=quote(98.0))
+        self.step(at(10, 0, 30), AAA=quote(96.5))
+        self.assertEqual(1, len(self.sent))
+        notify = LS._NOTIFY_FN
+        LS.configure(quotes_fn=lambda syms: {s: self.quotes[s] for s in syms if s in self.quotes},
+                     universe_fn=lambda: self.rows, notify_fn=notify,
+                     now_fn=lambda: self.clock, data_dir=self.tmp.name,
+                     shorted_fn=lambda: ShortedDebtDrop.ROWS)
+        LS.refresh_shorted(at(10, 1), force=True)
+        self.step(at(10, 1, 30), AAA=quote(96.4))
+        self.assertEqual(2, len(self.sent), "sent after the restart")
+        self.assertEqual(1, len(self.alerts("shorted_debt_drop")), "and not raised twice")
+        self.step(at(10, 3), AAA=quote(96.4))
+        LS.configure(quotes_fn=lambda syms: {s: self.quotes[s] for s in syms if s in self.quotes},
+                     universe_fn=lambda: self.rows, notify_fn=notify,
+                     now_fn=lambda: self.clock, data_dir=self.tmp.name)
+        self.step(at(10, 4), AAA=quote(96.4))
+        self.assertEqual(2, len(self.sent), "a delivered push is not saved as owed")

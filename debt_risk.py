@@ -398,8 +398,16 @@ def card(symbol: str, row: Mapping[str, Any] | None, facts: Mapping | None,
     out["on_watchlist"] = bool(row)
     try:
         import fundamentals as F
-        bs = F.instant(facts, "long_term_debt") if facts else {}
-        bs_as_of = (bs or {}).get("as_of")
+        # The latest balance sheet: total assets and equity are on every
+        # one. A company that repaid its long-term debt stops tagging it,
+        # and dating the staleness checks by that tag would never age its
+        # last schedule out (Codex, #428).
+        dates = []
+        for name in ("assets", "equity", "long_term_debt"):
+            v = (F.instant(facts, name) if facts else None) or {}
+            if v.get("as_of"):
+                dates.append(str(v["as_of"])[:10])
+        bs_as_of = max(dates) if dates else None
         op = F.metric(facts, "operating_income") if facts else {}
     except Exception:  # noqa: BLE001
         bs_as_of, op = None, {}
