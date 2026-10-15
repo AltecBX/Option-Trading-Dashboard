@@ -16193,6 +16193,9 @@ function DebtRatesCard({ ticker, apiFetch }) {
   if (!ticker) return null;
   const sc = (d && d.screen) || {};
   const ccy = sc.debt_ccy;
+  // the filings' figures (interest, the maturity schedule) are in dollars
+  // whatever currency the company reports its balance sheet in (Codex, #428)
+  const fccy = (d && d.filing_ccy) || "USD";
   const rates = d && d.rates;
   const mat = d && d.maturities;
   const maxB = mat ? Math.max(1, ...mat.buckets.map(b => b.value || 0)) : 1;
@@ -16231,7 +16234,7 @@ function DebtRatesCard({ ticker, apiFetch }) {
             <span className={`dr-v ${sc.fcf != null && sc.fcf < 0 ? "down" : ""}`}>{drMoney(sc.fcf, ccy)}</span>
             <span className="dr-s">{sc.fcf != null && sc.fcf < 0 ? "burning cash, last year" : "last year"}</span></div>
           <div className="dr-stat"><span className="dr-k">Interest, last 12 months</span>
-            <span className="dr-v">{d.interest ? drMoney(d.interest.value, ccy) : "—"}</span>
+            <span className="dr-v">{d.interest ? drMoney(d.interest.value, fccy) : "—"}</span>
             <span className="dr-s">{d.avg_rate != null ? `about ${d.avg_rate.toFixed(1)}% on its debt` : "not reported separately"}</span></div>
           <div className="dr-stat"><span className="dr-k">Interest cover</span>
             <span className={`dr-v ${(d.coverage != null && d.coverage < 3) || (d.interest && d.operating_income != null && d.operating_income <= 0) ? "down" : ""}`}>
@@ -16244,14 +16247,14 @@ function DebtRatesCard({ ticker, apiFetch }) {
         {mat ? (
           <div className="dr-wall">
             <div className="dr-wall-h">When its debt comes due
-              <span className="dr-wall-sub">{mat.due_2y != null ? ` · ${drMoney(mat.due_2y, ccy)} within two years` : ""}{mat.due_2y != null && mat.due_2y_share != null ? ` (${Math.round(mat.due_2y_share * 100)}%)` : ""} · annual report, {drDate(mat.as_of)}</span></div>
+              <span className="dr-wall-sub">{mat.due_2y != null ? ` · ${drMoney(mat.due_2y, fccy)} within two years` : ""}{mat.due_2y != null && mat.due_2y_share != null ? ` (${Math.round(mat.due_2y_share * 100)}%)` : ""} · annual report, {drDate(mat.as_of)}</span></div>
             <ul className="dr-bars">
               {mat.buckets.map((b, i) => (
                 <li key={b.label} className={`dr-bar-row${i < 2 ? " soon" : ""}`}
-                    title={`${b.label}: ${drMoney(b.value, ccy)}${i < 2 ? " (refinanced at today's rates if not repaid)" : ""}`}>
+                    title={`${b.label}: ${drMoney(b.value, fccy)}${i < 2 ? " (refinanced at today's rates if not repaid)" : ""}`}>
                   <span className="dr-bar-l">{b.label}{i < 2 ? <em> · soon</em> : null}</span>
                   <span className="dr-bar-track"><span className="dr-bar-fill" style={{ width: `${Math.max(0, (b.value || 0) / maxB * 100)}%` }} /></span>
-                  <span className="dr-bar-v">{drMoney(b.value, ccy)}</span>
+                  <span className="dr-bar-v">{drMoney(b.value, fccy)}</span>
                 </li>
               ))}
             </ul>

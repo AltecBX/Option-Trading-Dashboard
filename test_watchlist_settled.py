@@ -120,6 +120,28 @@ class SettledRows(unittest.TestCase):
         self.scan(["AAA", "CCC"])
         self.assertEqual(["AAA", "CCC"], [r["symbol"] for r in W.settled_rows()])
 
+    def test_the_held_board_survives_a_restart(self):
+        # Codex, #428: the rows filled in for a lost chunk live in the held
+        # board; the saved file keeps it, so a restart does not drop them.
+        import tempfile
+        from pathlib import Path
+        tmp = tempfile.mkdtemp()
+        W._persist = self.saved["_persist"]
+        W._CACHE_PATH = Path(tmp) / "board.json"
+        self.bad_download = {"BBB"}
+        self.scan(["AAA", "BBB", "CCC"])
+        W._STATE.update(rows=[], settled=None, last_scan=None)
+        W._load_persisted()
+        self.assertEqual(["AAA", "CCC"], [r["symbol"] for r in W.get_board()["rows"]])
+        self.assertEqual(["AAA", "BBB", "CCC"], sorted(r["symbol"] for r in W.settled_rows()))
+        self.assertNotIn("strat", W._CACHE_PATH.read_text().split('"settled"')[1],
+                         "the held board is saved without the bulk")
+        self.bad_download = set()
+        self.scan(["AAA", "BBB", "CCC"])
+        W._STATE.update(rows=[], settled="stale")
+        W._load_persisted()
+        self.assertIsNone(W._STATE["settled"], "a clean scan saves nothing held")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

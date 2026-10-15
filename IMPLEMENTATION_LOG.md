@@ -6057,3 +6057,21 @@ the old code):
 
 Tests: `test_watchlist_settled` (3 more), `test_short_trend.ShortedDebt`
 (fixture corrected), `test_live_scan.PushRetry.test_retries_go_on_after_the_close`.
+
+Codex on #428, seventh review, both right and fixed (the tests fail on
+the old code):
+
+- **The held board is saved.** Rows a lossy scan filled in lived only in
+  memory; the saved file had the table's rows, so a restart dropped them.
+  `_persist` now saves the held board too (without the bulk) and
+  `_load_persisted` restores it; a clean scan saves none. A restart in the
+  middle of a scan now also gets back the board the scan started from.
+- **SEC figures are dollars.** The card read interest and the maturity
+  schedule in the filings' USD while the debt is in the company's own
+  reporting currency, so a foreign filer's average rate divided one by
+  the other, and the card labelled the filing amounts in the local
+  currency. The card now says `filing_ccy: "USD"`, has no average rate
+  when the two differ, and labels the filing amounts in dollars.
+
+Tests: `test_debt_risk.Codex428f` (3) and
+`test_watchlist_settled.test_the_held_board_survives_a_restart`.

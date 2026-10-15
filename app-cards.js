@@ -20878,6 +20878,9 @@ function DebtRatesCard({
   if (!ticker) return null;
   const sc = d && d.screen || {};
   const ccy = sc.debt_ccy;
+  // the filings' figures (interest, the maturity schedule) are in dollars
+  // whatever currency the company reports its balance sheet in (Codex, #428)
+  const fccy = d && d.filing_ccy || "USD";
   const rates = d && d.rates;
   const mat = d && d.maturities;
   const maxB = mat ? Math.max(1, ...mat.buckets.map(b => b.value || 0)) : 1;
@@ -20939,7 +20942,7 @@ function DebtRatesCard({
     className: "dr-k"
   }, "Interest, last 12 months"), /*#__PURE__*/React.createElement("span", {
     className: "dr-v"
-  }, d.interest ? drMoney(d.interest.value, ccy) : "—"), /*#__PURE__*/React.createElement("span", {
+  }, d.interest ? drMoney(d.interest.value, fccy) : "—"), /*#__PURE__*/React.createElement("span", {
     className: "dr-s"
   }, d.avg_rate != null ? `about ${d.avg_rate.toFixed(1)}% on its debt` : "not reported separately")), /*#__PURE__*/React.createElement("div", {
     className: "dr-stat"
@@ -20963,12 +20966,12 @@ function DebtRatesCard({
     className: "dr-wall-h"
   }, "When its debt comes due", /*#__PURE__*/React.createElement("span", {
     className: "dr-wall-sub"
-  }, mat.due_2y != null ? ` · ${drMoney(mat.due_2y, ccy)} within two years` : "", mat.due_2y != null && mat.due_2y_share != null ? ` (${Math.round(mat.due_2y_share * 100)}%)` : "", " \xB7 annual report, ", drDate(mat.as_of))), /*#__PURE__*/React.createElement("ul", {
+  }, mat.due_2y != null ? ` · ${drMoney(mat.due_2y, fccy)} within two years` : "", mat.due_2y != null && mat.due_2y_share != null ? ` (${Math.round(mat.due_2y_share * 100)}%)` : "", " \xB7 annual report, ", drDate(mat.as_of))), /*#__PURE__*/React.createElement("ul", {
     className: "dr-bars"
   }, mat.buckets.map((b, i) => /*#__PURE__*/React.createElement("li", {
     key: b.label,
     className: `dr-bar-row${i < 2 ? " soon" : ""}`,
-    title: `${b.label}: ${drMoney(b.value, ccy)}${i < 2 ? " (refinanced at today's rates if not repaid)" : ""}`
+    title: `${b.label}: ${drMoney(b.value, fccy)}${i < 2 ? " (refinanced at today's rates if not repaid)" : ""}`
   }, /*#__PURE__*/React.createElement("span", {
     className: "dr-bar-l"
   }, b.label, i < 2 ? /*#__PURE__*/React.createElement("em", null, " \xB7 soon") : null), /*#__PURE__*/React.createElement("span", {
@@ -20980,7 +20983,7 @@ function DebtRatesCard({
     }
   })), /*#__PURE__*/React.createElement("span", {
     className: "dr-bar-v"
-  }, drMoney(b.value, ccy)))))) : /*#__PURE__*/React.createElement("p", {
+  }, drMoney(b.value, fccy)))))) : /*#__PURE__*/React.createElement("p", {
     className: "dr-note"
   }, "No debt schedule in its SEC filings (a fund, a foreign filer, or it does not tag one)."), si && si.trend ? (() => {
     const t = si.trend,

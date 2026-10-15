@@ -438,3 +438,32 @@ class Codex428e(unittest.TestCase):
         body = src[src.index("const mat = d && d.maturities;"):]
         body = body[:body.index("annual report, {drDate(mat.as_of)}")]
         self.assertIn("mat.due_2y != null", body)
+
+
+class Codex428f(unittest.TestCase):
+    """Codex, #428 (seventh review): the SEC figures are in dollars."""
+
+    def test_a_foreign_filers_rate_is_not_dollars_over_local_debt(self):
+        twd = dict(HEAVY, totalDebt=1.6e12, totalCash=0.2e12, ebitda=0.4e12, freeCashflow=-0.1e12,
+                   financialCurrency="TWD", currency="USD")
+        row = D.row_fields(twd, None, None)
+        self.assertEqual("TWD", row["debt_ccy"])
+        f = facts_with(quarters=_quarters("InterestExpenseDebt", [0.4e9] * 4))
+        c = D.card("tsm", row, f, {})
+        self.assertEqual("USD", c["filing_ccy"])
+        self.assertIsNotNone(c["interest"])
+        self.assertIsNone(c["avg_rate"], "US dollars of interest over Taiwan dollars of debt")
+
+    def test_a_dollar_filer_keeps_its_rate(self):
+        f = facts_with(quarters=_quarters("InterestExpenseDebt", [0.4e9] * 4))
+        c = D.card("crwv", D.row_fields(HEAVY, None, None), f, {})
+        self.assertAlmostEqual(1.6e9 / 51.6e9 * 100, c["avg_rate"], places=1)
+
+    def test_the_card_labels_filing_amounts_in_the_filings_currency(self):
+        src = (Path(__file__).resolve().parent / "app-cards.jsx").read_text()
+        body = src[src.index("const mat = d && d.maturities;") - 400:]
+        body = body[:body.index("annual report, {drDate(mat.as_of)}") + 400]
+        self.assertIn("const fccy = ", body)
+        self.assertIn("drMoney(d.interest.value, fccy)", body)
+        self.assertIn("drMoney(mat.due_2y, fccy)", body)
+        self.assertNotIn("drMoney(b.value, ccy)", src)

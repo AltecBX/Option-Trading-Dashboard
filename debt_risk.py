@@ -394,7 +394,13 @@ def card(symbol: str, row: Mapping[str, Any] | None, facts: Mapping | None,
     op_v = _f((op or {}).get("value"))
     out["coverage"] = (round(op_v / intr["value"], 1)
                        if (intr and intr["value"] > 0 and op_v is not None and op_v > 0) else None)
-    out["avg_rate"] = (round(intr["value"] / debt * 100.0, 2) if (intr and debt and debt > 0) else None)
+    # The filings are read in US dollars; the screen's debt is in the
+    # company's own reporting currency. A rate across the two would be
+    # meaningless for a foreign filer (Codex, #428).
+    out["filing_ccy"] = "USD"
+    same_ccy = str(r.get("debt_ccy") or "USD").upper() == "USD"
+    out["avg_rate"] = (round(intr["value"] / debt * 100.0, 2)
+                       if (intr and debt and debt > 0 and same_ccy) else None)
     out["operating_income"] = op_v
     out["rates"] = yield_context(yields)
     # The filings add their own warnings to the screen's reasons.

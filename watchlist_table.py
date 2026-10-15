@@ -128,8 +128,13 @@ def _persist() -> None:
     if not _CACHE_PATH:
         return
     with _LOCK:
+        held = _STATE.get("settled")
         payload = {
             "rows": _STATE["rows"],
+            # the board held for settled_rows(), without the bulk: rows a
+            # lossy scan filled in survive a restart (Codex, #428)
+            "settled": ([{k: v for k, v in r.items() if k != "strat"} for r in held]
+                        if held is not None else None),
             "last_scan": _STATE["last_scan"],
             "auto_fired": _STATE.get("auto_fired", [])[-20:],
             "last_auto": _STATE.get("last_auto"),
@@ -151,6 +156,7 @@ def _load_persisted() -> None:
             return
         with _LOCK:
             _STATE["rows"] = data.get("rows") or []
+            _STATE["settled"] = data.get("settled")
             _STATE["last_scan"] = data.get("last_scan")
             _STATE["auto_fired"] = data.get("auto_fired") or []
             _STATE["last_auto"] = data.get("last_auto")
