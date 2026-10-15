@@ -121,6 +121,65 @@ WATCHLIST_ROWS = [{
 } for i, s in enumerate(
     "AAPL MSFT NVDA AMD META GOOGL AMZN TSLA NFLX CRM ORCL ADBE".split())]
 
+
+def _with_debt(rows):
+    """v5.39: each row's Debt & rates fields, from the REAL debt_risk on
+    profiles shaped like Yahoo's: ORCL heavily borrowed and burning cash,
+    the rest covered."""
+    import debt_risk as _dr
+    heavy = {"totalDebt": 169e9, "totalCash": 37e9, "ebitda": 34e9, "freeCashflow": -46e9,
+             "marketCap": 396e9, "sharesShort": 52e6, "sharesShortPriorMonth": 45e6,
+             "shortPercentOfFloat": 0.026}
+    light = {"totalDebt": 8e9, "totalCash": 20e9, "ebitda": 40e9, "freeCashflow": 30e9,
+             "marketCap": 1e12, "sharesShort": 10e6, "sharesShortPriorMonth": 12e6,
+             "shortPercentOfFloat": 0.01}
+    out = []
+    for r in rows:
+        f = _dr.row_fields(heavy if r["symbol"] == "ORCL" else light, None, None)
+        f["rate_move"] = -2.3 if r["symbol"] == "ORCL" else -0.8
+        out.append(dict(r, **f))
+    return out
+
+
+WATCHLIST_ROWS = _with_debt(WATCHLIST_ROWS)
+
+
+def short_trend_store():
+    """v5.40: six FINRA reports, shaped like FINRA's, in which ORCL's short
+    interest rises three reports running and jumps 14% in the newest."""
+    import short_trend as _st
+    setts = ["2026-07-15", "2026-07-31", "2026-08-14", "2026-08-31", "2026-09-15", "2026-09-30"]
+    orcl = [40e6, 39e6, 38e6, 40e6, 42e6, 48e6]
+    store = {"settlements": {}, "alerts": [], "notified": []}
+    for i, st in enumerate(setts):
+        store["settlements"][st] = _st.compact({
+            r["symbol"]: {"short": (orcl[i] if r["symbol"] == "ORCL" else 20e6), "days_to_cover": 1.5}
+            for r in WATCHLIST_ROWS})
+    return store
+
+
+def _with_short_trend(rows):
+    import short_trend as _st
+    store = short_trend_store()
+    return [dict(r, **_st.row_fields(store, r["symbol"])) for r in rows]
+
+
+def short_trend_answer(symbol=None):
+    """The /api/short_trend answer from the REAL short_trend on that store."""
+    import short_trend as _st
+    store = short_trend_store()
+    rows = [dict(r, float_shares=1.8e9) for r in WATCHLIST_ROWS]
+    alerts = _st.alerts_for(rows, store)
+    out = {"settlement": "2026-09-30", "public_on": "2026-10-12", "reports": sorted(store["settlements"]),
+           "alerts": alerts, "recent": alerts, "rules": {}}
+    if symbol:
+        out.update(symbol=symbol, trend=_st.trend(_st.series(store, symbol)),
+                   symbol_alerts=[a for a in alerts if a["symbol"] == symbol])
+    return out
+
+
+WATCHLIST_ROWS = _with_short_trend(WATCHLIST_ROWS)
+
 # A board with rows on it, because that is what the live one has on any
 # ordinary morning. Nine is a normal day's worth; the defect this guards
 # against needs only that the board be non-empty.
@@ -376,6 +435,20 @@ def live_payload():
          META=q(593.0, 570.0, 588.0, 593.0, 585.0, 5.8e6))
     snap = LS.snapshot()
     snap["last_sweep"] = datetime.now().astimezone().isoformat()
+    # v5.41: the shorted high-debt list, from the REAL short_trend on six
+    # FINRA-shaped reports: XE's shorts jump 14% (an alert), META is 12%
+    # short, NVDA carries no debt worth rating.
+    import short_trend as ST
+    setts = ["2026-07-15", "2026-07-31", "2026-08-14", "2026-08-31", "2026-09-15", "2026-09-30"]
+    shorts = {"XE": [20e6] * 5 + [22.8e6], "META": [30e6] * 6, "MOS": [18e6] * 6, "NVDA": [9e6] * 6}
+    store = {"settlements": {st: ST.compact({k: {"short": v[i], "days_to_cover": 2.4} for k, v in shorts.items()})
+                             for i, st in enumerate(setts)}, "alerts": [], "notified": []}
+    debt = {"XE": ("High", 150e6), "META": ("Elevated", 250e6), "MOS": ("High", 300e6), "NVDA": ("Low", 2e9)}
+    board = [dict(r, debt_risk=debt[r["symbol"]][0], float_shares=debt[r["symbol"]][1],
+                  debt_reasons=["Net debt is 5.1x a year of operating profit (EBITDA)."])
+             for r in rows if r["symbol"] in debt]
+    store["alerts"] = ST.alerts_for(board, store)
+    snap["short_debt"] = ST.shorted_debt(board, LS.prices(), store=store)
     return {"snapshot": snap, "setups": {"setups": LS.setups(), "meta": LS.meta()},
             "check": LS.check("NVDA", clock["t"])}
 
@@ -523,7 +596,7 @@ class TheFrameStaysOnScreen(unittest.TestCase):
     def _measure(self, width, height, tab="trade", init="", ticker_payload=None,
                  timezone=None, safe_area=None, starred=None, ytd_bases=None,
                  quotes=None, tab_order=None, setup_board=None, live=None, uw=None,
-                 buyers=None, report_card=None, hotlist=None):
+                 buyers=None, report_card=None, hotlist=None, debt=None):
         """Open the app with a production-sized news feed and measure the
         frame. Returns (geometry, page errors)."""
         from playwright.sync_api import sync_playwright
@@ -552,6 +625,8 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         # v5.36: the board's report card.
         self._report_card = report_card
         self._hotlist = hotlist
+        # v5.39: the Debt & rates card's answer.
+        self._debt = debt
         pw = sync_playwright().start()
         kw = {"executable_path": CHROMIUM} if Path(CHROMIUM).exists() else {}
         browser = pw.chromium.launch(**kw)
@@ -668,6 +743,14 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                     r.fulfill(status=200, content_type="application/json",
                               body=json.dumps(self._live[key]))
                     return
+            if urllib.parse.urlsplit(url).path == "/api/short_trend":
+                sym = (urllib.parse.parse_qs(urllib.parse.urlsplit(url).query).get("symbol") or [None])[0]
+                r.fulfill(status=200, content_type="application/json",
+                          body=json.dumps(short_trend_answer("ORCL" if sym else None)))
+                return
+            if self._debt is not None and urllib.parse.urlsplit(url).path == "/api/debt":
+                r.fulfill(status=200, content_type="application/json", body=json.dumps(self._debt))
+                return
             if self._hotlist is not None and urllib.parse.urlsplit(url).path == "/api/uw/hotlist":
                 r.fulfill(status=200, content_type="application/json",
                           body=json.dumps({"data": self._hotlist, "configured": True}))
@@ -2171,6 +2254,64 @@ class TheFrameStaysOnScreen(unittest.TestCase):
             finally:
                 self._close(handles)
 
+    def test_shorted_high_debt_stocks_on_the_live_scanner(self):
+        """v5.41. Jerry: "Show high debt stocks being shorted on Live
+        Scanner." The list from the real engine: the stock whose shorts just
+        piled in first, then the most shorted, with today's live move; under
+        When to sell on a wide screen, a fourth view on a phone whose four
+        buttons stay on one line."""
+        live = live_payload()
+        sd = live["snapshot"]["short_debt"]
+        self.assertEqual(["XE", "MOS", "META"], [r["symbol"] for r in sd["rows"]],
+                         "alerted first, then High before Elevated")
+        self.assertTrue(sd["rows"][0]["alert"])
+        for w, h in ((1440, 900), (440, 956), (390, 844)):
+            geo, errors, handles = self._measure(w, h, tab="live", live=live)
+            page = handles[2]
+            try:
+                self.assertFalse(errors, f"page errors at {w}px: {errors[:3]}")
+                page.wait_for_selector(".lv-alert", timeout=15000)
+                if w <= 900:
+                    seg = page.evaluate("""(() => { const v = document.querySelector('.lv-view');
+                      const b = [...v.querySelectorAll('.lv-seg-btn')];
+                      return {h: Math.round(v.getBoundingClientRect().height), n: b.length,
+                              labels: b.map(x => x.innerText.trim()),
+                              over: Math.max(0, ...b.map(x => Math.round(x.getBoundingClientRect().right - v.getBoundingClientRect().right)))}; })()""")
+                    self.assertEqual(4, seg["n"], seg)
+                    self.assertLessEqual(seg["h"], 44, f"the view buttons wrap at {w}px: {seg}")
+                    self.assertLessEqual(seg["over"], 1, f"a view button runs off at {w}px: {seg}")
+                    self.assertTrue(seg["labels"][3].startswith("Shorted (3)"), seg)
+                    self.assertFalse(page.evaluate("!!document.querySelector('.lv-shorted').offsetParent"))
+                    page.click(".lv-view .lv-seg-btn:nth-child(4)")
+                    page.wait_for_timeout(200)
+                got = page.evaluate("""(() => {
+                  const c = document.querySelector('.lv-shorted'), card = document.querySelector('.lv-card');
+                  const m = document.querySelector('.main');
+                  return {visible: !!c.offsetParent, head: c.querySelector('.lv-sell-head').innerText,
+                          rows: [...c.querySelectorAll('tbody tr')].map(tr => ({
+                            sym: tr.querySelector('.lv-sym').innerText.trim(), text: tr.innerText,
+                            piling: tr.classList.contains('lv-short-piling')})),
+                          feed: !!document.querySelector('.lv-feed').offsetParent,
+                          sell: !!document.querySelector('.lv-sell:not(.lv-shorted)').offsetParent,
+                          past: Math.round(c.getBoundingClientRect().right - card.getBoundingClientRect().right),
+                          tableOver: Math.round(c.querySelector('table').getBoundingClientRect().right - c.getBoundingClientRect().right),
+                          scroll: Math.max(0, m.scrollWidth - m.clientWidth)}; })()""")
+                self.assertTrue(got["visible"])
+                self.assertEqual(["XE", "MOS", "META"], [r["sym"] for r in got["rows"]])
+                self.assertTrue(got["rows"][0]["piling"], "the stock whose shorts just piled in is marked")
+                self.assertIn("piling in", got["rows"][0]["text"])
+                self.assertIn("1 WITH SHORTS PILING IN", got["head"].upper())
+                self.assertIn("High", got["rows"][0]["text"])
+                self.assertLessEqual(got["past"], 1, f"the list runs off the card at {w}px")
+                self.assertLessEqual(got["tableOver"], 1, f"the table runs out of its box at {w}px")
+                self.assertLessEqual(got["scroll"], 2, f"the page scrolls sideways at {w}px")
+                if w <= 900:
+                    self.assertFalse(got["feed"] or got["sell"], "the Shorted view is the list alone")
+                else:
+                    self.assertTrue(got["feed"] and got["sell"], "on a wide screen it sits under When to sell")
+            finally:
+                self._close(handles)
+
     def test_the_live_scanner_reads_at_a_glance(self):
         """v5.29. Jerry, with three screenshots of an open-source day-trading
         scanner: "I would love to add this idea to my app but make it 100x
@@ -2776,6 +2917,103 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         geo, _ = self._sell_probe(payload=pay)
         self.assertTrue(geo["sell"]["found"], "the panel disappeared without a plan")
         self.assertIn("RANGE LOCATION", geo["sell"]["text"].upper())
+
+    # ── v5.39: Debt & rates ───────────────────────────────────────────────
+    def _debt_answer(self):
+        """The card's answer from the REAL debt_risk.card: a CoreWeave-shaped
+        profile and annual-report schedule, half of it due within two years."""
+        import debt_risk as _dr
+        import test_debt_risk as T
+        row = _dr.row_fields(T.HEAVY, None, None)
+        row["rate_move"], row["rate_r"] = -2.1, -0.16
+        facts = T.facts_with(T._annual(T.M, "2025-12-31", "2026-02-20"),
+                             quarters={**T._quarters("InterestExpenseDebt", [0.4e9] * 4),
+                                       **T._quarters("OperatingIncomeLoss", [-0.1e9] * 4)})
+        y = {"2025-10-10": 4.05, "2026-09-12": 4.96, "2026-10-13": 5.21}
+        out = _dr.card("DELL", row, facts, y)
+        out["on_watchlist"] = True
+        return out
+
+    def test_debt_and_rates_card(self):
+        debt = self._debt_answer()
+        for w, h in ((1900, 1200), (440, 956)):
+            geo, errs, handles = self._measure(w, h, tab="analyze", ticker_payload=sell_payload(), debt=debt)
+            page = handles[2]
+            try:
+                self.assertEqual(errs, [], f"the page threw at {w}px: {errs[:2]}")
+                page.wait_for_selector(".dr-card .dr-verdict", timeout=15000)
+                got = page.evaluate("""(() => {
+                  const c = document.querySelector('.dr-card');
+                  const clipped = [];
+                  for (const e of c.querySelectorAll('*')) {
+                    const cs = getComputedStyle(e);
+                    if (cs.display === 'none' || cs.overflowX === 'hidden') continue;
+                    if (e.scrollWidth > e.clientWidth + 1 && e.clientWidth > 0)
+                      clipped.push(String(e.getAttribute('class') || e.tagName).split(' ')[0]);
+                  }
+                  const m = document.querySelector('.main');
+                  return {text: c.innerText, verdict: c.querySelector('.dr-verdict b').innerText,
+                          bars: c.querySelectorAll('.dr-wall:not(.dr-si) .dr-bar-row').length,
+                          soon: c.querySelectorAll('.dr-wall:not(.dr-si) .dr-bar-row.soon').length,
+                          clipped, scroll: Math.max(0, m.scrollWidth - m.clientWidth)}; })()""")
+                self.assertEqual("Debt risk: High", got["verdict"])
+                self.assertEqual(6, got["bars"], "next 12 months, years 2 to 5, after year 5")
+                self.assertEqual(2, got["soon"], "the two due soonest are marked")
+                page.wait_for_selector(".dr-si", timeout=8000)
+                si = page.evaluate("""(() => { const s = document.querySelector('.dr-si');
+                  return {text: s.innerText, bars: s.querySelectorAll('.dr-bar-row').length,
+                          rises: s.querySelectorAll('.dr-bar-row.rise').length}; })()""")
+                self.assertIn("Short interest, last 6 FINRA reports", si["text"])
+                self.assertEqual(6, si["bars"])
+                self.assertEqual(3, si["rises"], "the three rising reports are marked")
+                self.assertIn("Shorts are piling into ORCL", si["text"], "the live alert sits on the card")
+                for bit in ("$51.6B", "12.1x", "142%", "-$9.1B", "$1.6B", "loss", "19.2%",
+                            "within two years", "-2.1%", "5.21%", "operating loss"):
+                    self.assertIn(bit, got["text"], f"{bit!r} missing at {w}px")
+                self.assertEqual([], got["clipped"], f"text runs out of its box at {w}px")
+                self.assertLessEqual(got["scroll"], 2, f"the page scrolls sideways at {w}px")
+            finally:
+                self._close(handles)
+
+    def test_the_watchlist_has_a_debt_and_rates_view(self):
+        geo, errs, handles = self._measure(1900, 1200, tab="watchlist")
+        page = handles[2]
+        try:
+            self.assertEqual(errs, [], f"the page threw: {errs[:2]}")
+            page.wait_for_selector(".wl-preset", timeout=15000)
+            page.click(".wl-preset:has-text('Debt & rates')")
+            page.wait_for_timeout(300)
+            got = page.evaluate("""(() => {
+              const heads = [...document.querySelectorAll('.wl-table thead th')].map(t => t.innerText.trim());
+              const chips = [...document.querySelectorAll('.wl-table .wl-debt')].map(c => ({
+                t: c.innerText.trim(), why: c.closest('td').getAttribute('title') || ''}));
+              return {heads, chips}; })()""")
+            for h in ("Debt risk", "Debt", "Debt/EBITDA", "Debt/Cap", "FCF", "Short %", "Short trend", "Rate move"):
+                self.assertTrue(any(x.upper().startswith(h.upper()) for x in got["heads"]),
+                                f"no {h!r} column: {got['heads']}")
+            high = [c for c in got["chips"] if c["t"] == "High"]
+            self.assertEqual(1, len(high), "ORCL alone is High")
+            self.assertIn("Burning cash", high[0]["why"], "the reasons ride on the rating")
+            page.click(".wl-table thead th:has-text('Debt risk')")
+            page.wait_for_timeout(200)
+            first = page.evaluate("document.querySelector('.wl-table tbody tr td.wl-sym').innerText")
+            self.assertIn("ORCL", first, "sorting Debt risk puts the most exposed first")
+            # v5.40: the newest FINRA report's alerts above the table, and the trend column.
+            page.wait_for_selector(".wl-si-strip", timeout=8000)
+            strip = page.evaluate("""(() => { const s = document.querySelector('.wl-si-strip');
+              return {text: s.innerText, chips: [...s.querySelectorAll('.wl-si-chip')].map(c => ({
+                t: c.innerText.trim(), why: c.getAttribute('title') || ''}))}; })()""")
+            self.assertIn("SHORTS PILING IN", strip["text"].upper())
+            self.assertIn("SEP 30, 2026", strip["text"].upper())
+            self.assertEqual(1, len(strip["chips"]), strip)
+            self.assertTrue(strip["chips"][0]["t"].startswith("ORCL +14%"), strip["chips"][0])
+            self.assertIn("High-debt stock", strip["chips"][0]["why"])
+            trend = page.evaluate("""[...document.querySelectorAll('.wl-table tbody tr')]
+              .filter(tr => tr.querySelector('td.wl-sym').innerText.includes('ORCL'))
+              .map(tr => tr.innerText)[0]""")
+            self.assertIn("▲3 +26%", trend, "three rising reports, +26% over them")
+        finally:
+            self._close(handles)
 
     # ── v5.37: When to sell ───────────────────────────────────────────────
     def test_when_to_sell_shows_the_verdict_and_the_trigger(self):

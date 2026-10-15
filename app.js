@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "5.38";
+const APP_VERSION = "5.43";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -5059,6 +5059,23 @@ function App() {
         } else if (++tries < 40) setTimeout(go, 250);
       };
       setTimeout(go, 250);
+    },
+    onOpenDebt: sym => {
+      // v5.41: straight to the stock's Debt & rates card.
+      switchTicker(sym);
+      changeTab("analyze");
+      let tries = 0;
+      const go = () => {
+        const el = document.getElementById("jump-debt");
+        const card = document.querySelector(".dr-card .card-title");
+        if (el && card && card.textContent.includes(sym)) {
+          el.scrollIntoView({
+            behavior: "smooth",
+            block: "start"
+          });
+        } else if (++tries < 40) setTimeout(go, 250);
+      };
+      setTimeout(go, 250);
     }
   }))), /*#__PURE__*/React.createElement(TabPanel, {
     tab: "buyers",
@@ -6758,6 +6775,19 @@ function App() {
     plan: window.__LIVE && window.__LIVE.whenToSell || null,
     planTicker: window.__LIVE && window.__LIVE.ticker || null,
     currentPrice: getLivePrice(ticker) ?? currentPrice
+  }))), /*#__PURE__*/React.createElement("div", {
+    id: "jump-debt",
+    className: "jump-anchor",
+    "aria-hidden": "true"
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: "var(--row-gap)"
+    }
+  }, /*#__PURE__*/React.createElement(CardErrorBoundary, {
+    label: "Debt & rates"
+  }, /*#__PURE__*/React.createElement(DebtRatesCard, {
+    ticker: ticker,
+    apiFetch: apiFetch
   }))), /*#__PURE__*/React.createElement("div", {
     id: "jump-basing",
     className: "jump-anchor",

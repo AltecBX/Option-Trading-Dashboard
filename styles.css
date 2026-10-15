@@ -15337,6 +15337,9 @@ body { overflow: hidden; overscroll-behavior: none; }
   .lv-show-lists .lv-feed { display: none; }
   /* v5.38: the third view, When to sell, is the side column without the lists. */
   .lv-show-sell .lv-feed, .lv-show-sell .lv-ranks, .lv-show-lists .lv-sell { display: none; }
+  /* v5.41: the fourth view, Shorted, is the shorted high-debt list alone. */
+  .lv-show-sell .lv-shorted, .lv-show-shorted .lv-feed, .lv-show-shorted .lv-ranks,
+  .lv-show-shorted .lv-sell:not(.lv-shorted) { display: none; }
   .lv-feed-head { flex-wrap: nowrap; gap: 6px; margin-bottom: 4px; }
   .lv-feed-head .lv-seg { flex-wrap: nowrap; flex: none; }
   .lv-setup-filter { max-width: none; flex: 1 1 auto; min-width: 0; }
@@ -15545,6 +15548,13 @@ body { overflow: hidden; overscroll-behavior: none; }
 .lv-sell-st.near { color: var(--fg); background: color-mix(in srgb, var(--warn) 16%, transparent); border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
 .lv-sell-tapped td { background: color-mix(in srgb, var(--up) 6%, transparent); }
 .lv-sell-miss { margin: 8px 0 0; font-size: 12px; color: var(--fg-3); }
+/* v5.41 — shorted high-debt stocks */
+.lv-sell-n.piling { background: color-mix(in srgb, var(--down) 16%, transparent); border-color: color-mix(in srgb, var(--down) 55%, transparent); }
+.lv-sell-st.debt-high { color: var(--fg); background: color-mix(in srgb, var(--down) 18%, transparent); border-color: color-mix(in srgb, var(--down) 55%, transparent); }
+.lv-sell-st.debt-elev { color: var(--fg); background: color-mix(in srgb, var(--warn) 16%, transparent); border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
+.lv-short-piling td { background: color-mix(in srgb, var(--down) 6%, transparent); }
+.lv-piling-tag { color: var(--down); font-weight: 700; }
+.lv-short-push { margin: 6px 0 0; font-size: 12px; color: var(--fg-3); }
 @media (max-width: 900px) {
   .lv-sell { padding: 8px 10px; }
   /* the phone rule gives every .scan-table cell 8px a side, !important */
@@ -15552,6 +15562,71 @@ body { overflow: hidden; overscroll-behavior: none; }
   .lv-sell-st { padding: 1px 5px; font-size: 11.5px; }
   /* three views now: each button as wide as its words, on one line */
   .lv-view .lv-seg-btn { flex: 1 1 auto; white-space: nowrap; padding-left: 8px; padding-right: 8px; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Debt & rates (v5.39): the watchlist's rating chip and the Analyze card.
+   One hue for the schedule's bars; the two due soonest are marked in words.
+   Tokens only.
+   ══════════════════════════════════════════════════════════════════════════ */
+.wl-debt { display: inline-block; padding: 1px 7px; border-radius: 6px; font-size: 11px; font-weight: 700;
+           color: var(--fg); border: 1px solid var(--line); background: var(--bg-3); white-space: nowrap; }
+.wl-debt-high { background: color-mix(in srgb, var(--down) 18%, transparent); border-color: color-mix(in srgb, var(--down) 55%, transparent); }
+.wl-debt-elevated { background: color-mix(in srgb, var(--warn) 16%, transparent); border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
+.wl-debt-low { color: var(--fg-2); }
+.dr-verdict { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 0 0 12px; }
+.dr-verdict > b { font-size: 15px; padding: 4px 12px; border-radius: 8px; color: var(--fg);
+                  background: var(--bg-3); border: 1px solid var(--line); }
+.dr-verdict.dr-high > b { background: color-mix(in srgb, var(--down) 18%, transparent); border-color: color-mix(in srgb, var(--down) 55%, transparent); }
+.dr-verdict.dr-elev > b { background: color-mix(in srgb, var(--warn) 16%, transparent); border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
+.dr-verdict.dr-low > b { background: color-mix(in srgb, var(--up) 14%, transparent); border-color: color-mix(in srgb, var(--up) 45%, transparent); }
+.dr-rate { font-size: 13px; color: var(--fg-2); }
+.dr-rate b { color: var(--fg); font-family: var(--font-mono); }
+.dr-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.dr-stat { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 8px;
+           border: 1px solid var(--line); background: var(--bg-2); min-width: 0; }
+.dr-k { font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--fg-3); }
+.dr-v { font-family: var(--font-mono); font-size: 17px; font-weight: 700; color: var(--fg); }
+.dr-s { font-size: 11.5px; color: var(--fg-3); }
+.dr-wall { margin-top: 14px; }
+.dr-wall-h { font-size: 13px; font-weight: 700; color: var(--fg); margin-bottom: 6px; }
+.dr-wall-sub { font-weight: 400; color: var(--fg-2); }
+.dr-bars { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.dr-bar-row { display: grid; grid-template-columns: 150px minmax(0, 1fr) 72px; align-items: center; gap: 10px; }
+.dr-bar-l { font-size: 12.5px; color: var(--fg-2); white-space: nowrap; }
+.dr-bar-l em { font-style: normal; font-weight: 700; color: var(--fg); }
+.dr-bar-track { height: 10px; border-radius: 4px; background: var(--bg-3); overflow: hidden; }
+/* neutral, not the brand green: an amount owed is not "good" */
+.dr-bar-fill { display: block; height: 100%; border-radius: 4px; background: color-mix(in srgb, var(--fg) 42%, transparent); }
+.dr-bar-row.soon .dr-bar-fill { background: var(--warn); }
+.dr-bar-v { font-family: var(--font-mono); font-size: 12.5px; color: var(--fg); text-align: right; }
+.dr-why { margin: 12px 0 0; padding: 0 0 0 18px; font-size: 13px; line-height: 1.5; color: var(--fg-2); }
+.dr-note { margin: 12px 0 0; font-size: 12.5px; color: var(--fg-3); }
+.dr-foot { margin: 10px 0 0; font-size: 11.5px; line-height: 1.45; color: var(--fg-3); }
+/* v5.40 — short interest trend: the strip above the table, the column, the card's reports */
+.wl-si-strip { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 8px;
+               padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg-2); }
+.wl-si-h { font-size: 11.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--fg-3); }
+.wl-si-chip { font-size: 12px; padding: 2px 9px; border-radius: 999px; cursor: pointer; color: var(--fg);
+              border: 1px solid var(--line); background: var(--bg-3); }
+.wl-si-chip b { font-weight: 800; }
+.wl-si-chip.high { background: color-mix(in srgb, var(--down) 16%, transparent); border-color: color-mix(in srgb, var(--down) 55%, transparent); }
+.wl-si-chip.elev { background: color-mix(in srgb, var(--warn) 14%, transparent); border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
+.wl-si-none { font-size: 12.5px; color: var(--fg-2); }
+.wl-si-run { white-space: nowrap; }
+.dr-si-alert { margin: 0 0 8px; padding: 6px 10px; border-radius: 8px; font-size: 12.5px; line-height: 1.45; color: var(--fg);
+               border-left: 3px solid var(--down); background: color-mix(in srgb, var(--down) 10%, transparent); }
+.dr-si .dr-bar-row.rise .dr-bar-fill { background: color-mix(in srgb, var(--down) 70%, transparent); }
+.dr-bar-v em { font-style: normal; font-size: 11px; color: var(--fg-3); }
+.dr-si .dr-bar-row { grid-template-columns: 150px minmax(0, 1fr) 104px; }
+@media (max-width: 900px) {
+  .dr-si .dr-bar-row { grid-template-columns: 96px minmax(0, 1fr) 96px; }
+}
+@media (max-width: 900px) {
+  .dr-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dr-bar-row { grid-template-columns: 112px minmax(0, 1fr) 62px; gap: 6px; }
+  .dr-bar-l { white-space: normal; line-height: 1.25; }
+  .dr-v { font-size: 15px; }
 }
 
 /* ══════════════════════════════════════════════════════════════════════════

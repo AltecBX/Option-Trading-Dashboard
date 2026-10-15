@@ -87,6 +87,11 @@ try:
 except Exception as _exc:  # noqa: BLE001
     print(f"[watchlist_table] strat_states unavailable: {_exc}", file=sys.stderr)
     _strat = None
+try:
+    import debt_risk as _debt           # v5.39: Debt & rates, from the same profile and bars
+except Exception as _exc:  # noqa: BLE001
+    print(f"[watchlist_table] debt_risk unavailable: {_exc}", file=sys.stderr)
+    _debt = None
 
 CHUNK = 40
 
@@ -106,6 +111,8 @@ _LOCK = threading.RLock()
 _STATE: dict[str, Any] = {
     "scanning": False, "scanned": 0, "total": 0, "last_scan": None,
     "rows": [], "error": None, "auto_fired": [], "last_auto": None,
+    # The board a scan started from, kept until a scan finishes: see settled_rows().
+    "settled": None,
 }
 _THREAD: threading.Thread | None = None
 _SCHED_THREAD: threading.Thread | None = None
@@ -121,8 +128,13 @@ def _persist() -> None:
     if not _CACHE_PATH:
         return
     with _LOCK:
+        held = _STATE.get("settled")
         payload = {
             "rows": _STATE["rows"],
+            # the board held for settled_rows(), without the bulk: rows a
+            # lossy scan filled in survive a restart (Codex, #428)
+            "settled": ([{k: v for k, v in r.items() if k != "strat"} for r in held]
+                        if held is not None else None),
             "last_scan": _STATE["last_scan"],
             "auto_fired": _STATE.get("auto_fired", [])[-20:],
             "last_auto": _STATE.get("last_auto"),
@@ -144,6 +156,7 @@ def _load_persisted() -> None:
             return
         with _LOCK:
             _STATE["rows"] = data.get("rows") or []
+            _STATE["settled"] = data.get("settled")
             _STATE["last_scan"] = data.get("last_scan")
             _STATE["auto_fired"] = data.get("auto_fired") or []
             _STATE["last_auto"] = data.get("last_auto")
@@ -441,6 +454,13 @@ def _fundamentals(symbol: str) -> dict:
                     out["market_cap"] = mc
             except Exception:
                 pass
+        # v5.39: debt, cash, EBITDA, free cash flow and short interest ride
+        # on the same .info call: no extra request per symbol. Worked out
+        # after the market-cap fallback, so a value recovered from
+        # fast_info still counts against the debt (Codex, #428).
+        if _debt is not None:
+            out.update(_debt.screen_fields(
+                dict(info, marketCap=info.get("marketCap") or out["market_cap"])))
         if out["pe"] is None:
             eps = _num(info.get("trailingEps") or info.get("epsTrailingTwelveMonths"))
             price = _num(info.get("currentPrice") or info.get("regularMarketPrice"))
@@ -723,6 +743,45 @@ def set_flow_provider(fn) -> None:
     _FLOW_FN = fn
 
 
+# v5.39: the 10-year Treasury yield, read once per scan, for each stock's
+# rate move (how it has moved per +0.10% in the yield).
+_YIELD_FN = None        # () -> [(iso_date, yield_pct), ...]
+_SCAN_YIELDS: dict = {}
+
+
+def set_yield_provider(fn) -> None:
+    global _YIELD_FN
+    _YIELD_FN = fn
+
+
+def _load_yields() -> dict:
+    if _YIELD_FN is None:
+        return {}
+    try:
+        return {str(d)[:10]: float(v) for d, v in (_YIELD_FN() or [])}
+    except Exception as exc:  # noqa: BLE001
+        print(f"[watchlist_table] 10-year yield unavailable: {exc}", file=sys.stderr)
+        return {}
+
+
+def _debt_fields(row: dict, close) -> None:
+    """The rate move and the debt assessment, on the row in hand."""
+    if _debt is None:
+        return
+    rb = None
+    if _SCAN_YIELDS:
+        try:
+            tail = close.dropna().iloc[-(_debt.BETA_SESSIONS + 40):]
+            closes = {str(ix)[:10]: float(v) for ix, v in tail.items()}
+            rb = _debt.rate_beta(closes, _SCAN_YIELDS)
+        except Exception:  # noqa: BLE001
+            rb = None
+    row["rate_move"] = rb["move_per_10bp"] if rb else None
+    row["rate_r"] = rb["r"] if rb else None
+    a = _debt.assess(row)
+    row.update({"debt_risk": a["level"], "debt_score": a["score"], "debt_reasons": a["reasons"]})
+
+
 def _fill_sector(row: dict, sym: str, prior_row: dict | None) -> None:
     """Give the row a sector when Yahoo did not.
 
@@ -784,6 +843,7 @@ def _scan_one(sym: str, sub, flow_fn, do_flow: bool = True, prior_row: dict | No
     except Exception:
         row["open"] = None
     row.update(_fundamentals(sym))
+    _debt_fields(row, close)
     # CSV import is the source of truth for tag/sector/industry/weekly. Override
     # whatever yfinance returned (and fill it in even when .info came back blank).
     with _OVERRIDES_LOCK:
@@ -888,6 +948,8 @@ def _scan_worker(symbols: list[str]) -> None:
     # baseline; every rescan after that is fast + bounded. 0 = always unlimited.
     cold = not prior
     flow_syms = set(symbols) if (cold or _FLOW_BUDGET <= 0) else set(symbols[:_FLOW_BUDGET])
+    global _SCAN_YIELDS
+    _SCAN_YIELDS = _load_yields()
     flow_fn = _FLOW_FN
     analyst_board.HEAVY_SCAN_LOCK.acquire()
     try:
@@ -959,6 +1021,16 @@ def _scan_worker(symbols: list[str]) -> None:
             _STATE["rows"] = rows
             _STATE["last_scan"] = _now_iso()
             _STATE["error"] = None
+            # A chunk whose download failed, or a stock that failed on its
+            # own, is left off the table; the board held for settled_rows()
+            # keeps it as the last good scan had it (Codex, #428). A scan
+            # that got every stock needs nothing held.
+            got = {r.get("symbol") for r in rows}
+            wanted = set(symbols)
+            lost = [r for r in (_STATE.get("settled") or [])
+                    if r.get("symbol") in wanted and r.get("symbol") not in got]
+            _STATE["settled"] = (sorted(rows + lost, key=lambda r: -(r.get("market_cap") or 0))
+                                 if lost else None)
         _persist()  # cache to /data so the board survives restarts/redeploys
         # Morning Prime-setup push (only after the 9 AM auto-scan fired it).
         global _ALERT_PENDING
@@ -989,10 +1061,29 @@ def trigger_scan(symbols: list[str], force: bool = False, overrides: dict | None
     with _LOCK:
         if _STATE["scanning"] and not force:
             return {"started": False, "reason": "already scanning"}
+        if _STATE.get("settled") is None:
+            # A scan that failed part way left its partial board published
+            # and this still holding the last good one: that stays.
+            _STATE["settled"] = _STATE["rows"]
         _STATE.update({"scanning": True, "scanned": 0, "total": len(syms)})
     _THREAD = threading.Thread(target=_scan_worker, args=(syms,), daemon=True)
     _THREAD.start()
     return {"started": True, "total": len(syms)}
+
+
+def settled_rows() -> list[dict]:
+    """The board as of the last finished scan. A scan publishes after every
+    chunk, so while one runs the board holds only the stocks done so far:
+    this keeps the board the scan started from (the saved one at boot)
+    until a scan finishes, and through a scan that failed part way; a
+    finished scan that lost a chunk or a stock has the last good row for
+    it filled in. For
+    readers that need every stock rather than the freshest numbers: the
+    Live Scanner's quotes and its Shorted high-debt list (Codex, #428)."""
+    with _LOCK:
+        held = _STATE.get("settled")
+        rows = list(held if held is not None else _STATE["rows"])
+    return [{k: v for k, v in r.items() if k != "strat"} for r in rows]
 
 
 def get_board(with_strat: bool = False) -> dict:

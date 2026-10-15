@@ -5166,12 +5166,28 @@ except Exception as _exc:  # noqa: BLE001
 # One batch quote per ~300 names every 30 seconds while the market is open,
 # over the watchlist board's universe. Alerts, rankings and each setup's own
 # graded track record; runs whether or not the tab is open.
+def _scanner_board_rows():
+    """The watchlist rows the Live Scanner quotes and builds its Shorted
+    high-debt list from: the board as of the last finished scan. Mid-scan
+    the board holds only the chunks done so far, and a stock left out is not
+    quoted; one that broke its 52-week low before its first quote would never
+    alert (Codex, #428). The saved board stands in during the first scan
+    after a restart."""
+    return _wltable.settled_rows() if (_WLTABLE_AVAILABLE and _wltable is not None) else []
+
+
+def _shorted_live_rows():
+    """The Live Scanner's Shorted high-debt list, for its pushes."""
+    if not (globals().get("_STREND_AVAILABLE") and _strend is not None):
+        return []
+    return (_strend.shorted_debt(_scanner_board_rows()) or {}).get("rows") or []
+
+
 try:
     import live_scan as _live
     _live.configure(
         quotes_fn=lambda syms: (lambda c: c.get_quotes(syms) if c is not None else None)(_schwab()),
-        universe_fn=lambda: (((_wltable.get_board() if (_WLTABLE_AVAILABLE and _wltable is not None)
-                               else {}) or {}).get("rows") or []),
+        universe_fn=lambda: _scanner_board_rows(),
         notify_fn=lambda title, msg, priority=0: _push_notify(title, msg, priority=priority),
         now_fn=(lambda: datetime.now(_ET)) if _ET is not None else None,
         data_dir=_STABLE_DIR,
@@ -5185,12 +5201,42 @@ try:
             sym, load_daily(sym, 260), day,
             earnings_dates=(load_earnings_history(sym, 60) or {}).get("past") or []),
         sell_symbols_fn=lambda: __import__("when_to_sell").table_symbols(),
+        # v5.42: the Shorted high-debt list, for the "dropping" push.
+        shorted_fn=lambda: _shorted_live_rows(),
     )
     _LIVE_AVAILABLE = True
 except Exception as _exc:  # noqa: BLE001
     print(f"[live_scan] wiring failed: {_exc}", file=sys.stderr)
     _LIVE_AVAILABLE = False
     _live = None  # type: ignore
+
+# ── Short-interest trend alerts for high-debt stocks (v5.40) ────────────────
+_SHORT_DEBT_CACHE: dict = {}   # v5.41: the Live Scanner's shorted high-debt list, a minute at a time
+# FINRA's twice-monthly short-interest report against the watchlist's Debt &
+# rates ratings: an alert when shorts pile into a High or Elevated debt stock.
+try:
+    import short_trend as _strend
+    import hf_sources as _strend_src
+    _strend.configure(
+        data_dir=_STABLE_DIR,
+        # None for a report cut short by a failed page: not kept, tried again (Codex, #428)
+        fetch_fn=lambda st: _strend_src.finra_short_interest(st, complete_only=True),
+        settlements_fn=lambda d: _strend_src.finra_settlements(d, n=_strend.SETTLEMENTS_KEEP),
+        public_on_fn=lambda st: _strend_src.finra_public_on(st),
+        # the board's status, so a report waits for a finished scan, with the
+        # last finished scan's rows: a scan that failed part way leaves half
+        # a board behind (Codex, #428)
+        board_fn=lambda: (dict(_wltable.get_board(), rows=_wltable.settled_rows())
+                          if (_WLTABLE_AVAILABLE and _wltable is not None) else {}),
+        # returns {"ok": ...}: a failed send is retried on the next check
+        notify_fn=lambda title, msg: (_push_notify(title, msg, priority=0) if _push_configured() else None),
+        today_fn=(lambda: datetime.now(_ET).date()) if _ET is not None else None,
+    )
+    _STREND_AVAILABLE = True
+except Exception as _exc:  # noqa: BLE001
+    print(f"[short_trend] wiring failed: {_exc}", file=sys.stderr)
+    _STREND_AVAILABLE = False
+    _strend = None  # type: ignore
 
 # ── Hedge Fund Intelligence: Named Fund Watch (HEDGE_FUND_INTEL.md) ─────────
 # EDGAR is the source of record; Unusual Whales is a cross-check. The sector
@@ -5783,6 +5829,60 @@ def _sec_filing_dates(symbol: str) -> list:
         if out:
             break
     return sorted(out)
+
+
+# ── Debt & rates (v5.39): one stock's debt, schedule, interest and rate move ──
+_DEBT_CARD_CACHE: dict = {}
+_DEBT_CARD_TTL = 1800.0
+
+
+def _ten_year_series() -> list:
+    """The 10-year Treasury yield, daily, about 13 months back (FRED DGS10)."""
+    import debt_risk as _dr
+    return _dr.ten_year_series(_treasury._fred_series if _treasury is not None else None)
+
+
+def build_debt_card(symbol: str) -> dict:
+    """The Debt & rates card. The watchlist row when the stock is on the
+    board (the same numbers the table shows); otherwise the same fields
+    worked out now from its Yahoo profile and a year of daily bars. The
+    debt schedule and interest come from its SEC filings."""
+    import debt_risk as _dr
+    sym = (symbol or "").upper().strip()
+    if not sym:
+        return {"ok": False, "error": "no symbol"}
+    hit = _DEBT_CARD_CACHE.get(sym)
+    if hit and time.time() - hit[0] < _DEBT_CARD_TTL:
+        return hit[1]
+    yields = {str(d)[:10]: float(v) for d, v in _ten_year_series()}
+    row = None
+    try:
+        board = (_wltable.get_board() if (_WLTABLE_AVAILABLE and _wltable is not None) else {}) or {}
+        row = next((r for r in (board.get("rows") or []) if str(r.get("symbol") or "").upper() == sym), None)
+    except Exception:  # noqa: BLE001
+        row = None
+    if row is None or (row.get("debt_risk") is None and row.get("debt_total") is None):
+        try:
+            closes = {str(b["date"])[:10]: float(b["close"]) for b in (load_daily(sym, 200) or [])
+                      if b.get("close") is not None}
+            # a thin profile gets fast_info's market value first (Codex, #428)
+            fresh = _dr.ticker_fields(yf.Ticker(sym), closes, yields)
+            row = dict(row or {}, **fresh)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[debt] {sym}: {exc}", file=sys.stderr)
+    facts = None
+    try:
+        import fundamentals as _fnd
+        facts = _fnd.company_facts(sym)
+    except Exception:  # noqa: BLE001
+        facts = None
+    on_board = row is not None and bool(row.get("last") is not None or row.get("company"))
+    out = _dr.card(sym, row, facts, yields)
+    out["on_watchlist"] = on_board
+    _DEBT_CARD_CACHE[sym] = (time.time(), out)
+    if len(_DEBT_CARD_CACHE) > 200:
+        _DEBT_CARD_CACHE.pop(next(iter(_DEBT_CARD_CACHE)))
+    return out
 
 
 def _deep_earn_hist(symbol: str) -> dict:
@@ -9912,6 +10012,26 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
+        if parsed.path == "/api/short_trend":
+            # v5.40: the newest FINRA report's alerts, the recent ones, and
+            # with ?symbol= that stock's short-interest trend.
+            qs = parse_qs(parsed.query)
+            if not (_STREND_AVAILABLE and _strend is not None):
+                self._send_json({"error": "short-interest trend unavailable", "alerts": []}, status=503)
+                return
+            try:
+                self._send_json(_strend.snapshot((qs.get("symbol", [""])[0] or "").strip() or None))
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)[:200], "alerts": []}, status=500)
+            return
+        if parsed.path == "/api/debt":
+            # v5.39: the Debt & rates card for one stock.
+            qs = parse_qs(parsed.query)
+            try:
+                self._send_json(build_debt_card(qs.get("symbol", [""])[0]))
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"ok": False, "error": str(exc)[:200]}, status=500)
+            return
         if parsed.path == "/api/watchlist/diag":
             try:
                 self._send_json(_watchlist_diag())
@@ -10729,7 +10849,23 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                         since_ts = float(since) if since else None
                     except ValueError:
                         since_ts = None
-                    self._send_json(_live.snapshot(since_ts=since_ts), no_store=True)
+                    snap = _live.snapshot(since_ts=since_ts)
+                    # v5.41: high-debt stocks being shorted, with today's move.
+                    # The screen polls every 10 seconds; the list is rebuilt
+                    # at most once a minute.
+                    if _STREND_AVAILABLE and _strend is not None:
+                        hit = _SHORT_DEBT_CACHE.get("v")
+                        if hit and time.time() - hit[0] < 60:
+                            snap["short_debt"] = hit[1]
+                        else:
+                            try:
+                                # the last finished scan's rows, not half a board mid-scan (Codex, #428)
+                                board_rows = _scanner_board_rows()
+                                snap["short_debt"] = _strend.shorted_debt(board_rows, _live.prices())
+                                _SHORT_DEBT_CACHE["v"] = (time.time(), snap["short_debt"])
+                            except Exception as exc:  # noqa: BLE001
+                                snap["short_debt"] = {"rows": [], "error": str(exc)[:160]}
+                    self._send_json(snap, no_store=True)
                 elif section == "check":
                     self._send_json(_live.check(qs.get("symbol", [""])[0]), no_store=True)
                 elif section == "setups":
@@ -11376,11 +11512,17 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 return
             try:
                 board = _wltable.get_board()
+                # v5.40: each row's short-interest trend (FINRA), and the
+                # newest report in the version stamp so a new report shows.
+                si = None
+                if _STREND_AVAILABLE and _strend is not None:
+                    board["rows"] = _strend.board_fields(board.get("rows") or [])
+                    si = _strend.latest_settlement()
                 # Version stamp: changes when a scan chunk publishes (scanned
                 # advances) or a scan completes (last_scan). Unchanged board →
                 # 304 for pollers + the body is serialized once per version.
                 st = board.get("status") or {}
-                tag = f'W/"wlt-{st.get("last_scan")}-{st.get("scanned")}-{board.get("count")}"'
+                tag = f'W/"wlt-{st.get("last_scan")}-{st.get("scanned")}-{board.get("count")}-{si}"'
                 self._send_json(board, etag=tag)
             except Exception as exc:  # noqa: BLE001
                 _log_warn(None, "api/watchlist_table", exc)
@@ -14177,6 +14319,8 @@ def serve(host: str, port: int, weeks: int, friday_baseline: bool) -> None:
                         print(f"[watchlist_table] push failed: {e}", file=sys.stderr)
 
             _wltable.set_notify_provider(_wlt_notify)
+            # v5.39: the 10-year yield (FRED DGS10) for each stock's rate move.
+            _wltable.set_yield_provider(_ten_year_series)
             # Seed the CSV source-of-truth overrides at startup so the first
             # scheduled scan already honors imported tag/sector/industry.
             _push_watchlist_overrides()
@@ -14235,6 +14379,12 @@ def serve(host: str, port: int, weeks: int, friday_baseline: bool) -> None:
             _live.start_scheduler()
         except Exception as exc:  # noqa: BLE001
             print(f"[live_scan] scheduler start failed: {exc}", file=sys.stderr)
+    if _STREND_AVAILABLE and _strend is not None and not os.environ.get("JERRY_NO_NET"):
+        try:
+            # v5.40: checks for a new FINRA short-interest report every 3 hours
+            _strend.start_scheduler()
+        except Exception as exc:  # noqa: BLE001
+            print(f"[short_trend] scheduler start failed: {exc}", file=sys.stderr)
     if _SELL_AVAILABLE:
         try:
             # grades every recorded Best Sales recommendation after its expiry

@@ -1510,6 +1510,15 @@ function fmtUsd(v, dp) {
     maximumFractionDigits: d
   });
 }
+// Debt and cash flow in the filer's own currency (v5.39): dollars as $, any
+// other currency named, so kroner never read as dollars.
+function wlDebt$(v, ccy) {
+  if (v == null || !isFinite(v)) return "—";
+  const a = Math.abs(v),
+    c = !ccy || ccy === "USD" ? "$" : `${ccy} `;
+  const s = a >= 1e12 ? `${(a / 1e12).toFixed(1)}T` : a >= 1e9 ? `${(a / 1e9).toFixed(1)}B` : a >= 1e6 ? `${Math.round(a / 1e6)}M` : `${Math.round(a)}`;
+  return `${v < 0 ? "-" : ""}${c}${s}`;
+}
 function fmtMktCap(v) {
   if (!v) return "—";
   if (v >= 1e12) return "$" + (v / 1e12).toLocaleString(undefined, {
@@ -4101,10 +4110,17 @@ const WL_PRESETS = [{
   label: "Earnings & value",
   tip: "The calendar and the fundamentals: next report, multiples, size and classification.",
   cols: ["symbol", "company", "next_earnings", "pe", "forward_pe", "market_cap", "sector", "industry", "weekly", "tag"]
+},
+// v5.39: who owes the most, and how it is holding up as rates rise.
+{
+  id: "debt",
+  label: "Debt & rates",
+  tip: "Debt, cash burn and short interest from each company's profile, a Debt risk rating with its reasons, and how the stock has moved when the 10-year yield rose. Sort Debt risk to see the most exposed first.",
+  cols: ["symbol", "company", "last", "mtd", "market_cap", "debt_risk", "debt_total", "net_debt_ebitda", "debt_to_mcap", "fcf", "short_pct", "si_trend", "rate_move", "sector", "tag"]
 }, {
   id: "all",
   label: "All columns",
-  tip: "Every one of the forty-six columns, for a deliberate side-by-side comparison.",
+  tip: "Every column, for a deliberate side-by-side comparison.",
   cols: null
 }];
 const WL_PRESET_KEY = "jerry_wl_preset_v1";
@@ -4434,6 +4450,46 @@ function WatchlistTableCard({
     k: "from_ma200",
     label: "%200DMA",
     num: true
+  },
+  // v5.39 — Debt & rates
+  {
+    k: "debt_risk",
+    label: "Debt risk",
+    num: true
+  }, {
+    k: "debt_total",
+    label: "Debt",
+    num: true
+  }, {
+    k: "net_debt_ebitda",
+    label: "Debt/EBITDA",
+    num: true
+  }, {
+    k: "debt_to_mcap",
+    label: "Debt/Cap",
+    num: true
+  }, {
+    k: "fcf",
+    label: "FCF",
+    num: true
+  }, {
+    k: "short_pct",
+    label: "Short %",
+    num: true
+  }, {
+    k: "short_chg",
+    label: "Short Δ",
+    num: true
+  }, {
+    k: "rate_move",
+    label: "Rate move",
+    num: true
+  },
+  // v5.40 — FINRA's twice-monthly short interest
+  {
+    k: "si_trend",
+    label: "Short trend",
+    num: true
   }];
   const STR = new Set(["symbol", "company", "tag", "weekly", "industry", "sector", "flow_agree", "flow_verdict", "setup", "prem_sell", "swing_dir", "swing_stage"]);
   const setSortKey = k => setSort(s => s.key === k ? {
@@ -4491,7 +4547,16 @@ function WatchlistTableCard({
     ytd: "Year-to-date % (live)",
     from_ma20: "% from the 20-day moving average (live)",
     from_ma50: "% from the 50-day MA (live)",
-    from_ma200: "% from the 200-day MA (live)"
+    from_ma200: "% from the 200-day MA (live)",
+    debt_risk: "Debt risk: High, Elevated or Low, from how much the company owes against its yearly operating profit and its size, whether it burns cash while in debt, and (when there is debt) whether shorts are piling in. Hover a rating for the reasons. Sorts most exposed first.",
+    debt_total: "Total debt (loans and bonds) from the company's profile",
+    net_debt_ebitda: "Net debt (debt minus cash) divided by a year of operating profit before interest, taxes and depreciation (EBITDA). 4x or more is heavily borrowed. \"Net cash\" = more cash than debt.",
+    debt_to_mcap: "Total debt as a share of the company's market value. 50% or more: the debt is half the company.",
+    fcf: "Free cash flow over the last year: cash in from the business minus spending on equipment. Negative = burning cash.",
+    short_pct: "Share of the tradable stock (the float) that is sold short",
+    short_chg: "Change in shares sold short against a month earlier. Rising = shorts piling in.",
+    rate_move: "How the stock has moved, on average, for each +0.10% rise in the 10-year Treasury yield, over the last six months of trading days. -2% means it fell about 2% per +0.10%.",
+    si_trend: "Short interest in FINRA's latest twice-monthly report against the one before. ▲3 means it rose three reports in a row (about six weeks), with the total rise over that run. Sorts by the latest change."
   };
   // Movable columns — drag a header to reorder; order persists per device.
   const COL_ORDER_KEY = "jerry_wl_colorder_v1";
@@ -4650,7 +4715,7 @@ function WatchlistTableCard({
   //   wtd..%DMAs -> reb      (live, rebased to the live price)
   // Everything else sorts on the scanned field.
   const REB_KEYS = new Set(["wtd", "mtd", "qtd", "ytd", "from_ma20", "from_ma50", "from_ma200"]);
-  const sortValOf = (r, key) => key === "from_open" ? foVal(r) : key === "change" ? chgVal(r) : key === "last" ? liveLast(r) : REB_KEYS.has(key) ? reb(r, r[key]) : r[key];
+  const sortValOf = (r, key) => key === "debt_risk" ? r.debt_score : key === "si_trend" ? r.si_chg : key === "from_open" ? foVal(r) : key === "change" ? chgVal(r) : key === "last" ? liveLast(r) : REB_KEYS.has(key) ? reb(r, r[key]) : r[key];
 
   // How many of the folded filters are currently narrowing the list. Exactly
   // the predicates in `filtered` below, so the count can never claim a filter
@@ -5315,6 +5380,74 @@ function WatchlistTableCard({
             className: `scan-num ${pctCls(v)}`
           }, pct(v));
         }
+      // v5.39 — Debt & rates
+      case "debt_risk":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: "wl-txt",
+          title: (r.debt_reasons || []).join(" ")
+        }, r.debt_risk ? /*#__PURE__*/React.createElement("span", {
+          className: `wl-debt wl-debt-${String(r.debt_risk).toLowerCase()}`
+        }, r.debt_risk) : "—");
+      case "debt_total":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: "scan-num"
+        }, wlDebt$(r.debt_total, r.debt_ccy));
+      case "net_debt_ebitda":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: "scan-num"
+        }, r.net_debt != null && r.net_debt <= 0 ? /*#__PURE__*/React.createElement("span", {
+          className: "up"
+        }, "net cash") : r.ebitda != null && r.ebitda <= 0 && r.debt_total ? /*#__PURE__*/React.createElement("span", {
+          className: "down"
+        }, "no profit") : r.net_debt_ebitda != null ? /*#__PURE__*/React.createElement("span", {
+          className: r.net_debt_ebitda >= 4 ? "down" : ""
+        }, r.net_debt_ebitda.toFixed(1), "x") : "—");
+      case "debt_to_mcap":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: `scan-num ${r.debt_to_mcap != null && r.debt_to_mcap >= 0.5 ? "down" : ""}`
+        }, r.debt_to_mcap != null ? `${Math.round(r.debt_to_mcap * 100)}%` : "—");
+      case "fcf":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: `scan-num ${r.fcf != null && r.fcf < 0 ? "down" : ""}`
+        }, wlDebt$(r.fcf, r.debt_ccy));
+      case "short_pct":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: `scan-num ${r.short_pct != null && r.short_pct >= 10 ? "down" : ""}`
+        }, r.short_pct != null ? `${r.short_pct.toFixed(1)}%` : "—");
+      case "short_chg":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: `scan-num ${r.short_chg != null && r.short_chg >= 10 ? "down" : r.short_chg != null && r.short_chg <= -10 ? "up" : ""}`
+        }, r.short_chg != null ? `${r.short_chg > 0 ? "+" : ""}${Math.round(r.short_chg)}%` : "—");
+      case "rate_move":
+        return /*#__PURE__*/React.createElement("td", {
+          key: k,
+          className: `scan-num ${r.rate_move != null && r.rate_move <= -2 ? "down" : ""}`,
+          title: r.rate_r != null ? `Over six months; how closely the stock tracked the yield: ${r.rate_r}` : ""
+        }, r.rate_move != null ? `${r.rate_move > 0 ? "+" : ""}${r.rate_move.toFixed(1)}%` : "—");
+      case "si_trend":
+        {
+          if (r.si_chg == null) return /*#__PURE__*/React.createElement("td", {
+            key: k,
+            className: "scan-num"
+          }, "\u2014");
+          const up = r.si_chg > 0,
+            run = (r.si_rises || 0) >= 2;
+          const tip = `FINRA ${r.si_settlement || ""} report: ${r.si_chg > 0 ? "+" : ""}${r.si_chg}% vs the one before` + (run ? `; ${r.si_rises} rising reports in a row, ${r.si_run > 0 ? "+" : ""}${r.si_run}% over them` : "") + (r.si_dtc != null ? `; ${r.si_dtc} days to cover` : "");
+          return /*#__PURE__*/React.createElement("td", {
+            key: k,
+            className: `scan-num ${r.si_chg >= 10 || run && r.si_run >= 15 ? "down" : !up && r.si_chg <= -10 ? "up" : ""}`,
+            title: tip
+          }, run ? /*#__PURE__*/React.createElement("span", {
+            className: "wl-si-run"
+          }, "\u25B2", r.si_rises, " ", r.si_run > 0 ? "+" : "", Math.round(r.si_run), "%") : `${r.si_chg > 0 ? "+" : ""}${Math.round(r.si_chg)}%`);
+        }
       default:
         return /*#__PURE__*/React.createElement("td", {
           key: k,
@@ -5322,6 +5455,24 @@ function WatchlistTableCard({
         }, "\u2014");
     }
   };
+
+  // v5.40: the newest FINRA report's alerts — shorts piling into High or
+  // Elevated debt stocks — above the table in the Debt & rates view.
+  const [siAlerts, setSiAlerts] = useState(null);
+  useEffect(() => {
+    if (wlPreset !== "debt" || !apiFetch) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await apiFetch("/api/short_trend");
+        const j = await r.json();
+        if (!cancelled && j && Array.isArray(j.alerts)) setSiAlerts(j);
+      } catch (e) {/* the strip simply stays away */}
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [wlPreset, board && board.status && board.status.last_scan]);
   return /*#__PURE__*/React.createElement("div", {
     className: "card ab-card"
   }, /*#__PURE__*/React.createElement("div", {
@@ -5610,7 +5761,20 @@ function WatchlistTableCard({
     onClick: () => setChooserOpen(o => !o)
   }, "Choose\u2026 ", /*#__PURE__*/React.createElement("span", {
     className: "wl-cols-n"
-  }, visibleCols.length, "/", orderedCols.length)), chooserOpen && /*#__PURE__*/React.createElement("div", {
+  }, visibleCols.length, "/", orderedCols.length)), wlPreset === "debt" && siAlerts && siAlerts.settlement ? /*#__PURE__*/React.createElement("div", {
+    className: "wl-si-strip",
+    title: "FINRA's twice-monthly short-interest report against each stock's Debt risk: short interest up 10% or more in one report, or up three reports in a row by 15% or more, on a High or Elevated debt stock with at least 2% of its float short. A push goes to your phone when a new report brings alerts."
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "wl-si-h"
+  }, "Shorts piling in \xB7 FINRA ", drDate(siAlerts.settlement), " report"), siAlerts.alerts.length ? siAlerts.alerts.map(a => /*#__PURE__*/React.createElement("button", {
+    key: a.symbol,
+    type: "button",
+    className: `wl-si-chip ${a.level === "High" ? "high" : "elev"}`,
+    title: a.text,
+    onClick: () => onSwitchTicker && onSwitchTicker(a.symbol)
+  }, /*#__PURE__*/React.createElement("b", null, a.symbol), " ", a.change_pct > 0 ? "+" : "", Math.round(a.change_pct), "%", a.rises >= 2 ? ` ▲${a.rises}` : "")) : /*#__PURE__*/React.createElement("span", {
+    className: "wl-si-none"
+  }, "No High or Elevated debt stock had shorts piling in.")) : null, chooserOpen && /*#__PURE__*/React.createElement("div", {
     className: "wl-chooser",
     role: "dialog",
     "aria-label": "Choose columns"
@@ -20642,6 +20806,228 @@ function WhenToSellCard({
     className: "wts-foot"
   }, "Regime table as of ", p.table_as_of, ".") : null));
 }
+
+// ── Debt & rates (v5.39) ───────────────────────────────────────────────────
+// Jerry: rates are rising and the companies with the most debt are selling
+// off, while the smart money shorts them with tools like the Bloomberg
+// terminal. This card is that view for one stock: what it owes against what
+// it earns, the cash it burns, when its debt comes due (from its own annual
+// report), what its interest costs, how heavily it is shorted, and how it has
+// moved when the 10-year yield rose. /api/debt?symbol= (debt_risk.py).
+const DR_TONE = {
+  High: "dr-high",
+  Elevated: "dr-elev",
+  Low: "dr-low"
+};
+function drMoney(v, ccy) {
+  if (v == null || !isFinite(v)) return "—";
+  const a = Math.abs(v),
+    c = !ccy || ccy === "USD" ? "$" : `${ccy} `;
+  const s = a >= 1e12 ? `${(a / 1e12).toFixed(1)}T` : a >= 1e9 ? `${(a / 1e9).toFixed(1)}B` : a >= 1e6 ? `${Math.round(a / 1e6)}M` : `${Math.round(a).toLocaleString()}`;
+  return `${v < 0 ? "-" : ""}${c}${s}`;
+}
+function drDate(iso) {
+  if (!iso) return "";
+  return new Date(`${String(iso).slice(0, 10)}T12:00:00`).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric"
+  });
+}
+function DebtRatesCard({
+  ticker,
+  apiFetch
+}) {
+  const [d, setD] = useState(null);
+  const [err, setErr] = useState(null);
+  const [si, setSi] = useState(null);
+  useEffect(() => {
+    if (!ticker) return undefined;
+    let cancelled = false;
+    setSi(null);
+    (async () => {
+      try {
+        const r = await apiFetch(`/api/short_trend?symbol=${encodeURIComponent(ticker)}`);
+        const j = await r.json();
+        if (!cancelled && j && j.trend) setSi(j);
+      } catch (e) {/* the section simply stays away */}
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ticker]);
+  useEffect(() => {
+    if (!ticker) return undefined;
+    let cancelled = false;
+    setD(null);
+    setErr(null);
+    (async () => {
+      try {
+        const r = await apiFetch(`/api/debt?symbol=${encodeURIComponent(ticker)}`);
+        const j = await r.json();
+        if (cancelled) return;
+        if (j && j.ok) setD(j);else setErr(j && j.error || "No answer");
+      } catch (e) {
+        if (!cancelled) setErr(String(e.message || e));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ticker]);
+  if (!ticker) return null;
+  const sc = d && d.screen || {};
+  const ccy = sc.debt_ccy;
+  // the filings' figures (interest, the maturity schedule) are in dollars
+  // whatever currency the company reports its balance sheet in (Codex, #428)
+  const fccy = d && d.filing_ccy || "USD";
+  const rates = d && d.rates;
+  const mat = d && d.maturities;
+  const maxB = mat ? Math.max(1, ...mat.buckets.map(b => b.value || 0)) : 1;
+  const reasons = d ? [...(sc.debt_reasons || []), ...(d.filing_flags || [])] : [];
+  const kicker = rates && rates.now != null ? `Debt & rates · 10-year yield ${rates.now.toFixed(2)}%${rates.change_1m != null ? ` (${rates.change_1m >= 0 ? "+" : ""}${rates.change_1m.toFixed(2)}% in a month)` : ""}` : "Debt & rates";
+  return /*#__PURE__*/React.createElement("div", {
+    className: "card dr-card"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-head"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "kicker"
+  }, kicker), /*#__PURE__*/React.createElement("div", {
+    className: "card-title"
+  }, "Debt & rates \xB7 ", ticker))), err && !d ? /*#__PURE__*/React.createElement(CardNote, {
+    kind: "error"
+  }, err) : null, !d && !err ? /*#__PURE__*/React.createElement(CardNote, {
+    kind: "loading"
+  }, "Reading the balance sheet\u2026") : null, d ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: `dr-verdict ${DR_TONE[sc.debt_risk] || ""}`
+  }, /*#__PURE__*/React.createElement("b", null, sc.debt_risk ? `Debt risk: ${sc.debt_risk}` : "Debt risk: not rated"), sc.rate_move != null ? /*#__PURE__*/React.createElement("span", {
+    className: "dr-rate"
+  }, "Moves ", /*#__PURE__*/React.createElement("b", null, sc.rate_move > 0 ? "+" : "", sc.rate_move.toFixed(1), "%"), " for each +0.10% in the 10-year yield (last six months)") : null), /*#__PURE__*/React.createElement("div", {
+    className: "dr-grid"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "dr-stat"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "dr-k"
+  }, "Total debt"), /*#__PURE__*/React.createElement("span", {
+    className: "dr-v"
+  }, drMoney(sc.debt_total, ccy)), /*#__PURE__*/React.createElement("span", {
+    className: "dr-s"
+  }, "cash ", drMoney(sc.debt_cash, ccy))), /*#__PURE__*/React.createElement("div", {
+    className: "dr-stat"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "dr-k"
+  }, "Debt / EBITDA"), /*#__PURE__*/React.createElement("span", {
+    className: "dr-v"
+  }, sc.net_debt != null && sc.net_debt <= 0 ? "net cash" : sc.ebitda != null && sc.ebitda <= 0 ? "no profit" : sc.net_debt_ebitda != null ? `${sc.net_debt_ebitda.toFixed(1)}x` : "—"), /*#__PURE__*/React.createElement("span", {
+    className: "dr-s"
+  }, "years of operating profit to repay")), /*#__PURE__*/React.createElement("div", {
+    className: "dr-stat"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "dr-k"
+  }, "Debt vs company value"), /*#__PURE__*/React.createElement("span", {
+    className: "dr-v"
+  }, sc.debt_to_mcap != null ? `${Math.round(sc.debt_to_mcap * 100)}%` : "—"), /*#__PURE__*/React.createElement("span", {
+    className: "dr-s"
+  }, "of its market value")), /*#__PURE__*/React.createElement("div", {
+    className: "dr-stat"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "dr-k"
+  }, "Free cash flow"), /*#__PURE__*/React.createElement("span", {
+    className: `dr-v ${sc.fcf != null && sc.fcf < 0 ? "down" : ""}`
+  }, drMoney(sc.fcf, ccy)), /*#__PURE__*/React.createElement("span", {
+    className: "dr-s"
+  }, sc.fcf != null && sc.fcf < 0 ? "burning cash, last year" : "last year")), /*#__PURE__*/React.createElement("div", {
+    className: "dr-stat"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "dr-k"
+  }, "Interest, last 12 months"), /*#__PURE__*/React.createElement("span", {
+    className: "dr-v"
+  }, d.interest ? drMoney(d.interest.value, fccy) : "—"), /*#__PURE__*/React.createElement("span", {
+    className: "dr-s"
+  }, d.avg_rate != null ? `about ${d.avg_rate.toFixed(1)}% on its debt` : "not reported separately")), /*#__PURE__*/React.createElement("div", {
+    className: "dr-stat"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "dr-k"
+  }, "Interest cover"), /*#__PURE__*/React.createElement("span", {
+    className: `dr-v ${d.coverage != null && d.coverage < 3 || d.interest && d.operating_income != null && d.operating_income <= 0 ? "down" : ""}`
+  }, d.coverage != null ? `${d.coverage.toFixed(1)}x` : d.interest && d.operating_income != null && d.operating_income <= 0 ? "loss" : "—"), /*#__PURE__*/React.createElement("span", {
+    className: "dr-s"
+  }, "operating profit \xF7 interest")), /*#__PURE__*/React.createElement("div", {
+    className: "dr-stat"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "dr-k"
+  }, "Sold short"), /*#__PURE__*/React.createElement("span", {
+    className: "dr-v"
+  }, sc.short_pct != null ? `${sc.short_pct.toFixed(1)}%` : "—"), /*#__PURE__*/React.createElement("span", {
+    className: "dr-s"
+  }, sc.short_chg != null ? `${sc.short_chg > 0 ? "+" : ""}${Math.round(sc.short_chg)}% vs a month ago` : "of the float"))), mat ? /*#__PURE__*/React.createElement("div", {
+    className: "dr-wall"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "dr-wall-h"
+  }, "When its debt comes due", /*#__PURE__*/React.createElement("span", {
+    className: "dr-wall-sub"
+  }, mat.due_2y != null ? ` · ${drMoney(mat.due_2y, fccy)} within two years` : "", mat.due_2y != null && mat.due_2y_share != null ? ` (${Math.round(mat.due_2y_share * 100)}%)` : "", " \xB7 annual report, ", drDate(mat.as_of))), /*#__PURE__*/React.createElement("ul", {
+    className: "dr-bars"
+  }, mat.buckets.map((b, i) => /*#__PURE__*/React.createElement("li", {
+    key: b.label,
+    className: `dr-bar-row${i < 2 ? " soon" : ""}`,
+    title: `${b.label}: ${drMoney(b.value, fccy)}${i < 2 ? " (refinanced at today's rates if not repaid)" : ""}`
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "dr-bar-l"
+  }, b.label, i < 2 ? /*#__PURE__*/React.createElement("em", null, " \xB7 soon") : null), /*#__PURE__*/React.createElement("span", {
+    className: "dr-bar-track"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "dr-bar-fill",
+    style: {
+      width: `${Math.max(0, (b.value || 0) / maxB * 100)}%`
+    }
+  })), /*#__PURE__*/React.createElement("span", {
+    className: "dr-bar-v"
+  }, drMoney(b.value, fccy)))))) : /*#__PURE__*/React.createElement("p", {
+    className: "dr-note"
+  }, "No debt schedule in its SEC filings (a fund, a foreign filer, or it does not tag one)."), si && si.trend ? (() => {
+    const t = si.trend,
+      pts = t.points || [];
+    const maxS = Math.max(1, ...pts.map(p => p.short || 0));
+    const live = (si.symbol_alerts || []).find(a => a.settlement === t.settlement);
+    return /*#__PURE__*/React.createElement("div", {
+      className: "dr-wall dr-si"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "dr-wall-h"
+    }, "Short interest, last ", pts.length, " FINRA reports", /*#__PURE__*/React.createElement("span", {
+      className: "dr-wall-sub"
+    }, " \xB7 ", t.change_pct > 0 ? "+" : "", t.change_pct, "% in the latest", t.rises >= 2 ? `, up ${t.rises} reports in a row (${t.run_pct > 0 ? "+" : ""}${t.run_pct}%)` : "", t.days_to_cover != null ? ` · ${t.days_to_cover} days to cover` : "")), live ? /*#__PURE__*/React.createElement("p", {
+      className: "dr-si-alert"
+    }, live.text) : null, /*#__PURE__*/React.createElement("ul", {
+      className: "dr-bars"
+    }, pts.map((p, i) => {
+      const prev = i ? pts[i - 1].short : null;
+      const ch = prev ? (p.short / prev - 1) * 100 : null;
+      return /*#__PURE__*/React.createElement("li", {
+        key: p.settlement,
+        className: `dr-bar-row${ch != null && ch > 0 ? " rise" : ""}`,
+        title: `${drDate(p.settlement)}: ${(p.short / 1e6).toFixed(1)}M shares short${ch != null ? ` (${ch > 0 ? "+" : ""}${ch.toFixed(1)}%)` : ""}`
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "dr-bar-l"
+      }, drDate(p.settlement)), /*#__PURE__*/React.createElement("span", {
+        className: "dr-bar-track"
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "dr-bar-fill",
+        style: {
+          width: `${p.short / maxS * 100}%`
+        }
+      })), /*#__PURE__*/React.createElement("span", {
+        className: "dr-bar-v"
+      }, (p.short / 1e6).toFixed(1), "M", ch != null ? /*#__PURE__*/React.createElement("em", null, " ", ch > 0 ? "+" : "", Math.round(ch), "%") : null));
+    })));
+  })() : null, reasons.length ? /*#__PURE__*/React.createElement("ul", {
+    className: "dr-why"
+  }, reasons.map((t, i) => /*#__PURE__*/React.createElement("li", {
+    key: i
+  }, t))) : null, /*#__PURE__*/React.createElement("p", {
+    className: "dr-foot"
+  }, "Debt, cash, EBITDA, cash flow and short interest: the company profile (Yahoo). Schedule and interest: its SEC filings. Rate move: daily changes against the 10-year Treasury yield (FRED). Short interest trend: FINRA's twice-monthly reports.", d.on_watchlist ? "" : " Not on your watchlist, so worked out just now.")) : null);
+}
 const _memo = React.memo;
 Object.assign(window, {
   TickerLogo,
@@ -20697,6 +21083,7 @@ Object.assign(window, {
   MoneyMapCard: _memo(MoneyMapCard),
   FridayWallsCard: _memo(FridayWallsCard),
   WhenToSellCard: _memo(WhenToSellCard),
+  DebtRatesCard: _memo(DebtRatesCard),
   PullbackBacktest,
   TradeBuilderCard: _memo(TradeBuilderCard),
   AnalystCard: _memo(AnalystCard),

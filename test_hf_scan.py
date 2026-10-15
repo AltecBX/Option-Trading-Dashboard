@@ -185,6 +185,35 @@ class Providers(Base):
     def test_an_unpublished_settlement_is_empty_not_zero(self):
         self.assertEqual(S.finra_short_interest("2026-08-31"), {})
 
+    def test_a_failed_later_page_is_not_the_whole_report(self):
+        # Codex, #428: the short-interest alerts keep each report for
+        # months; a page lost to a network blip must not be kept as if the
+        # report ended there.
+        lines = SI_CSV.strip().splitlines()
+        head, body = lines[0], lines[1:]
+        failing = {"on": True}
+
+        def post(url, raw):
+            p = json.loads(raw)
+            off, lim = p["offset"], p["limit"]
+            if p["compareFilters"][0]["fieldValue"] != "2026-08-14":
+                return b""                  # 204: not published
+            if off and failing["on"]:
+                raise OSError("connection reset")
+            part = body[off:off + lim]
+            return ("\n".join([head] + part) + "\n").encode() if part else b""
+        S.configure(fetch_fn=self.web.fetch, post_fn=post, data_dir=self.tmp.name, now_fn=lambda: NOW)
+        S._MEM.clear()  # noqa: SLF001
+        self.assertEqual(2, len(S.finra_short_interest("2026-08-14", page_size=2)),
+                         "the board's reader keeps what it got, as before")
+        self.assertIsNone(S.finra_short_interest("2026-08-14", page_size=2, complete_only=True))
+        self.assertIsNone(S.finra_short_interest("2026-08-14", page_size=2, max_pages=1, complete_only=True),
+                          "out of pages with more to come is not complete either")
+        failing["on"] = False
+        self.assertEqual(4, len(S.finra_short_interest("2026-08-14", page_size=2, complete_only=True)))
+        self.assertEqual({}, S.finra_short_interest("2026-08-31", complete_only=True),
+                         "not published yet is still empty")
+
     def test_short_volume_gives_a_market_wide_share(self):
         out = S.finra_short_volume(date(2026, 9, 4))
         self.assertEqual(out["n"], 2)

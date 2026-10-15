@@ -67,6 +67,8 @@ TICKS_KEEP = 90            # 45 minutes of 30-second ticks: the breakout reads 5
 ALERTS_KEEP_DAYS = 30      # graded alert history used for track records
 MAX_ALERTS_DAY = 5000      # a runaway setup cannot fill the disk
 PUSH_PER_HOUR = 12         # the phone is not a firehose
+PUSH_RETRY_S = 600         # a push the provider failed to send is tried again for ten minutes ...
+PUSH_RETRY_EVERY_S = 60    # ... once a minute; after that it is old news
 RANK_N = 25
 
 # Base filter for the ranking lists: without it "top gainers" is a list of
@@ -186,6 +188,19 @@ TRIGGERS = {
         "help": "Trades at or above this week's When to sell trigger: Friday's close plus the rise your regime table expects after a week like last week. Your system sells the call on that tap. Fires once a week per stock. Covers the stocks in your regime table.",
         "params": {},
     },
+    # v5.42 — a stock on the Shorted high-debt list (short_trend.py) falling:
+    # the trade Jerry described, rates up, indebted names sold and shorted.
+    "shorted_debt_drop": {
+        "label": "Shorted high-debt stock dropping", "side": "short", "once": True, "session": "open",
+        "help": "A stock on the Shorted high-debt list (High or Elevated debt with at least 5% of its float sold short, or shorts just piling in) is down at least X% on the day. Fires once a day per stock.",
+        "params": {"drop_pct": (3.0, 1.0, 20.0, "Down on the day at least (%)")},
+    },
+    # v5.43 — the same list breaking to a new 52-week low.
+    "shorted_debt_new_low": {
+        "label": "Shorted high-debt stock at a new low", "side": "short", "once": True, "session": "open",
+        "help": "A stock on the Shorted high-debt list (High or Elevated debt with at least 5% of its float sold short, or shorts just piling in) trades below its lowest close of the last year. Fires once a day per stock.",
+        "params": {},
+    },
     "premarket_mover": {
         "label": "Pre-market mover", "side": "either", "once": True, "session": "pre",
         "help": "Before the open: at least X% from yesterday's close on at least N shares traded.",
@@ -226,6 +241,12 @@ DEFAULT_SETUPS = [
     # volume or size condition stands in its way: the table chose the stocks.
     ("sell_trigger_tap", "When to sell: trigger tapped", {},
      {"min_price": 0, "min_avg_volume": 0, "min_market_cap": 0}, 0, True),
+    # The list already chose the stocks, and the drop is the news: no other
+    # condition, and it goes to the phone.
+    ("shorted_debt_drop", "Shorted high-debt stock dropping", {},
+     {"min_price": 0, "min_avg_volume": 0, "min_market_cap": 0}, 0, True),
+    ("shorted_debt_new_low", "Shorted high-debt stock at a new low", {},
+     {"min_price": 0, "min_avg_volume": 0, "min_market_cap": 0}, 0, True),
 ]
 # The triggers a setups.json written before a release already knew. A
 # trigger added later is offered once to a saved list (see _load_setups);
@@ -246,6 +267,9 @@ SELL_FETCH_PER_PASS = 8    # weekly triggers worked out per loop pass (each read
 SELL_RETRY_S = 1800        # a stock whose trigger could not be set is retried after this
 SELL_NEAR_PCT = 2.0        # "close" on the list: within this much of the trigger
 
+# ── Shorted high-debt stocks (v5.42) ───────────────────────────────────────
+SHORTED_TTL_S = 300        # the list is re-read from short_trend every five minutes
+
 # Grading: minutes after an alert at which its move is recorded.
 HORIZONS = (15, 30, 60)
 # A graded alert "followed through" when it was in profit, in its own
@@ -260,6 +284,7 @@ _NOW_FN = None         # () -> aware datetime in Eastern
 _LEVELS_FN = None      # (symbol) -> {"gamma_flip": float|None, "dark": [[price, shares], ...]} | None
 _SELL_FN = None        # (symbol, date) -> when_to_sell.weekly_trigger(...) dict
 _SELL_SYMBOLS_FN = None  # () -> [symbols with a When to sell trigger] (the regime table)
+_SHORTED_FN = None     # () -> short_trend.shorted_debt(...)["rows"]
 _DATA_DIR: Path | None = None
 
 _LOCK = threading.RLock()
@@ -275,10 +300,13 @@ def _fresh_state() -> dict:
         "prior": {},             # SYM -> [high, low, close] of the prior session
         "levels": {},            # SYM -> {"at", "gamma_flip", "dark"} from Unusual Whales
         "sell": {},              # SYM -> this week's When to sell trigger (+ "at", "tapped")
+        "shorted": {},           # SYM -> its row on the Shorted high-debt list
+        "shorted_at": 0.0,
         "rankings": {},
         "last_sweep": None, "phase": None, "error": None,
         "universe_n": 0, "quoted_n": 0, "sweeps": 0,
         "pushes": deque(maxlen=200),
+        "push_retry": [],        # pushes the provider failed to send, tried again
         "scanning": False, "thread": None,
     }
 
@@ -288,18 +316,23 @@ _SETUPS: list = []
 
 
 def configure(quotes_fn=None, universe_fn=None, notify_fn=None, now_fn=None,
-              data_dir=None, levels_fn=None, sell_fn=None, sell_symbols_fn=None) -> None:
+              data_dir=None, levels_fn=None, sell_fn=None, sell_symbols_fn=None,
+              shorted_fn=None) -> None:
     global _QUOTES_FN, _UNIVERSE_FN, _NOTIFY_FN, _NOW_FN, _DATA_DIR, _LEVELS_FN
-    global _SELL_FN, _SELL_SYMBOLS_FN
+    global _SELL_FN, _SELL_SYMBOLS_FN, _SHORTED_FN
     with _LOCK:
         _QUOTES_FN, _UNIVERSE_FN, _NOTIFY_FN, _NOW_FN = quotes_fn, universe_fn, notify_fn, now_fn
         _LEVELS_FN = levels_fn
         _SELL_FN, _SELL_SYMBOLS_FN = sell_fn, sell_symbols_fn
+        _SHORTED_FN = shorted_fn
         _DATA_DIR = Path(data_dir) / "live_scan" if data_dir else None
         keep = {"scanning": _STATE.get("scanning"), "thread": _STATE.get("thread")}
         _STATE.clear()
         _STATE.update(_fresh_state())
         _STATE.update(keep)
+        # pushes still owed to the phone from before a restart (Codex, #428)
+        _STATE["push_retry"] = [p for p in (_read_json("push-retry.json", []) or [])
+                                if isinstance(p, dict) and {"title", "msg", "first", "next"} <= set(p)]
         _SETUPS[:] = _load_setups()
         _RECORDS_CACHE.update({"at": 0.0, "val": None})
 
@@ -641,6 +674,7 @@ def _picture(sym: str, q: dict, row: dict, st: dict, now: datetime) -> dict:
         "gamma_flip": ((_STATE.get("levels") or {}).get(sym) or {}).get("gamma_flip"),
         "dark_levels": ((_STATE.get("levels") or {}).get(sym) or {}).get("dark") or [],
         "sell": _sell_for(sym, now),
+        "shorted": (_STATE.get("shorted") or {}).get(sym),
     }
 
 
@@ -672,6 +706,24 @@ def _sell_touched(p: dict, rec: dict) -> bool:
     tp = rec["trigger_price"]
     return ((p.get("last") is not None and p["last"] >= tp)
             or (p.get("high") is not None and p["high"] >= tp))
+
+
+NOT_SHORTED = ("Not on the Shorted high-debt list (High or Elevated debt with at least 5% of its "
+               "float short, or shorts piling in).")
+
+
+def _shorted_context(rec: dict) -> str:
+    """What makes a stock on the Shorted high-debt list one: its debt, its
+    short, the short trend and the first debt reason, as a clause."""
+    level = str(rec.get("level") or "High")
+    short = f"{rec['short_pct']:.1f}% of its float short" if rec.get("short_pct") is not None else "heavily shorted"
+    trend = ""
+    if rec.get("si_rises") and rec["si_rises"] >= 2 and rec.get("si_run") is not None:
+        trend = f", shorts up {rec['si_rises']} reports in a row ({rec['si_run']:+.0f}%)"
+    elif rec.get("si_chg") is not None:
+        trend = f", shorts {rec['si_chg']:+.0f}% in the latest report"
+    why = f" {rec['reason']}" if rec.get("reason") else ""
+    return f"{'an' if level[:1] in 'AEIOU' else 'a'} {level}-debt stock with {short}{trend}.{why}"
 
 
 def _sell_row(rec: dict) -> str:
@@ -764,6 +816,42 @@ def _trigger_state(trig: str, p: dict, prev_p: dict | None, st: dict, params: di
                                         f"now {abs(_pct(tp, last) or 0):.1f}% below it.")
         return False, False, None, (f"This week's trigger is {_fmt_money(tp)}, "
                                     f"{abs(_pct(tp, last) or 0):.1f}% above the price.")
+
+    if trig in ("shorted_debt_drop", "shorted_debt_new_low"):
+        rec = p.get("shorted")
+        if not rec:
+            return False, False, None, NOT_SHORTED
+        # A dip below the line and back between two 30-second sweeps still
+        # shows in the quote's low of the day (Codex, #428).
+        low = p.get("low")
+        if trig == "shorted_debt_drop":
+            chg = p.get("change_pct")
+            if chg is None:
+                return False, False, None, "No move on the day yet."
+            drop = params.get("drop_pct", 3.0)
+            low_chg = _pct(low, prev_close) if (low and prev_close) else None
+            live = chg <= -drop
+            touched = live or (low_chg is not None and low_chg <= -drop)
+            if live or low_chg is None:
+                head = f"Down {abs(chg):.1f}% today at {_fmt_money(last)}{rv}: "
+            else:
+                head = (f"Fell {abs(low_chg):.1f}% today (low {_fmt_money(low)}) and is "
+                        f"{'down' if chg < 0 else 'up'} {abs(chg):.1f}% at {_fmt_money(last)}{rv}: ")
+            return live, touched, "short", head + _shorted_context(rec)
+        lvl = p.get("low_52w")
+        if not lvl:
+            return False, False, None, "No 52-week range on the board for this name."
+        live = last < lvl
+        touched = live or (low is not None and low < lvl)
+        prev_last, prev_low = was("last"), was("low")
+        prev_touched = ((prev_last is not None and prev_last < lvl)
+                        or (prev_low is not None and prev_low < lvl))
+        if live:
+            head = f"New 52-week low at {_fmt_money(last)}, under the {_fmt_money(lvl)} low of the last year{rv}: "
+        else:
+            head = (f"Touched a new 52-week low of {_fmt_money(low)} (today's low), under the "
+                    f"{_fmt_money(lvl)} low of the last year; it is {_fmt_money(last)} now{rv}: ")
+        return live, touched and not prev_touched, "short", head + _shorted_context(rec)
 
     if trig in ("new_hod", "new_lod"):
         hi = trig == "new_hod"
@@ -988,11 +1076,59 @@ def _maybe_push(alert: dict, setup: dict) -> None:
     if len(recent) >= PUSH_PER_HOUR:
         return
     _STATE["pushes"].append(now_ts)
+    arrow = "▲" if alert["side"] == "long" else "▼"
+    push = {"title": f"{arrow} {alert['symbol']} · {setup['name']}", "msg": alert["why"],
+            "first": now_ts, "next": now_ts + PUSH_RETRY_EVERY_S}
+    if not _send_push(push, now_ts):
+        with _LOCK:
+            _STATE.setdefault("push_retry", []).append(push)
+            _write_json("push-retry.json", _STATE["push_retry"])
+
+
+def _send_push(push: dict, now_ts: float) -> bool:
+    """Send one push; True when it went out or retrying cannot help. The
+    app's push answers {"ok": False} on a failed send rather than raising,
+    and {"configured": False} when no phone is set up."""
+    late = now_ts - push["first"]
+    msg = push["msg"] + (f" (sent {int(late // 60)} min late)" if late >= 120 else "")
     try:
-        arrow = "▲" if alert["side"] == "long" else "▼"
-        _NOTIFY_FN(f"{arrow} {alert['symbol']} · {setup['name']}", alert["why"], 0)
+        res = _NOTIFY_FN(push["title"], msg, 0)
     except Exception:  # noqa: BLE001
-        pass
+        return False
+    if isinstance(res, dict):
+        return bool(res.get("ok", True)) or res.get("configured") is False
+    return True
+
+
+def retry_pushes(now_ts: float) -> int:
+    """Try again the pushes the provider failed to send. The alert was
+    recorded as fired for the day when it was raised, so a failed send
+    would otherwise never reach the phone (Codex, #428). Once a minute for
+    PUSH_RETRY_S, then dropped. Returns how many went out."""
+    if _NOTIFY_FN is None:
+        return 0
+    with _LOCK:
+        queued = list(_STATE.get("push_retry") or [])
+        if not queued:
+            return 0
+        due, keep = [], []
+        for p in queued:
+            if now_ts - p["first"] > PUSH_RETRY_S:
+                continue
+            (due if p["next"] <= now_ts else keep).append(p)
+        _STATE["push_retry"] = keep
+    sent = 0
+    for p in due:
+        if _send_push(p, now_ts):
+            sent += 1
+            continue
+        p["next"] = now_ts + PUSH_RETRY_EVERY_S
+        with _LOCK:
+            _STATE["push_retry"].append(p)
+    with _LOCK:
+        # saved, so a restart inside the window still sends it
+        _write_json("push-retry.json", _STATE["push_retry"])
+    return sent
 
 
 def _rank(pics: list, key, reverse=True, filt=None, n=RANK_N) -> list:
@@ -1037,6 +1173,7 @@ def sweep(now: datetime | None = None) -> dict:
     Returns a short summary. Safe to call from a test with fakes."""
     now = now or _now()
     ph = phase(now)
+    retry_pushes(now.timestamp())
     with _LOCK:
         _roll_day(now)
         _STATE["phase"] = ph
@@ -1210,6 +1347,34 @@ def _save_sell_taps() -> None:
                                              if (_STATE["sell"][s].get("week") == wk)})
 
 
+def refresh_shorted(now: datetime | None = None, force: bool = False) -> int:
+    """Re-read the Shorted high-debt list (short_trend.py) at most every
+    SHORTED_TTL_S. Returns how many stocks are on it. A failed read keeps
+    the list it had, and so does None: the server's answer while the
+    watchlist is mid-scan and only half its stocks are on the board
+    (Codex, #428); it is asked again in SHORTED_TTL_S."""
+    if _SHORTED_FN is None:
+        return 0
+    ts = (now or _now()).timestamp()
+    with _LOCK:
+        if not force and ts - _STATE.get("shorted_at", 0.0) < SHORTED_TTL_S:
+            return len(_STATE.get("shorted") or {})
+    try:
+        got_rows = _SHORTED_FN()
+    except Exception:  # noqa: BLE001
+        return len(_STATE.get("shorted") or {})
+    if got_rows is None:
+        with _LOCK:
+            _STATE["shorted_at"] = ts
+            return len(_STATE.get("shorted") or {})
+    rows = list(got_rows)
+    got = {str(r.get("symbol") or "").upper(): dict(r) for r in rows if r.get("symbol")}
+    with _LOCK:
+        _STATE["shorted"] = got
+        _STATE["shorted_at"] = ts
+    return len(got)
+
+
 def refresh_sell(now: datetime | None = None) -> int:
     """Work out this week's When to sell trigger for the stocks that need
     one: new to the list, set for an earlier week, or failed a while ago. A
@@ -1365,6 +1530,20 @@ def snapshot(since_ts: float | None = None, limit: int = 300) -> dict:
     return out
 
 
+def prices() -> dict:
+    """{SYM: {last, change_pct}} from the newest sweep: today's price and
+    move, for lists built outside the scanner (v5.41)."""
+    with _LOCK:
+        out = {}
+        for sym, st in (_STATE.get("sym") or {}).items():
+            pic = st.get("pic") or {}
+            last = pic.get("last") if pic.get("last") is not None else pic.get("pm_last")
+            chg = pic.get("change_pct") if pic.get("change_pct") is not None else pic.get("pm_change_pct")
+            if last is not None:
+                out[sym] = {"last": last, "change_pct": chg}
+        return out
+
+
 def check(symbol: str, now: datetime | None = None) -> dict:
     """Setup Check: for one symbol, every setup — is its trigger live, would
     the conditions let it through, and when did it last fire today."""
@@ -1430,26 +1609,41 @@ def meta() -> dict:
 
 
 # ── the background loop ────────────────────────────────────────────────────
+def _tick(now: datetime) -> int:
+    """One pass of the background loop. Returns the seconds to wait."""
+    wait = 120
+    ph = phase(now)
+    if ph in ("pre", "open"):
+        refresh_shorted(now)
+        sweep(now)
+        wait = SWEEP_OPEN_S if ph == "open" else SWEEP_PRE_S
+        if ph == "open":
+            refresh_levels(now)
+    else:
+        # A push that failed just before the close is still due after it;
+        # the sweep that retries it runs only before and during the session
+        # (Codex, #428).
+        retry_pushes(now.timestamp())
+        if ph == "post":
+            with _LOCK:
+                if _STATE["day"] == now.date().isoformat():
+                    _save_session_hl()
+                    _grade(now)
+                    _write_json(f"alerts-{_STATE['day']}.json", _STATE["alerts"])
+            wait = 300
+        if _STATE.get("push_retry"):
+            wait = min(wait, PUSH_RETRY_EVERY_S)
+    refresh_sell(now)
+    return wait
+
+
 def _loop() -> None:
     last_cleanup = 0.0
     while _STATE.get("scanning"):
         wait = 120
         try:
             now = _now()
-            ph = phase(now)
-            if ph in ("pre", "open"):
-                sweep(now)
-                wait = SWEEP_OPEN_S if ph == "open" else SWEEP_PRE_S
-                if ph == "open":
-                    refresh_levels(now)
-            elif ph == "post":
-                with _LOCK:
-                    if _STATE["day"] == now.date().isoformat():
-                        _save_session_hl()
-                        _grade(now)
-                        _write_json(f"alerts-{_STATE['day']}.json", _STATE["alerts"])
-                wait = 300
-            refresh_sell(now)
+            wait = _tick(now)
             if time.time() - last_cleanup > 6 * 3600:
                 cleanup_history()
                 last_cleanup = time.time()

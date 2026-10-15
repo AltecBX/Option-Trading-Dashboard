@@ -5770,3 +5770,362 @@ Codex on #427, each proven red first:
   quote; the alert says "Touched ... Today's high was $X; it is $Y now."
 - **"N of M names" counts the table stocks** added to the quote list, so
   the status line can no longer say more names were quoted than exist.
+
+## v5.39 — Debt & rates
+
+Jerry: "Is there a way to add the debt each company has? The tech market
+has been selling off because interest rates are going higher. The
+companies with the highest debt are selling off. The smart money has been
+shorting these companies because they have tools to see it, like the
+Bloomberg terminal. I'd like to do the same."
+
+- **`debt_risk.py`** (pure). The screen numbers from the Yahoo profile the
+  watchlist scan already downloads (no new request per stock): total
+  debt, cash, net debt, EBITDA, free cash flow, debt / market value, net
+  debt / EBITDA, short % of float and the change in shares short against a
+  month earlier. A foreign filer's debt is kept in its own currency
+  (Novo Nordisk reports in kroner) and never set against a dollar market
+  value. `assess` gives High / Elevated / Low with the reasons in words:
+  points for net debt at 2.5x / 4x a year of EBITDA (or no EBITDA at all),
+  debt at 25% / 50% of market value, burning cash while in debt (heavier
+  at 10% of the debt a year), and only when there is debt to worry about,
+  10%+ of the float short and shorts up 10%+ in a month. Net cash is Low.
+- **The rate move**: the stock's average move per +0.10% in the 10-year
+  Treasury yield (FRED DGS10), the slope of daily returns on daily yield
+  changes over the last 126 trading days. Measured first on Jerry's 53
+  table stocks: -6% (OKLO) to +1.5% (VLO), median -2.3%, mostly how jumpy
+  a stock is; net of the market it is only loosely tied to debt (-0.18).
+  So it is a column to sort, and the rating comes from the balance sheet.
+- **Watchlist**: the scan reads the yield once per scan and rates every
+  row. A new "Debt & rates" preset (Debt risk, Debt, Debt/EBITDA,
+  Debt/Cap, FCF, Short %, Short change, Rate move), the reasons on hover,
+  Debt risk sorting by its score.
+- **Analyze: the Debt & rates card** (`/api/debt?symbol=`, 30-minute
+  cache): the same numbers, plus from the company's own SEC filings when
+  its debt comes due (next 12 months, years 2 to 5, after; annual reports
+  only, where the tags mean the same thing for every filer), the interest
+  it paid over the last four quarters (the tag reported most recently
+  wins; a figure stale against the balance sheet is dropped), its interest
+  cover and the average rate it pays. Warnings for a quarter or more of
+  the debt due within two years and for interest paid from an operating
+  loss. The 10-year yield and its move in the last month head the card.
+  A stock off the watchlist is worked out on the spot.
+
+Real data, October 2026: CoreWeave High (net debt 12x EBITDA, debt 142% of
+its value, -$9.1B free cash flow, 19% short, 51% of scheduled debt due in
+two years, operating loss against a $1.6B interest bill); Oracle High
+($169B debt, 3.8x, 43% of its value, -$46B free cash flow); Apple Low.
+
+Tests: `test_debt_risk.py` (27: units, currencies, every scoring rule,
+the rate move, the schedule from annual reports only with restatements,
+interest by the latest tag and its staleness, the card and its warnings,
+the scan wiring; mutation-checked) and two render tests (the card on
+desktop and phone from the real engine; the watchlist preset, its
+reasons and its sort).
+
+Codex on #428, each proven red first:
+- **The 10-year history is read whole.** treasury caches a FRED series by
+  its id alone, so asking for 13 months left its three-year correlation
+  reader short for the cache's half hour. `debt_risk.ten_year_series`
+  asks for the default history and slices it here.
+- **Unknown cash is not zero cash.** A profile with debt but no cash
+  balance now has no net debt (and so no debt/EBITDA points) rather than
+  net debt equal to all of its debt.
+- **A market value recovered from fast_info counts.** The debt fields are
+  worked out after the watchlist's market-cap fallback.
+
+## v5.40 — Short-interest trend alerts for high-debt stocks
+
+Jerry: "Add short interest trend alerts for high debt stocks."
+
+- **`short_trend.py`.** FINRA's official short-interest report (every US
+  stock, settled on the 15th and the last business day, public about eight
+  business days later), read through the app's existing
+  `hf_sources.finra_short_interest`. The last six reports (about three
+  months) are kept on disk for every symbol, so a stock added to the
+  watchlist later already has its history; a report not yet published is
+  tried again on the next check.
+- **The alert**, on a stock the Debt & rates screen rates High or
+  Elevated with at least 2% of its float short (FINRA's short shares over
+  Yahoo's float): short interest up 10% or more in the newest report (a
+  jump), or up three reports in a row by 15% or more over the run (a
+  build). Report-to-report swings of 10-20% are ordinary on Jerry's 53
+  table stocks, hence both rules. The sentence names the debt level, the
+  change, the shares, the float share, days to cover, the run, and the
+  first debt reason.
+- **Delivery.** Checked every three hours; a new report waits for the
+  watchlist to have its debt ratings, then raises its alerts once, keeps
+  them 120 days, and sends ONE push naming the stocks when the report is
+  fresh (published within a week). `/api/short_trend` serves the alerts
+  and, with `?symbol=`, a stock's trend.
+- **On screen.** The watchlist's Debt & rates view gains a "Shorts piling
+  in" strip with the newest report's alerts (a tap opens the stock) and a
+  Short trend column ("▲3 +26%" = three rising reports, +26% over them),
+  which replaces Yahoo's month-on-month change in that view (both remain
+  columns). The Debt & rates card shows the last six reports as bars, the
+  rising ones marked, with the live alert above them.
+- `debt_risk.screen_fields` now also carries `float_shares`.
+
+Tests: `test_short_trend.py` (14: the trend, every rule, the sentence,
+once per report, a restart, waiting for the scan, an unpublished report,
+a stale report not pushed, the kept window, the watchlist and card
+fields, no sources; mutation-checked) and the render tests extended (the
+strip, the column, the card's reports and alert).
+
+## v5.41 — Shorted high-debt stocks on the Live Scanner
+
+Jerry: "Show high debt stocks being shorted on Live Scanner."
+
+- **`short_trend.shorted_debt`**: every watchlist stock rated High or
+  Elevated on Debt risk with at least 5% of its float short (FINRA's newest
+  report over Yahoo's float, or Yahoo's own figure without a FINRA row),
+  plus any stock with a shorts-piling-in alert on the newest report.
+  Alerted first, then High before Elevated, then the most shorted; at most
+  40. Today's price move comes from the scanner's newest sweep
+  (`live_scan.prices`), the board's otherwise.
+- **`/api/live`** carries it as `short_debt`, rebuilt at most once a minute
+  (the screen polls every ten seconds).
+- **On screen**: a "Shorted high-debt stocks" section under When to sell
+  in the side column (Today's move, Debt rating, Short % with days to
+  cover, the FINRA trend, "piling in" marked); on a phone a fourth view,
+  "Shorted (n)", with the When to sell button shortened to "Sell (n)" so
+  the four stay on one line at 390px. A tap opens the stock's Debt &
+  rates card on Analyze.
+
+Tests: `test_short_trend.ShortedDebt` (3: who is on it and in what order,
+the profile fallback without FINRA reports, the cap; filters
+mutation-checked) and a render test at 1440, 440 and 390px from the real
+engine.
+
+## v5.42 — A push when a shorted high-debt stock drops
+
+Jerry: "Add a push alert when a shorted high-debt stock drops."
+
+- **A Live Scanner setup, "Shorted high-debt stock dropping"**
+  (`shorted_debt_drop`): a stock on the Shorted high-debt list (v5.41) down
+  at least 3% on the day (the setting, 1-20%, in Setups). Once a day per
+  stock, pushes to the phone, no price/volume/size condition (the list
+  chose the stocks). SHORT side, so the scanner's grading measures whether
+  it kept falling. Saved setup lists are offered it once.
+- The sentence: "Down 3.2% today at $96.80: a High-debt stock with 15.2%
+  of its float short, shorts +14% in the latest report. Net debt is 12.1x
+  a year of operating profit (EBITDA)."
+- The list is read from `short_trend.shorted_debt` every five minutes
+  (`refresh_shorted`, before each sweep); a failed read keeps the list it
+  had.
+- "an Elevated-debt stock", not "a": fixed here and in v5.40's alert text.
+
+Tests: `test_live_scan.ShortedDebtDrop` (5: fires once with its reason
+and push, off-list stocks never fire, the run of rising reports named,
+the threshold as a setting, the five-minute read kept on failure;
+mutation-checked), the offered-once tests, and the article in
+`test_short_trend`.
+
+## v5.43 — A push when a shorted high-debt stock breaks a new low
+
+Jerry: "Add a push when a shorted high-debt stock breaks a new low."
+
+- **A Live Scanner setup, "Shorted high-debt stock at a new low"**
+  (`shorted_debt_new_low`): a stock on the Shorted high-debt list trades
+  below its lowest close of the last year (the board's 52-week low). A new
+  52-week low rather than a low of the day: the day's low moves with every
+  dip, a year's low is the breakdown. Fires on the crossing, so a stock
+  already below at the scanner's first look is not news; once a day per
+  stock; pushes to the phone; no other condition; SHORT side for grading.
+  Saved setup lists are offered it once.
+- The sentence shares the drop alert's description of the stock
+  (`_shorted_context`): "New 52-week low at $94.80, under the $95.00 low of
+  the last year: a High-debt stock with 15.2% of its float short, shorts
+  +14% in the latest report. Net debt is ..."
+- The Shorted section's note names both pushes.
+
+Tests: `test_live_scan.ShortedDebtNewLow` (3: the break fires once with
+its reason and push, a stock already below at the first look does not,
+off the list or without a range never; mutation-checked) and the
+offered-once tests.
+
+Codex on #428, second review, all three right and fixed (the tests fail on
+the old code):
+
+- **A report counted as pushed only once the push went out.** The report
+  was marked "told" before the push; a push that failed (or no phone set
+  up) meant Jerry never heard about it. Now `check` raises the alerts once
+  and a separate `pushed` list records only a delivery the push service
+  confirmed, so a failed push is tried again on the next check (while the
+  report is still fresh).
+- **The board is read only when its scan is finished.** A scan still
+  running (or never run) has stocks missing their debt rating, so a report
+  read then would skip them for good. `check` now waits for a board that
+  is not scanning and has a last scan.
+- **The day's low, not the last price.** The scanner looks every 30
+  seconds; a stock can dip under the line and come back between looks.
+  The drop and new-low setups now use the quote's low of the day, so a
+  touch between looks still fires, and the sentence says so ("Touched a
+  new 52-week low of $94.70 (today's low) ... it is $95.80 now", "Fell
+  3.4% today (low $96.60) and is down 1.5% at $98.50").
+
+Tests: `test_short_trend.Codex428b` (3) and
+`test_live_scan.ShortedDipsBetweenSweeps` (2), all red on the old code.
+
+Codex on #428, third review, all three right and fixed (the tests fail on
+the old code):
+
+- **A new FINRA report waits for the ones before it.** On a fresh store,
+  if the newest report downloaded but an older one failed, the newest was
+  judged on a gap (BUILD's three rises looked like two) and never judged
+  again. `check` now waits while an earlier kept report is missing (or the
+  schedule can't be read), for up to HISTORY_WAIT_DAYS (3) after the
+  report went public, then judges it with what is on file, still in time
+  for the push.
+- **The shorted list is built from a finished scan.** The watchlist
+  publishes its board after every chunk, so mid-scan the Live Scanner's
+  five-minute read took half a list and its stocks could miss a push.
+  `short_trend.finished_rows` keeps the last finished board's rows for use
+  while a scan runs; the scanner's read answers None (keep your list) when
+  no finished board has been seen, and the on-screen list falls back to
+  what the board has.
+- **The Debt card's off-watchlist path recovers the market value first.**
+  `debt_risk.ticker_fields` reads the Yahoo profile and, when it has no
+  market value, fast_info's, before working anything out, as the scan does.
+
+Tests: `test_short_trend.Codex428c` (3), `test_short_trend.FinishedRows`
+(3), `test_live_scan.ShortedDebtDrop.test_no_answer_mid_scan_keeps_the_list`
+and `test_debt_risk.Codex428c` (3).
+
+Codex on #428, fourth review, both right and fixed (the tests fail on the
+old code):
+
+- **A FINRA report cut short is not kept as the whole.** The reader stops
+  at a failed page and returns the pages before it; the alerts kept that
+  as the full report, for months. `finra_short_interest(...,
+  complete_only=True)` returns None on a failed page (or pages running out
+  with more to come), so the report is not kept and is fetched again next
+  check; a 204 is still "not published". The board's other readers
+  (hf_scan) are unchanged.
+- **The Live Scanner quotes the finished board too.** Its universe read
+  the half-filled board mid-scan, so a shorted stock in a later chunk was
+  not quoted, and one that broke its low before its first quote would
+  never alert. `_scanner_board_rows` uses `short_trend.finished_rows`, as
+  the shorted list does.
+
+Tests: `test_hf_scan.Providers.test_a_failed_later_page_is_not_the_whole_report`
+and `test_short_trend.Codex428d` (3).
+
+Codex on #428, fifth review, all three right and fixed (the tests fail on
+the old code):
+
+- **The board a scan started from, kept by the watchlist itself.**
+  `short_trend.finished_rows` only knew a board it had seen finished, so
+  after a restart during the 9 AM scan it fell back to the half-filled
+  board. It is replaced by `watchlist_table.settled_rows()`: a scan keeps
+  the board it started from (the saved one at boot) until a scan finishes,
+  and keeps it through a scan that fails part way. The scanner's quotes,
+  its Shorted list, the on-screen list and the FINRA report check all read
+  it (the check still waits out a running scan).
+- **A maturity schedule with gaps is not a refinancing wall.** A year the
+  annual report does not tag was counted as zero, so a partly tagged
+  schedule could show most of its debt due within two years. The
+  two-year figure now needs both years, the share needs all six
+  (`complete`), and the card leaves out what it does not have.
+- **The Live Scanner retries a failed push.** An alert is recorded as
+  fired for the day when raised, and the push answered `{"ok": False}`
+  was dropped. A failed send (not "no phone set up") is now tried again
+  once a minute for ten minutes, saying "(sent N min late)" when it is;
+  this covers every setup, the new drop and new-low ones included.
+
+Tests: `test_watchlist_settled` (3, the real scan worker with a fake
+download), `test_short_trend.SettledBoard`, `test_debt_risk.Codex428e`
+(4) and `test_live_scan.PushRetry` (4).
+
+Codex on #428, sixth review, all three right and fixed (the tests fail on
+the old code):
+
+- **The board's own field for the day's move.** The Shorted list fell
+  back to `change_pct` on the watchlist row, which keeps it as `change`;
+  the test's fixture had the same wrong name. Before the scanner's first
+  quote (or after a failed quote) the list now shows the board's move.
+- **A finished scan that lost a chunk.** A failed download is swallowed
+  per chunk and the scan still finishes, so the board held for
+  `settled_rows()` was dropped with those stocks missing. Now a finished
+  scan that lost any requested stock (a chunk, or one on its own) keeps a
+  held board of its rows plus the last good row for each lost stock; one
+  that got every stock holds nothing. The table itself is unchanged.
+- **Push retries after the close.** The loop sweeps only before and
+  during the session, so a retry due after 4 PM never ran. The loop's
+  pass is now `_tick`, which retries in every other phase too and wakes
+  each minute while a retry is waiting.
+
+Tests: `test_watchlist_settled` (3 more), `test_short_trend.ShortedDebt`
+(fixture corrected), `test_live_scan.PushRetry.test_retries_go_on_after_the_close`.
+
+Codex on #428, seventh review, both right and fixed (the tests fail on
+the old code):
+
+- **The held board is saved.** Rows a lossy scan filled in lived only in
+  memory; the saved file had the table's rows, so a restart dropped them.
+  `_persist` now saves the held board too (without the bulk) and
+  `_load_persisted` restores it; a clean scan saves none. A restart in the
+  middle of a scan now also gets back the board the scan started from.
+- **SEC figures are dollars.** The card read interest and the maturity
+  schedule in the filings' USD while the debt is in the company's own
+  reporting currency, so a foreign filer's average rate divided one by
+  the other, and the card labelled the filing amounts in the local
+  currency. The card now says `filing_ccy: "USD"`, has no average rate
+  when the two differ, and labels the filing amounts in dollars.
+
+Tests: `test_debt_risk.Codex428f` (3) and
+`test_watchlist_settled.test_the_held_board_survives_a_restart`.
+
+Codex on #428, eighth review, right and fixed (the test fails on the old
+code): **no debt is no debt risk.** With `totalDebt: 0` and no cash figure,
+net debt is unknown, so the net-cash shortcut did not apply and a
+loss-making, cash-burning, heavily shorted company scored its way to
+High. `assess` now rates reported debt of zero or less Low ("No debt
+reported.") before any points. Test: `test_debt_risk.Codex428g` (2).
+
+Codex on #428, ninth review, all three right and fixed (the tests fail on
+the old code):
+
+- **A report of zero shares short counts.** `trend` dropped zero readings,
+  so a stock whose shorts all covered still showed the report before as
+  current, its old jump included. Zero is now a point (the change is
+  -100%); a rise from zero has no percentage, so it is neither a jump nor
+  the start of a build.
+- **Interest from a tag with a full year.** The newest interest tag won
+  before its trailing year was worked out; a company that switched tags a
+  quarter or two ago had no year on the new one, and the card showed no
+  interest at all. Each tag's trailing year is worked out first and the
+  newest valid one wins.
+- **An old debt schedule is not current.** A company that stopped tagging
+  its maturity schedule kept showing the last one it filed, years old.
+  `maturities(..., as_of=)` drops a schedule more than 400 days older than
+  the latest balance sheet, as the interest figure already did.
+
+Tests: `test_short_trend.Codex428h` (2) and `test_debt_risk.Codex428i` (3).
+
+Codex on #428, tenth review, both right and fixed (the tests fail on the
+old code):
+
+- **A push owed to the phone survives a restart.** The retry queue lived
+  in memory; the alert itself is saved and does not fire again, so a
+  redeploy inside the ten-minute window lost the push. The queue is now
+  saved (`push-retry.json`) on every change and read back by `configure`.
+- **Staleness is dated by the latest balance sheet.** The card dated its
+  interest and schedule checks by the latest long-term-debt fact; a
+  company that repaid that debt stops tagging it, so its last schedule
+  never aged out. The date is now the latest of total assets, equity and
+  long-term debt.
+
+Tests: `test_live_scan.PushRetry.test_a_restart_does_not_lose_a_waiting_push`
+and `test_debt_risk.Codex428j`.
+
+CI on #428: the 400-days-ahead step went red on
+`test_bt_options.TestEndToEnd.test_csp_managed_end_to_end` (3 trades, not
+more than 3). Not this PR's: it fails the same way on main from about 399
+days ahead; main's last run (Oct 3) was just inside the line. The test's
+bars are fixed-date fixtures (400 days from 2026-01-02) while "last 1
+year" is measured back from the real clock, so the window held less of
+them every day. The class now pins the backtest's clock to the day after
+the last bar (as the time-travel step asks: pin the clock, don't loosen
+the assertion); it passes today, 400 and 800 days ahead, and
+`test_time_travel.py 400` is green.

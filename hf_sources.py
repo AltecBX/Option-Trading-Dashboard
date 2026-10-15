@@ -1152,12 +1152,18 @@ def parse_short_interest(text: str) -> dict[str, dict]:
     return out
 
 
-def finra_short_interest(settlement: str, page_size: int = 5000, max_pages: int = 8) -> dict[str, dict]:
+def finra_short_interest(settlement: str, page_size: int = 5000, max_pages: int = 8,
+                         complete_only: bool = False) -> dict[str, dict] | None:
     """Every symbol's short interest for one settlement date.
 
     About 22,000 rows, served 5,000 at a time. A settlement not yet published
     answers 204 with no body, which reads here as an empty dict — the caller
-    then says the report is not out yet rather than that shorts went to zero."""
+    then says the report is not out yet rather than that shorts went to zero.
+
+    `complete_only`: None when a page failed (or the pages ran out with more
+    to come) rather than the pages before it. The short-interest alerts keep
+    each report for months, and a report cut short by a network blip would
+    be kept as the whole (Codex, #428)."""
     body = json.dumps({"limit": page_size, "offset": 0,
                        "compareFilters": [{"compareType": "EQUAL", "fieldName": "settlementDate",
                                            "fieldValue": settlement}]}).encode()
@@ -1167,14 +1173,21 @@ def finra_short_interest(settlement: str, page_size: int = 5000, max_pages: int 
         payload["offset"] = page * page_size
         raw = _post(FINRA_SI, json.dumps(payload).encode(),
                     f"finra_si:{settlement}:{page}", TTL["finra_si"])
-        if not raw:
+        if raw is None:                    # the request failed
+            if complete_only:
+                return None
+            break
+        if not raw:                        # 204: nothing (more) to read
             break
         chunk = parse_short_interest(raw.decode("utf-8", "replace"))
         if not chunk:
             break
         out.update(chunk)
         if len(chunk) < page_size:
-            break
+            return out
+    else:
+        if complete_only:
+            return None
     return out
 
 
