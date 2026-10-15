@@ -5871,3 +5871,28 @@ once per report, a restart, waiting for the scan, an unpublished report,
 a stale report not pushed, the kept window, the watchlist and card
 fields, no sources; mutation-checked) and the render tests extended (the
 strip, the column, the card's reports and alert).
+
+## v5.41 — Shorted high-debt stocks on the Live Scanner
+
+Jerry: "Show high debt stocks being shorted on Live Scanner."
+
+- **`short_trend.shorted_debt`**: every watchlist stock rated High or
+  Elevated on Debt risk with at least 5% of its float short (FINRA's newest
+  report over Yahoo's float, or Yahoo's own figure without a FINRA row),
+  plus any stock with a shorts-piling-in alert on the newest report.
+  Alerted first, then High before Elevated, then the most shorted; at most
+  40. Today's price move comes from the scanner's newest sweep
+  (`live_scan.prices`), the board's otherwise.
+- **`/api/live`** carries it as `short_debt`, rebuilt at most once a minute
+  (the screen polls every ten seconds).
+- **On screen**: a "Shorted high-debt stocks" section under When to sell
+  in the side column (Today's move, Debt rating, Short % with days to
+  cover, the FINRA trend, "piling in" marked); on a phone a fourth view,
+  "Shorted (n)", with the When to sell button shortened to "Sell (n)" so
+  the four stay on one line at 390px. A tap opens the stock's Debt &
+  rates card on Analyze.
+
+Tests: `test_short_trend.ShortedDebt` (3: who is on it and in what order,
+the profile fallback without FINRA reports, the cap; filters
+mutation-checked) and a render test at 1440, 440 and 390px from the real
+engine.

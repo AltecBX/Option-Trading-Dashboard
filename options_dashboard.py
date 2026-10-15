@@ -5193,6 +5193,7 @@ except Exception as _exc:  # noqa: BLE001
     _live = None  # type: ignore
 
 # ── Short-interest trend alerts for high-debt stocks (v5.40) ────────────────
+_SHORT_DEBT_CACHE: dict = {}   # v5.41: the Live Scanner's shorted high-debt list, a minute at a time
 # FINRA's twice-monthly short-interest report against the watchlist's Debt &
 # rates ratings: an alert when shorts pile into a High or Elevated debt stock.
 try:
@@ -10830,7 +10831,23 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                         since_ts = float(since) if since else None
                     except ValueError:
                         since_ts = None
-                    self._send_json(_live.snapshot(since_ts=since_ts), no_store=True)
+                    snap = _live.snapshot(since_ts=since_ts)
+                    # v5.41: high-debt stocks being shorted, with today's move.
+                    # The screen polls every 10 seconds; the list is rebuilt
+                    # at most once a minute.
+                    if _STREND_AVAILABLE and _strend is not None:
+                        hit = _SHORT_DEBT_CACHE.get("v")
+                        if hit and time.time() - hit[0] < 60:
+                            snap["short_debt"] = hit[1]
+                        else:
+                            try:
+                                board_rows = ((_wltable.get_board() if (_WLTABLE_AVAILABLE and _wltable is not None)
+                                               else {}) or {}).get("rows") or []
+                                snap["short_debt"] = _strend.shorted_debt(board_rows, _live.prices())
+                                _SHORT_DEBT_CACHE["v"] = (time.time(), snap["short_debt"])
+                            except Exception as exc:  # noqa: BLE001
+                                snap["short_debt"] = {"rows": [], "error": str(exc)[:160]}
+                    self._send_json(snap, no_store=True)
                 elif section == "check":
                     self._send_json(_live.check(qs.get("symbol", [""])[0]), no_store=True)
                 elif section == "setups":

@@ -26,6 +26,7 @@ const LV_TIP = {
   setups: "Rename, tune or switch off any setup, set the conditions a stock must pass, how long before the same stock can fire again, and whether it pushes to your phone.",
   sound: "Play a short beep in this browser when a new alert arrives.",
   sell: "Your When to sell system, for every stock in your regime table: this week's trigger (Friday's close plus the rise the table expects after a week like last week), the live price, and how far it has to go. A tap alerts here and on your phone. Tap a stock to open its When to sell card.",
+  shorted: "Watchlist stocks rated High or Elevated on Debt risk with at least 5% of their tradable shares sold short (FINRA's latest report), or where shorts just piled in. Today's move is live. Tap a stock to open its Debt & rates card.",
   lists: "Ranked lists from the same prices. Only stocks over $5 with at least 500K shares a day are listed, so the lists are names you can trade options on."
 };
 const LV_LISTS = [["gainers", "Gainers", "change_pct"], ["losers", "Losers", "change_pct"], ["active", "Most active", "volume"], ["rvol", "Volume surge", "rvol"], ["movers_5m", "5-min movers", "move_5m"], ["gap_up", "Gap up", "gap_pct"], ["gap_down", "Gap down", "gap_pct"]];
@@ -341,6 +342,64 @@ function LvSellList({
   }, "No trigger yet for ", missing.map(m => m.symbol).join(", "), ".") : null);
 }
 
+// ── Shorted high-debt stocks (v5.41) ───────────────────────────────────────
+// Jerry: rates are rising, the most indebted companies sell off, and the
+// smart money shorts them. The watchlist's High and Elevated debt stocks with
+// a heavy short (or shorts just piling in), with today's live move beside it.
+const LV_SHORT_SHOW = 8;
+function LvShortDebt({
+  data,
+  onOpen
+}) {
+  const [all, setAll] = useState(false);
+  const rows = data && data.rows || [];
+  const shown = all ? rows : rows.slice(0, LV_SHORT_SHOW);
+  const piling = rows.filter(r => r.alert).length;
+  return /*#__PURE__*/React.createElement("section", {
+    className: "lv-sell lv-shorted",
+    title: LV_TIP.shorted
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "lv-sell-head"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+    className: "kicker"
+  }, "Shorted high-debt stocks", data && data.settlement ? ` · FINRA ${lvDay(data.settlement)}` : ""), /*#__PURE__*/React.createElement("div", {
+    className: "lv-sell-sum"
+  }, !data ? "Loading…" : !rows.length ? "None on your watchlist right now (High or Elevated debt with 5%+ of the float short)." : /*#__PURE__*/React.createElement(React.Fragment, null, piling ? /*#__PURE__*/React.createElement("b", {
+    className: "lv-sell-n piling"
+  }, piling, " with shorts piling in") : null, /*#__PURE__*/React.createElement("span", null, data.total, " with ", data.min_pct, "%+ of the float short")))), rows.length > LV_SHORT_SHOW || all ? /*#__PURE__*/React.createElement("button", {
+    className: "lv-btn",
+    onClick: () => setAll(v => !v)
+  }, all ? "Show fewer" : `Show all ${rows.length}`) : null), shown.length ? /*#__PURE__*/React.createElement("table", {
+    className: "scan-table lv-sell-table lv-short-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Symbol"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num"
+  }, "Today"), /*#__PURE__*/React.createElement("th", null, "Debt"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num"
+  }, "Short"), /*#__PURE__*/React.createElement("th", {
+    className: "scan-num"
+  }, "Trend"))), /*#__PURE__*/React.createElement("tbody", null, shown.map(r => /*#__PURE__*/React.createElement("tr", {
+    key: r.symbol,
+    className: r.alert ? "lv-short-piling" : "",
+    title: [r.alert, r.reason].filter(Boolean).join(" ")
+  }, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("button", {
+    className: "lv-sym",
+    onClick: () => onOpen && onOpen(r.symbol),
+    title: `Open ${r.symbol}'s Debt & rates card`
+  }, r.symbol)), /*#__PURE__*/React.createElement("td", {
+    className: `scan-num ${r.change_pct > 0 ? "up" : r.change_pct < 0 ? "down" : ""}`
+  }, lvPct(r.change_pct)), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("span", {
+    className: `lv-sell-st ${r.level === "High" ? "debt-high" : "debt-elev"}`
+  }, r.level)), /*#__PURE__*/React.createElement("td", {
+    className: "scan-num lv-metric"
+  }, r.short_pct != null ? `${r.short_pct.toFixed(1)}%` : "—", r.days_to_cover != null ? /*#__PURE__*/React.createElement("span", {
+    className: "lv-sell-sub"
+  }, r.days_to_cover, " days") : null), /*#__PURE__*/React.createElement("td", {
+    className: `scan-num ${r.si_chg != null && r.si_chg > 0 ? "down" : r.si_chg != null && r.si_chg < 0 ? "up" : ""}`
+  }, r.si_chg == null ? "—" : (r.si_rises || 0) >= 2 ? `▲${r.si_rises} ${r.si_run > 0 ? "+" : ""}${Math.round(r.si_run)}%` : `${r.si_chg > 0 ? "+" : ""}${Math.round(r.si_chg)}%`, r.alert ? /*#__PURE__*/React.createElement("span", {
+    className: "lv-sell-sub lv-piling-tag"
+  }, "piling in") : null))))) : null);
+}
+
 // Ranked on the server's one status per row, which decides eligibility
 // first — never on the raw trigger, which reads "live" for a switched-off
 // setup too (Codex, #417).
@@ -645,6 +704,7 @@ function LiveScanTab({
   apiFetch,
   onOpenTicker,
   onOpenSell,
+  onOpenDebt,
   visible,
   ticker
 }) {
@@ -710,6 +770,7 @@ function LiveScanTab({
   const phase = data && data.phase || "closed";
   const ago = data && lvAgo(data.last_sweep);
   const sellTapped = (data && data.sell && data.sell.rows || []).filter(r => r.status === "tapped").length;
+  const shortedN = (data && data.short_debt && data.short_debt.rows || []).length;
   return /*#__PURE__*/React.createElement("div", {
     className: "card lv-card"
   }, /*#__PURE__*/React.createElement("div", {
@@ -779,7 +840,12 @@ function LiveScanTab({
     "aria-selected": view === "sell",
     className: `lv-seg-btn ${view === "sell" ? "on" : ""}`,
     onClick: () => setView("sell")
-  }, "When to sell", sellTapped ? ` (${sellTapped})` : "")), /*#__PURE__*/React.createElement("div", {
+  }, "Sell", sellTapped ? ` (${sellTapped})` : ""), /*#__PURE__*/React.createElement("button", {
+    role: "tab",
+    "aria-selected": view === "shorted",
+    className: `lv-seg-btn ${view === "shorted" ? "on" : ""}`,
+    onClick: () => setView("shorted")
+  }, "Shorted", shortedN ? ` (${shortedN})` : "")), /*#__PURE__*/React.createElement("div", {
     className: `lv-cols lv-show-${view}`
   }, /*#__PURE__*/React.createElement("section", {
     className: "lv-feed"
@@ -820,7 +886,10 @@ function LiveScanTab({
     sell: data && data.sell,
     phase: phase,
     onOpen: onOpenSell || onOpenTicker
-  }), /*#__PURE__*/React.createElement(LvRankings, {
+  }), data && data.short_debt ? /*#__PURE__*/React.createElement(LvShortDebt, {
+    data: data.short_debt,
+    onOpen: onOpenDebt || onOpenTicker
+  }) : null, /*#__PURE__*/React.createElement(LvRankings, {
     rankings: data && data.rankings,
     phase: phase,
     onOpen: onOpenTicker

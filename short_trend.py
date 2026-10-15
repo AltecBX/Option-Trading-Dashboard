@@ -48,6 +48,8 @@ BUILD_PCT = 15.0            # ... adding up to this much: a build
 MIN_FLOAT_PCT = 2.0         # below this share of the float short, a rise is noise
 DEBT_LEVELS = ("High", "Elevated")
 ALERTS_KEEP_DAYS = 120
+SHORTED_MIN_PCT = 5.0       # the Live Scanner's list: at least this much of the float short ...
+SHORTED_KEEP = 40           # ... and at most this many stocks on it
 PUSH_FRESH_DAYS = 7         # a report published longer ago than this is not news
 CHECK_EVERY_S = 3 * 3600    # the background check
 
@@ -346,6 +348,51 @@ def snapshot(symbol: Optional[str] = None) -> dict:
             out["trend"] = trend(series(_STORE, symbol))
             out["symbol_alerts"] = [a for a in alerts if a.get("symbol") == out["symbol"]]
     return out
+
+
+def shorted_debt(rows: Iterable[Mapping], live: Optional[Mapping[str, Mapping]] = None,
+                 store: Optional[Mapping] = None) -> dict:
+    """The Live Scanner's "Shorted high-debt stocks" (v5.41): every watchlist
+    stock rated High or Elevated debt with at least SHORTED_MIN_PCT of its
+    float short, or with a shorts-piling-in alert on the newest report.
+    Short interest is FINRA's newest report over Yahoo's float when both are
+    there, Yahoo's own figure otherwise. `live` maps symbols to the
+    scanner's {last, change_pct}, so the price move is today's. Alerted
+    stocks first, then High before Elevated, then the most heavily shorted."""
+    if store is None:
+        with _LOCK:
+            store = {"settlements": dict(_STORE.get("settlements") or {}),
+                     "alerts": list(_STORE.get("alerts") or [])}
+    sts = sorted(store.get("settlements") or {})
+    newest = sts[-1] if sts else None
+    alerted = {a.get("symbol"): a for a in (store.get("alerts") or []) if a.get("settlement") == newest}
+    rank = {lvl: i for i, lvl in enumerate(DEBT_LEVELS)}
+    out = []
+    for r in rows or []:
+        level = r.get("debt_risk")
+        if level not in DEBT_LEVELS:
+            continue
+        sym = str(r.get("symbol") or "").upper()
+        t = trend(series(store, sym))
+        flt = _f(r.get("float_shares"))
+        pct = (t["short"] / flt * 100.0) if (t and flt and flt > 0) else _f(r.get("short_pct"))
+        a = alerted.get(sym)
+        if not a and (pct is None or pct < SHORTED_MIN_PCT):
+            continue
+        q = (live or {}).get(sym) or {}
+        last = _f(q.get("last")) if _f(q.get("last")) is not None else _f(r.get("last"))
+        chg = _f(q.get("change_pct")) if _f(q.get("change_pct")) is not None else _f(r.get("change_pct"))
+        out.append({"symbol": sym, "level": level, "debt_score": r.get("debt_score"),
+                    "short_pct": round(pct, 2) if pct is not None else None,
+                    "change_pct": round(chg, 2) if chg is not None else None, "last": last,
+                    "si_chg": t["change_pct"] if t else None, "si_rises": t["rises"] if t else None,
+                    "si_run": t["run_pct"] if t else None,
+                    "days_to_cover": t.get("days_to_cover") if t else None,
+                    "alert": a.get("text") if a else None,
+                    "reason": (r.get("debt_reasons") or [None])[0]})
+    out.sort(key=lambda x: (0 if x["alert"] else 1, rank.get(x["level"], 9), -(x["short_pct"] or 0)))
+    return {"settlement": newest, "min_pct": SHORTED_MIN_PCT, "rows": out[:SHORTED_KEEP],
+            "total": len(out)}
 
 
 def board_fields(rows: list) -> list:

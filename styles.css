@@ -15337,6 +15337,9 @@ body { overflow: hidden; overscroll-behavior: none; }
   .lv-show-lists .lv-feed { display: none; }
   /* v5.38: the third view, When to sell, is the side column without the lists. */
   .lv-show-sell .lv-feed, .lv-show-sell .lv-ranks, .lv-show-lists .lv-sell { display: none; }
+  /* v5.41: the fourth view, Shorted, is the shorted high-debt list alone. */
+  .lv-show-sell .lv-shorted, .lv-show-shorted .lv-feed, .lv-show-shorted .lv-ranks,
+  .lv-show-shorted .lv-sell:not(.lv-shorted) { display: none; }
   .lv-feed-head { flex-wrap: nowrap; gap: 6px; margin-bottom: 4px; }
   .lv-feed-head .lv-seg { flex-wrap: nowrap; flex: none; }
   .lv-setup-filter { max-width: none; flex: 1 1 auto; min-width: 0; }
@@ -15545,6 +15548,12 @@ body { overflow: hidden; overscroll-behavior: none; }
 .lv-sell-st.near { color: var(--fg); background: color-mix(in srgb, var(--warn) 16%, transparent); border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
 .lv-sell-tapped td { background: color-mix(in srgb, var(--up) 6%, transparent); }
 .lv-sell-miss { margin: 8px 0 0; font-size: 12px; color: var(--fg-3); }
+/* v5.41 — shorted high-debt stocks */
+.lv-sell-n.piling { background: color-mix(in srgb, var(--down) 16%, transparent); border-color: color-mix(in srgb, var(--down) 55%, transparent); }
+.lv-sell-st.debt-high { color: var(--fg); background: color-mix(in srgb, var(--down) 18%, transparent); border-color: color-mix(in srgb, var(--down) 55%, transparent); }
+.lv-sell-st.debt-elev { color: var(--fg); background: color-mix(in srgb, var(--warn) 16%, transparent); border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
+.lv-short-piling td { background: color-mix(in srgb, var(--down) 6%, transparent); }
+.lv-piling-tag { color: var(--down); font-weight: 700; }
 @media (max-width: 900px) {
   .lv-sell { padding: 8px 10px; }
   /* the phone rule gives every .scan-table cell 8px a side, !important */

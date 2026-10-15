@@ -179,5 +179,53 @@ class Check(Harness):
         self.assertEqual([], ST.snapshot()["alerts"])
 
 
+
+class ShortedDebt(Harness):
+    """v5.41: the Live Scanner's shorted high-debt list."""
+
+    def board(self):
+        # JUMP: High debt, 19% short, alerted. BUILD: Elevated, 12% short,
+        # alerted. HEAVY: High, 8% short (Yahoo's figure, no FINRA row), not
+        # alerted. LIGHTSHORT: High but 3% short. LOWDEBT: heavily short, Low debt.
+        return [dict(r) for r in ROWS] + [
+            {"symbol": "HEAVY", "debt_risk": "High", "short_pct": 8.0, "last": 20.0, "change_pct": -1.0,
+             "debt_reasons": ["Burning cash."]},
+            {"symbol": "LIGHTSHORT", "debt_risk": "High", "short_pct": 3.0},
+            {"symbol": "LOWDEBT2", "debt_risk": "Low", "short_pct": 30.0},
+        ]
+
+    def test_who_is_on_it_and_in_what_order(self):
+        ST.check()
+        got = ST.shorted_debt(self.board(), {"JUMP": {"last": 12.5, "change_pct": -4.2}})
+        syms = [r["symbol"] for r in got["rows"]]
+        self.assertEqual(["JUMP", "BUILD", "FALL", "SMALLBUILD", "HEAVY"], syms,
+                         "alerted first (High before Elevated), then the most shorted: 15%, 11%, 8%")
+        self.assertNotIn("LIGHTSHORT", syms, "3% short is under the 5% line")
+        self.assertNotIn("LOWDEBT2", syms, "heavily shorted but not indebted")
+        self.assertEqual("2026-09-30", got["settlement"])
+        j = got["rows"][0]
+        self.assertAlmostEqual(-4.2, j["change_pct"], msg="today's move comes from the scanner")
+        self.assertAlmostEqual(19.0, j["short_pct"], places=1, msg="FINRA's shares over the float")
+        self.assertIn("Shorts are piling into JUMP", j["alert"])
+        h = got["rows"][4]
+        self.assertAlmostEqual(8.0, h["short_pct"], msg="Yahoo's figure when FINRA has no row")
+        self.assertAlmostEqual(-1.0, h["change_pct"], msg="the board's move when the scanner has none")
+        self.assertIsNone(h["si_chg"])
+        self.assertEqual("Burning cash.", h["reason"])
+
+    def test_without_reports_it_still_lists_from_the_profile(self):
+        got = ST.shorted_debt(self.board(), None, store={"settlements": {}, "alerts": []})
+        self.assertEqual(["HEAVY"], [r["symbol"] for r in got["rows"]],
+                         "only HEAVY has a short figure without FINRA's reports")
+        self.assertIsNone(got["settlement"])
+
+    def test_the_list_is_capped(self):
+        rows = [{"symbol": f"S{i:03d}", "debt_risk": "High", "short_pct": 6.0 + i} for i in range(60)]
+        got = ST.shorted_debt(rows, None, store={"settlements": {}, "alerts": []})
+        self.assertEqual(ST.SHORTED_KEEP, len(got["rows"]))
+        self.assertEqual(60, got["total"])
+        self.assertEqual("S059", got["rows"][0]["symbol"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

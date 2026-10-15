@@ -1365,6 +1365,20 @@ def snapshot(since_ts: float | None = None, limit: int = 300) -> dict:
     return out
 
 
+def prices() -> dict:
+    """{SYM: {last, change_pct}} from the newest sweep: today's price and
+    move, for lists built outside the scanner (v5.41)."""
+    with _LOCK:
+        out = {}
+        for sym, st in (_STATE.get("sym") or {}).items():
+            pic = st.get("pic") or {}
+            last = pic.get("last") if pic.get("last") is not None else pic.get("pm_last")
+            chg = pic.get("change_pct") if pic.get("change_pct") is not None else pic.get("pm_change_pct")
+            if last is not None:
+                out[sym] = {"last": last, "change_pct": chg}
+        return out
+
+
 def check(symbol: str, now: datetime | None = None) -> dict:
     """Setup Check: for one symbol, every setup — is its trigger live, would
     the conditions let it through, and when did it last fire today."""

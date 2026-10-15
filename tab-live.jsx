@@ -25,6 +25,7 @@ const LV_TIP = {
   setups: "Rename, tune or switch off any setup, set the conditions a stock must pass, how long before the same stock can fire again, and whether it pushes to your phone.",
   sound: "Play a short beep in this browser when a new alert arrives.",
   sell: "Your When to sell system, for every stock in your regime table: this week's trigger (Friday's close plus the rise the table expects after a week like last week), the live price, and how far it has to go. A tap alerts here and on your phone. Tap a stock to open its When to sell card.",
+  shorted: "Watchlist stocks rated High or Elevated on Debt risk with at least 5% of their tradable shares sold short (FINRA's latest report), or where shorts just piled in. Today's move is live. Tap a stock to open its Debt & rates card.",
   lists: "Ranked lists from the same prices. Only stocks over $5 with at least 500K shares a day are listed, so the lists are names you can trade options on.",
 };
 
@@ -309,6 +310,64 @@ function LvSellList({ sell, phase, onOpen }) {
   );
 }
 
+// ── Shorted high-debt stocks (v5.41) ───────────────────────────────────────
+// Jerry: rates are rising, the most indebted companies sell off, and the
+// smart money shorts them. The watchlist's High and Elevated debt stocks with
+// a heavy short (or shorts just piling in), with today's live move beside it.
+const LV_SHORT_SHOW = 8;
+function LvShortDebt({ data, onOpen }) {
+  const [all, setAll] = useState(false);
+  const rows = (data && data.rows) || [];
+  const shown = all ? rows : rows.slice(0, LV_SHORT_SHOW);
+  const piling = rows.filter(r => r.alert).length;
+  return (
+    <section className="lv-sell lv-shorted" title={LV_TIP.shorted}>
+      <div className="lv-sell-head">
+        <div>
+          <span className="kicker">Shorted high-debt stocks{data && data.settlement ? ` · FINRA ${lvDay(data.settlement)}` : ""}</span>
+          <div className="lv-sell-sum">
+            {!data ? "Loading…"
+              : !rows.length ? "None on your watchlist right now (High or Elevated debt with 5%+ of the float short)."
+              : <>
+                  {piling ? <b className="lv-sell-n piling">{piling} with shorts piling in</b> : null}
+                  <span>{data.total} with {data.min_pct}%+ of the float short</span>
+                </>}
+          </div>
+        </div>
+        {rows.length > LV_SHORT_SHOW || all ? (
+          <button className="lv-btn" onClick={() => setAll(v => !v)}>{all ? "Show fewer" : `Show all ${rows.length}`}</button>
+        ) : null}
+      </div>
+      {shown.length ? (
+        <table className="scan-table lv-sell-table lv-short-table">
+          <thead>
+            <tr><th>Symbol</th><th className="scan-num">Today</th><th>Debt</th>
+                <th className="scan-num">Short</th><th className="scan-num">Trend</th></tr>
+          </thead>
+          <tbody>
+            {shown.map(r => (
+              <tr key={r.symbol} className={r.alert ? "lv-short-piling" : ""}
+                  title={[r.alert, r.reason].filter(Boolean).join(" ")}>
+                <td><button className="lv-sym" onClick={() => onOpen && onOpen(r.symbol)}
+                            title={`Open ${r.symbol}'s Debt & rates card`}>{r.symbol}</button></td>
+                <td className={`scan-num ${r.change_pct > 0 ? "up" : r.change_pct < 0 ? "down" : ""}`}>{lvPct(r.change_pct)}</td>
+                <td><span className={`lv-sell-st ${r.level === "High" ? "debt-high" : "debt-elev"}`}>{r.level}</span></td>
+                <td className="scan-num lv-metric">{r.short_pct != null ? `${r.short_pct.toFixed(1)}%` : "—"}
+                  {r.days_to_cover != null ? <span className="lv-sell-sub">{r.days_to_cover} days</span> : null}</td>
+                <td className={`scan-num ${r.si_chg != null && r.si_chg > 0 ? "down" : r.si_chg != null && r.si_chg < 0 ? "up" : ""}`}>
+                  {r.si_chg == null ? "—"
+                    : (r.si_rises || 0) >= 2 ? `▲${r.si_rises} ${r.si_run > 0 ? "+" : ""}${Math.round(r.si_run)}%`
+                    : `${r.si_chg > 0 ? "+" : ""}${Math.round(r.si_chg)}%`}
+                  {r.alert ? <span className="lv-sell-sub lv-piling-tag">piling in</span> : null}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : null}
+    </section>
+  );
+}
+
 // Ranked on the server's one status per row, which decides eligibility
 // first — never on the raw trigger, which reads "live" for a switched-off
 // setup too (Codex, #417).
@@ -490,7 +549,7 @@ function LvSetupEditor({ apiFetch, onClose, onSaved }) {
   );
 }
 
-function LiveScanTab({ apiFetch, onOpenTicker, onOpenSell, visible, ticker }) {
+function LiveScanTab({ apiFetch, onOpenTicker, onOpenSell, onOpenDebt, visible, ticker }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState(null);
   const [side, setSide] = useState("all");
@@ -545,6 +604,7 @@ function LiveScanTab({ apiFetch, onOpenTicker, onOpenSell, visible, ticker }) {
   const phase = (data && data.phase) || "closed";
   const ago = data && lvAgo(data.last_sweep);
   const sellTapped = ((data && data.sell && data.sell.rows) || []).filter(r => r.status === "tapped").length;
+  const shortedN = ((data && data.short_debt && data.short_debt.rows) || []).length;
 
   return (
     <div className="card lv-card">
@@ -594,7 +654,10 @@ function LiveScanTab({ apiFetch, onOpenTicker, onOpenSell, visible, ticker }) {
                 onClick={() => setView("lists")}>Lists</button>
         <button role="tab" aria-selected={view === "sell"}
                 className={`lv-seg-btn ${view === "sell" ? "on" : ""}`}
-                onClick={() => setView("sell")}>When to sell{sellTapped ? ` (${sellTapped})` : ""}</button>
+                onClick={() => setView("sell")}>Sell{sellTapped ? ` (${sellTapped})` : ""}</button>
+        <button role="tab" aria-selected={view === "shorted"}
+                className={`lv-seg-btn ${view === "shorted" ? "on" : ""}`}
+                onClick={() => setView("shorted")}>Shorted{shortedN ? ` (${shortedN})` : ""}</button>
       </div>
 
       <div className={`lv-cols lv-show-${view}`}>
@@ -631,6 +694,7 @@ function LiveScanTab({ apiFetch, onOpenTicker, onOpenSell, visible, ticker }) {
           {/* v5.38: When to sell heads the side column on a wide screen; on
               a phone it is the third view. */}
           <LvSellList sell={data && data.sell} phase={phase} onOpen={onOpenSell || onOpenTicker} />
+          {data && data.short_debt ? <LvShortDebt data={data.short_debt} onOpen={onOpenDebt || onOpenTicker} /> : null}
           <LvRankings rankings={data && data.rankings} phase={phase} onOpen={onOpenTicker} />
         </section>
       </div>

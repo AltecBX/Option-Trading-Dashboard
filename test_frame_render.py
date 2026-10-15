@@ -435,6 +435,20 @@ def live_payload():
          META=q(593.0, 570.0, 588.0, 593.0, 585.0, 5.8e6))
     snap = LS.snapshot()
     snap["last_sweep"] = datetime.now().astimezone().isoformat()
+    # v5.41: the shorted high-debt list, from the REAL short_trend on six
+    # FINRA-shaped reports: XE's shorts jump 14% (an alert), META is 12%
+    # short, NVDA carries no debt worth rating.
+    import short_trend as ST
+    setts = ["2026-07-15", "2026-07-31", "2026-08-14", "2026-08-31", "2026-09-15", "2026-09-30"]
+    shorts = {"XE": [20e6] * 5 + [22.8e6], "META": [30e6] * 6, "MOS": [18e6] * 6, "NVDA": [9e6] * 6}
+    store = {"settlements": {st: ST.compact({k: {"short": v[i], "days_to_cover": 2.4} for k, v in shorts.items()})
+                             for i, st in enumerate(setts)}, "alerts": [], "notified": []}
+    debt = {"XE": ("High", 150e6), "META": ("Elevated", 250e6), "MOS": ("High", 300e6), "NVDA": ("Low", 2e9)}
+    board = [dict(r, debt_risk=debt[r["symbol"]][0], float_shares=debt[r["symbol"]][1],
+                  debt_reasons=["Net debt is 5.1x a year of operating profit (EBITDA)."])
+             for r in rows if r["symbol"] in debt]
+    store["alerts"] = ST.alerts_for(board, store)
+    snap["short_debt"] = ST.shorted_debt(board, LS.prices(), store=store)
     return {"snapshot": snap, "setups": {"setups": LS.setups(), "meta": LS.meta()},
             "check": LS.check("NVDA", clock["t"])}
 
@@ -2237,6 +2251,64 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                     self.assertFalse(got["lists"], "and the lists")
                 else:
                     self.assertTrue(got["feed"] and got["lists"], "on a wide screen everything shows")
+            finally:
+                self._close(handles)
+
+    def test_shorted_high_debt_stocks_on_the_live_scanner(self):
+        """v5.41. Jerry: "Show high debt stocks being shorted on Live
+        Scanner." The list from the real engine: the stock whose shorts just
+        piled in first, then the most shorted, with today's live move; under
+        When to sell on a wide screen, a fourth view on a phone whose four
+        buttons stay on one line."""
+        live = live_payload()
+        sd = live["snapshot"]["short_debt"]
+        self.assertEqual(["XE", "MOS", "META"], [r["symbol"] for r in sd["rows"]],
+                         "alerted first, then High before Elevated")
+        self.assertTrue(sd["rows"][0]["alert"])
+        for w, h in ((1440, 900), (440, 956), (390, 844)):
+            geo, errors, handles = self._measure(w, h, tab="live", live=live)
+            page = handles[2]
+            try:
+                self.assertFalse(errors, f"page errors at {w}px: {errors[:3]}")
+                page.wait_for_selector(".lv-alert", timeout=15000)
+                if w <= 900:
+                    seg = page.evaluate("""(() => { const v = document.querySelector('.lv-view');
+                      const b = [...v.querySelectorAll('.lv-seg-btn')];
+                      return {h: Math.round(v.getBoundingClientRect().height), n: b.length,
+                              labels: b.map(x => x.innerText.trim()),
+                              over: Math.max(0, ...b.map(x => Math.round(x.getBoundingClientRect().right - v.getBoundingClientRect().right)))}; })()""")
+                    self.assertEqual(4, seg["n"], seg)
+                    self.assertLessEqual(seg["h"], 44, f"the view buttons wrap at {w}px: {seg}")
+                    self.assertLessEqual(seg["over"], 1, f"a view button runs off at {w}px: {seg}")
+                    self.assertTrue(seg["labels"][3].startswith("Shorted (3)"), seg)
+                    self.assertFalse(page.evaluate("!!document.querySelector('.lv-shorted').offsetParent"))
+                    page.click(".lv-view .lv-seg-btn:nth-child(4)")
+                    page.wait_for_timeout(200)
+                got = page.evaluate("""(() => {
+                  const c = document.querySelector('.lv-shorted'), card = document.querySelector('.lv-card');
+                  const m = document.querySelector('.main');
+                  return {visible: !!c.offsetParent, head: c.querySelector('.lv-sell-head').innerText,
+                          rows: [...c.querySelectorAll('tbody tr')].map(tr => ({
+                            sym: tr.querySelector('.lv-sym').innerText.trim(), text: tr.innerText,
+                            piling: tr.classList.contains('lv-short-piling')})),
+                          feed: !!document.querySelector('.lv-feed').offsetParent,
+                          sell: !!document.querySelector('.lv-sell:not(.lv-shorted)').offsetParent,
+                          past: Math.round(c.getBoundingClientRect().right - card.getBoundingClientRect().right),
+                          tableOver: Math.round(c.querySelector('table').getBoundingClientRect().right - c.getBoundingClientRect().right),
+                          scroll: Math.max(0, m.scrollWidth - m.clientWidth)}; })()""")
+                self.assertTrue(got["visible"])
+                self.assertEqual(["XE", "MOS", "META"], [r["sym"] for r in got["rows"]])
+                self.assertTrue(got["rows"][0]["piling"], "the stock whose shorts just piled in is marked")
+                self.assertIn("piling in", got["rows"][0]["text"])
+                self.assertIn("1 WITH SHORTS PILING IN", got["head"].upper())
+                self.assertIn("High", got["rows"][0]["text"])
+                self.assertLessEqual(got["past"], 1, f"the list runs off the card at {w}px")
+                self.assertLessEqual(got["tableOver"], 1, f"the table runs out of its box at {w}px")
+                self.assertLessEqual(got["scroll"], 2, f"the page scrolls sideways at {w}px")
+                if w <= 900:
+                    self.assertFalse(got["feed"] or got["sell"], "the Shorted view is the list alone")
+                else:
+                    self.assertTrue(got["feed"] and got["sell"], "on a wide screen it sits under When to sell")
             finally:
                 self._close(handles)
 

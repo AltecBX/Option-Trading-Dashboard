@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "5.40";
+const APP_VERSION = "5.41";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -4109,6 +4109,19 @@ function App() {
                        const go = () => {
                          const el = document.getElementById("jump-when-to-sell");
                          const card = document.querySelector(".wts-card .card-title");
+                         if (el && card && card.textContent.includes(sym)) {
+                           el.scrollIntoView({ behavior: "smooth", block: "start" });
+                         } else if (++tries < 40) setTimeout(go, 250);
+                       };
+                       setTimeout(go, 250);
+                     }}
+                     onOpenDebt={(sym) => {
+                       // v5.41: straight to the stock's Debt & rates card.
+                       switchTicker(sym); changeTab("analyze");
+                       let tries = 0;
+                       const go = () => {
+                         const el = document.getElementById("jump-debt");
+                         const card = document.querySelector(".dr-card .card-title");
                          if (el && card && card.textContent.includes(sym)) {
                            el.scrollIntoView({ behavior: "smooth", block: "start" });
                          } else if (++tries < 40) setTimeout(go, 250);
