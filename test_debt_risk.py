@@ -300,5 +300,60 @@ class WatchlistWiring(unittest.TestCase):
         self.assertEqual("Low", row["debt_risk"])
 
 
+
+class Codex428(unittest.TestCase):
+    """Codex, #428."""
+
+    def test_unknown_cash_is_not_zero_cash(self):
+        f = D.screen_fields({k: v for k, v in HEAVY.items() if k != "totalCash"})
+        self.assertIsNone(f["net_debt"], "debt minus an unknown cash balance is unknown")
+        self.assertIsNone(f["net_debt_ebitda"])
+        self.assertIsNotNone(f["debt_to_mcap"], "gross debt against market value still stands")
+
+    def test_the_ten_year_reads_the_shared_full_history(self):
+        # treasury caches FRED series by id alone: asking for 13 months
+        # would leave its 3-year correlation reader short for half an hour.
+        calls = []
+        rows = [(f"2023-{m:02d}-01", 4.0) for m in range(1, 13)] + [("2026-10-13", 5.21)]
+
+        def fred(series_id, *args, **kw):
+            calls.append((series_id, args, kw))
+            return rows
+        got = D.ten_year_series(fred, today=date(2026, 10, 15))
+        self.assertEqual([("DGS10", (), {})], calls, "no start date: the default, shared history")
+        self.assertEqual([("2026-10-13", 5.21)], got, "sliced to the last 400 days here")
+        self.assertEqual([], D.ten_year_series(None))
+
+    def test_a_market_value_recovered_later_still_counts(self):
+        import watchlist_table as W
+
+        class FastInfo:
+            market_cap = 36.3e9
+
+        class Tk:
+            info = {k: v for k, v in HEAVY.items() if k != "marketCap"}
+            info.update(shortName="CoreWeave")
+            fast_info = FastInfo()
+
+            def get_earnings_dates(self, limit=12):
+                return None
+
+        class FakeYF:
+            @staticmethod
+            def Ticker(sym):
+                return Tk()
+
+        saved = W.yf
+        W._FUND_CACHE.pop("ZZTEST", None)
+        try:
+            W.yf = FakeYF
+            out = W._fundamentals("ZZTEST")
+        finally:
+            W.yf = saved
+            W._FUND_CACHE.pop("ZZTEST", None)
+        self.assertEqual(36.3e9, out["market_cap"])
+        self.assertAlmostEqual(51.6e9 / 36.3e9, out["debt_to_mcap"], places=3)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

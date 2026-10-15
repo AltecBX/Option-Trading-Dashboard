@@ -5792,12 +5792,8 @@ _DEBT_CARD_TTL = 1800.0
 
 def _ten_year_series() -> list:
     """The 10-year Treasury yield, daily, about 13 months back (FRED DGS10)."""
-    if _treasury is None:
-        return []
-    try:
-        return _treasury._fred_series("DGS10", start=(date.today() - timedelta(days=400)).isoformat()) or []
-    except Exception:  # noqa: BLE001
-        return []
+    import debt_risk as _dr
+    return _dr.ten_year_series(_treasury._fred_series if _treasury is not None else None)
 
 
 def build_debt_card(symbol: str) -> dict:
@@ -14249,9 +14245,7 @@ def serve(host: str, port: int, weeks: int, friday_baseline: bool) -> None:
 
             _wltable.set_notify_provider(_wlt_notify)
             # v5.39: the 10-year yield (FRED DGS10) for each stock's rate move.
-            if _treasury is not None:
-                _wltable.set_yield_provider(lambda: _treasury._fred_series(
-                    "DGS10", start=(date.today() - timedelta(days=400)).isoformat()))
+            _wltable.set_yield_provider(_ten_year_series)
             # Seed the CSV source-of-truth overrides at startup so the first
             # scheduled scan already honors imported tag/sector/industry.
             _push_watchlist_overrides()

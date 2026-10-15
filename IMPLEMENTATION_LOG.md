@@ -5822,3 +5822,14 @@ interest by the latest tag and its staleness, the card and its warnings,
 the scan wiring; mutation-checked) and two render tests (the card on
 desktop and phone from the real engine; the watchlist preset, its
 reasons and its sort).
+
+Codex on #428, each proven red first:
+- **The 10-year history is read whole.** treasury caches a FRED series by
+  its id alone, so asking for 13 months left its three-year correlation
+  reader short for the cache's half hour. `debt_risk.ten_year_series`
+  asks for the default history and slices it here.
+- **Unknown cash is not zero cash.** A profile with debt but no cash
+  balance now has no net debt (and so no debt/EBITDA points) rather than
+  net debt equal to all of its debt.
+- **A market value recovered from fast_info counts.** The debt fields are
+  worked out after the watchlist's market-cap fallback.

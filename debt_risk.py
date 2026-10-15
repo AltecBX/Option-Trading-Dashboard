@@ -79,7 +79,10 @@ def screen_fields(info: Mapping[str, Any] | None) -> dict:
     mcap = _f(i.get("marketCap"))
     short_now, short_prev = _f(i.get("sharesShort")), _f(i.get("sharesShortPriorMonth"))
     spf = _f(i.get("shortPercentOfFloat"))
-    net = (debt - (cash or 0.0)) if debt is not None else None
+    # Net debt needs both: a missing cash balance is unknown, not zero, or a
+    # cash-rich company with a thin profile reads as heavily borrowed
+    # (Codex, #428).
+    net = (debt - cash) if (debt is not None and cash is not None) else None
     # A foreign filer reports its debt in its own currency (Novo Nordisk in
     # kroner) while its market value is in dollars: debt against market
     # value would mix the two, so it is left out. Ratios inside one
@@ -296,6 +299,22 @@ def interest_ttm(facts: Mapping | None, *, as_of: Optional[str] = None) -> Optio
         if gap > INTEREST_STALE_DAYS:
             return None
     return {"value": abs(float(t["value"])), "tag": tag, "period_end": t["period_end"]}
+
+
+def ten_year_series(fred_series=None, *, today: Optional[date] = None, days: int = 400) -> list:
+    """The 10-year Treasury yield (FRED DGS10), daily, for the last `days`.
+    The shared reader is asked for its DEFAULT history and the slice is
+    taken here: treasury caches a series by its id alone, so asking it for
+    13 months would leave its three-year correlation reader short until
+    the cache expired (Codex, #428)."""
+    if fred_series is None:
+        return []
+    try:
+        rows = fred_series("DGS10") or []
+    except Exception:  # noqa: BLE001
+        return []
+    start = ((today or date.today()) - timedelta(days=days)).isoformat()
+    return [(str(d)[:10], v) for d, v in rows if str(d)[:10] >= start]
 
 
 def yield_context(yields: Mapping[str, float] | None) -> Optional[dict]:

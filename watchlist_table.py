@@ -435,10 +435,6 @@ def _fundamentals(symbol: str) -> dict:
         out["forward_pe"] = round(fpe, 1) if fpe is not None else None
         out["sector"] = info.get("sector")
         out["industry"] = info.get("industry")
-        # v5.39: debt, cash, EBITDA, free cash flow and short interest ride
-        # on the same .info call: no extra request per symbol.
-        if _debt is not None:
-            out.update(_debt.screen_fields(info))
 
         # fast_info is a lighter endpoint that survives throttling better —
         # backfill market cap (and infer P/E from price/EPS) when .info
@@ -450,6 +446,13 @@ def _fundamentals(symbol: str) -> dict:
                     out["market_cap"] = mc
             except Exception:
                 pass
+        # v5.39: debt, cash, EBITDA, free cash flow and short interest ride
+        # on the same .info call: no extra request per symbol. Worked out
+        # after the market-cap fallback, so a value recovered from
+        # fast_info still counts against the debt (Codex, #428).
+        if _debt is not None:
+            out.update(_debt.screen_fields(
+                dict(info, marketCap=info.get("marketCap") or out["market_cap"])))
         if out["pe"] is None:
             eps = _num(info.get("trailingEps") or info.get("epsTrailingTwelveMonths"))
             price = _num(info.get("currentPrice") or info.get("regularMarketPrice"))
