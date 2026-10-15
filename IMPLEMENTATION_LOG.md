@@ -6075,3 +6075,10 @@ the old code):
 
 Tests: `test_debt_risk.Codex428f` (3) and
 `test_watchlist_settled.test_the_held_board_survives_a_restart`.
+
+Codex on #428, eighth review, right and fixed (the test fails on the old
+code): **no debt is no debt risk.** With `totalDebt: 0` and no cash figure,
+net debt is unknown, so the net-cash shortcut did not apply and a
+loss-making, cash-burning, heavily shorted company scored its way to
+High. `assess` now rates reported debt of zero or less Low ("No debt
+reported.") before any points. Test: `test_debt_risk.Codex428g` (2).

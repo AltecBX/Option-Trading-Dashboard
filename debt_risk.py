@@ -161,6 +161,10 @@ def assess(f: Mapping[str, Any]) -> dict:
         return _money_ccy(v, ccy)
     if debt is None:
         return {"level": None, "score": None, "reasons": ["No debt figure was reported for this stock."]}
+    if debt <= 0:
+        # Nothing borrowed: losses, cash burn and shorts are not debt risk,
+        # even when the cash figure is missing (Codex, #428).
+        return {"level": "Low", "score": 0, "reasons": ["No debt reported."]}
     if net is not None and net <= 0:
         return {"level": "Low", "score": 0,
                 "reasons": [f"More cash than debt: {_money(-net)} net cash."]}

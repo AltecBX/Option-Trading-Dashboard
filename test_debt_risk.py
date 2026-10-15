@@ -467,3 +467,20 @@ class Codex428f(unittest.TestCase):
         self.assertIn("drMoney(d.interest.value, fccy)", body)
         self.assertIn("drMoney(mat.due_2y, fccy)", body)
         self.assertNotIn("drMoney(b.value, ccy)", src)
+
+
+class Codex428g(unittest.TestCase):
+    """Codex, #428 (eighth review): no debt is no debt risk."""
+
+    def test_zero_debt_without_a_cash_figure_is_low(self):
+        f = D.screen_fields({"totalDebt": 0, "ebitda": -2e9, "freeCashflow": -1.5e9, "marketCap": 3e9,
+                             "shortPercentOfFloat": 0.25, "sharesShort": 60e6, "sharesShortPriorMonth": 40e6})
+        self.assertIsNone(f["net_debt"], "cash unknown")
+        a = D.assess(f)
+        self.assertEqual("Low", a["level"])
+        self.assertEqual(0, a["score"])
+        self.assertIn("No debt", a["reasons"][0])
+
+    def test_some_debt_still_counts(self):
+        f = D.screen_fields({"totalDebt": 1e9, "ebitda": -2e9, "freeCashflow": -1.5e9, "marketCap": 3e9})
+        self.assertNotEqual("Low", D.assess(f)["level"])
