@@ -364,3 +364,27 @@ class Codex428d(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class Codex428h(unittest.TestCase):
+    """Codex, #428 (ninth review): a report of zero shares short counts."""
+
+    def pts(self, vals):
+        return [(s, v * 1e6, 1.0) for s, v in zip(SETTS, vals)]
+
+    def test_shorts_gone_to_zero_is_the_newest_report(self):
+        t = ST.trend(self.pts([50, 50, 50, 50, 57, 0]))
+        self.assertEqual("2026-09-30", t["settlement"])
+        self.assertEqual(0.0, t["short"])
+        self.assertEqual(-100.0, t["change_pct"])
+        self.assertEqual(0, t["rises"])
+        row = {"symbol": "JUMP", "debt_risk": "High", "float_shares": 300e6}
+        self.assertIsNone(ST.judge(row, t), "the Sep 15 jump is not news once shorts are gone")
+
+    def test_up_from_zero_has_no_percentage(self):
+        t = ST.trend(self.pts([50, 50, 50, 50, 0, 20]))
+        self.assertIsNone(t["change_pct"], "no percentage rise from nothing")
+        self.assertEqual(1, t["rises"])
+        self.assertIsNone(ST.judge({"symbol": "X", "debt_risk": "High", "float_shares": 100e6}, t))
+        store = {"settlements": {s: {"X": [v * 1e6, 1.0]} for s, v in zip(SETTS, [50, 50, 50, 50, 0, 20])}}
+        self.assertIsNone(ST.row_fields(store, "X")["si_chg"])

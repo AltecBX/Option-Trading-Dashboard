@@ -484,3 +484,27 @@ class Codex428g(unittest.TestCase):
     def test_some_debt_still_counts(self):
         f = D.screen_fields({"totalDebt": 1e9, "ebitda": -2e9, "freeCashflow": -1.5e9, "marketCap": 3e9})
         self.assertNotEqual("Low", D.assess(f)["level"])
+
+
+class Codex428i(unittest.TestCase):
+    """Codex, #428 (ninth review): interest and the debt schedule."""
+
+    def test_a_new_tag_without_a_full_year_does_not_hide_interest(self):
+        f = facts_with(quarters={**_quarters("InterestExpense", [0.3e9] * 4, last_end="2026-06-30"),
+                                 **_quarters("InterestExpenseDebt", [0.4e9] * 2, last_end="2026-09-30")})
+        i = D.interest_ttm(f)
+        self.assertIsNotNone(i, "the older tag has four quarters")
+        self.assertEqual("InterestExpense", i["tag"])
+        self.assertAlmostEqual(1.2e9, i["value"])
+
+    def test_an_old_schedule_is_not_current(self):
+        f = facts_with(_annual(M, "2022-12-31", "2023-02-20"))
+        self.assertIsNotNone(D.maturities(f))
+        self.assertIsNotNone(D.maturities(f, as_of="2023-09-30"), "nine months on, still the latest")
+        self.assertIsNone(D.maturities(f, as_of="2026-06-30"), "three years on, that debt has come and gone")
+
+    def test_the_card_checks_its_age(self):
+        src = (Path(__file__).resolve().parent / "debt_risk.py").read_text()
+        body = src[src.index("def card("):]
+        nxt = body.find("\ndef ")
+        self.assertIn("maturities(facts, as_of=bs_as_of)", body if nxt < 0 else body[:nxt])

@@ -156,21 +156,28 @@ def series(store: Mapping, symbol: str) -> list:
 def trend(points: Sequence) -> Optional[dict]:
     """The newest report against the one before, the run of rising reports
     ending at the newest, and the change over that run."""
-    pts = [p for p in points if p[1] is not None and p[1] > 0]
+    # A report of zero shares short is a report: shorts gone is the newest
+    # news, not a gap that leaves the report before it looking current
+    # (Codex, #428). A rise from zero has no percentage.
+    pts = [p for p in points if p[1] is not None and p[1] >= 0]
     if len(pts) < 2:
         return None
-    changes = [(b[1] / a[1] - 1.0) * 100.0 for a, b in zip(pts, pts[1:])]
+
+    def pct(a, b):
+        return (b / a - 1.0) * 100.0 if a > 0 else None
     rises = 0
-    for c in reversed(changes):
-        if c > 0:
+    for a, b in reversed(list(zip(pts, pts[1:]))):
+        if b[1] > a[1]:
             rises += 1
         else:
             break
     run_start = pts[-1 - rises] if rises else pts[-1]
+    chg = pct(pts[-2][1], pts[-1][1])
+    run = pct(run_start[1], pts[-1][1]) if rises else 0.0
     return {"settlement": pts[-1][0], "short": pts[-1][1], "days_to_cover": pts[-1][2],
-            "prev_short": pts[-2][1], "change_pct": round(changes[-1], 1),
+            "prev_short": pts[-2][1], "change_pct": round(chg, 1) if chg is not None else None,
             "rises": rises,
-            "run_pct": round((pts[-1][1] / run_start[1] - 1.0) * 100.0, 1) if rises else 0.0,
+            "run_pct": round(run, 1) if run is not None else None,
             "run_from": run_start[0] if rises else None,
             "points": [{"settlement": p[0], "short": p[1], "days_to_cover": p[2]} for p in pts]}
 
@@ -197,8 +204,8 @@ def judge(row: Mapping, t: Optional[Mapping]) -> Optional[dict]:
     pct_float = (t["short"] / flt * 100.0) if (flt and flt > 0) else _f(row.get("short_pct"))
     if pct_float is None or pct_float < MIN_FLOAT_PCT:
         return None
-    jump = t["change_pct"] >= JUMP_PCT
-    build = t["rises"] >= BUILD_REPORTS and t["run_pct"] >= BUILD_PCT
+    jump = t["change_pct"] is not None and t["change_pct"] >= JUMP_PCT
+    build = t["rises"] >= BUILD_REPORTS and t["run_pct"] is not None and t["run_pct"] >= BUILD_PCT
     if not (jump or build):
         return None
     sym = str(row.get("symbol") or "").upper()

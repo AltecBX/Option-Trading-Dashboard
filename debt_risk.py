@@ -54,6 +54,7 @@ BETA_MIN = 60           # fewer paired days than this and no rate move is given
 DUE_SOON_SHARE = 0.25   # a quarter or more of the debt due within two years: refinancing wall
 COVER_LOW = 3.0         # operating profit under 3x the interest bill: thin cover
 INTEREST_STALE_DAYS = 200   # an interest figure older than this, against the balance sheet, is not current
+MATURITY_STALE_DAYS = 400   # an annual schedule older than this against the latest balance sheet is gone
 
 
 def _f(v: Any) -> Optional[float]:
@@ -269,15 +270,24 @@ def _annual_rows(gaap: Mapping, tag: str) -> list[dict]:
     return [best[k] for k in sorted(best)]
 
 
-def maturities(facts: Mapping | None) -> Optional[dict]:
+def maturities(facts: Mapping | None, *, as_of: Optional[str] = None) -> Optional[dict]:
     """When the debt comes due, from the latest annual report that states
     it. Only annual reports: in quarterly filings the same tags mean
-    different windows from one company to the next. None when not reported."""
+    different windows from one company to the next. None when not reported,
+    or when the schedule is older than MATURITY_STALE_DAYS against `as_of`
+    (the latest balance sheet): a company that stopped tagging it would
+    otherwise show debt long since repaid as due (Codex, #428)."""
     gaap = _gaap(facts)
     first = _annual_rows(gaap, MATURITY_TAGS[0][1])
     if not first:
         return None
     end = first[-1]["end"]
+    if as_of:
+        try:
+            if (date.fromisoformat(as_of[:10]) - date.fromisoformat(str(end)[:10])).days > MATURITY_STALE_DAYS:
+                return None
+        except (TypeError, ValueError):
+            pass
     buckets = []
     for label, tag in MATURITY_TAGS:
         hit = next((r for r in reversed(_annual_rows(gaap, tag)) if r["end"] == end), None)
@@ -317,15 +327,18 @@ def interest_ttm(facts: Mapping | None, *, as_of: Optional[str] = None) -> Optio
             continue
         if not qs:
             continue
-        score = (qs[-1]["end"], len(qs), -rank)
+        # Ranked on a full trailing year: a tag the company switched to a
+        # quarter or two ago has none yet, and would hide the one that does
+        # (Codex, #428).
+        t = F.ttm(qs, aggregate="sum")
+        if not t or t.get("value") is None:
+            continue
+        score = (str(t.get("period_end") or ""), -rank)
         if best is None or score > best[0]:
-            best = (score, tag, qs)
+            best = (score, tag, t)
     if not best:
         return None
-    _s, tag, qs = best
-    t = F.ttm(qs, aggregate="sum")
-    if not t or t.get("value") is None:
-        return None
+    _s, tag, t = best
     if as_of:
         try:
             gap = (date.fromisoformat(as_of[:10]) - date.fromisoformat(t["period_end"][:10])).days
@@ -383,8 +396,6 @@ def card(symbol: str, row: Mapping[str, Any] | None, facts: Mapping | None,
             "market_cap")
     out["screen"] = {k: r.get(k) for k in keys}
     out["on_watchlist"] = bool(row)
-    mat = maturities(facts)
-    out["maturities"] = mat
     try:
         import fundamentals as F
         bs = F.instant(facts, "long_term_debt") if facts else {}
@@ -392,6 +403,8 @@ def card(symbol: str, row: Mapping[str, Any] | None, facts: Mapping | None,
         op = F.metric(facts, "operating_income") if facts else {}
     except Exception:  # noqa: BLE001
         bs_as_of, op = None, {}
+    mat = maturities(facts, as_of=bs_as_of)
+    out["maturities"] = mat
     intr = interest_ttm(facts, as_of=bs_as_of)
     out["interest"] = intr
     debt = _f(r.get("debt_total"))

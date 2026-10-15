@@ -6082,3 +6082,23 @@ net debt is unknown, so the net-cash shortcut did not apply and a
 loss-making, cash-burning, heavily shorted company scored its way to
 High. `assess` now rates reported debt of zero or less Low ("No debt
 reported.") before any points. Test: `test_debt_risk.Codex428g` (2).
+
+Codex on #428, ninth review, all three right and fixed (the tests fail on
+the old code):
+
+- **A report of zero shares short counts.** `trend` dropped zero readings,
+  so a stock whose shorts all covered still showed the report before as
+  current, its old jump included. Zero is now a point (the change is
+  -100%); a rise from zero has no percentage, so it is neither a jump nor
+  the start of a build.
+- **Interest from a tag with a full year.** The newest interest tag won
+  before its trailing year was worked out; a company that switched tags a
+  quarter or two ago had no year on the new one, and the card showed no
+  interest at all. Each tag's trailing year is worked out first and the
+  newest valid one wins.
+- **An old debt schedule is not current.** A company that stopped tagging
+  its maturity schedule kept showing the last one it filed, years old.
+  `maturities(..., as_of=)` drops a schedule more than 400 days older than
+  the latest balance sheet, as the interest figure already did.
+
+Tests: `test_short_trend.Codex428h` (2) and `test_debt_risk.Codex428i` (3).
