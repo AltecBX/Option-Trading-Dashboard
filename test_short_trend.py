@@ -304,39 +304,26 @@ class Codex428c(Harness):
         self.assertTrue(ST.check()["ok"])
 
 
-class FinishedRows(unittest.TestCase):
-    """Codex, #428: the shorted list is built from a finished scan's board."""
+class SettledBoard(unittest.TestCase):
+    """Codex, #428: the scanner, its shorted list, the on-screen list and the
+    report check read the watchlist as of its last finished scan
+    (watchlist_table.settled_rows, tested in test_watchlist_settled)."""
 
-    def setUp(self):
-        ST._FULL_ROWS = None
-
-    def test_a_scan_in_progress_uses_the_last_finished_board(self):
-        full = [{"symbol": "AAA"}, {"symbol": "BBB"}]
-        done = {"rows": full, "status": {"scanning": False, "last_scan": "2026-10-15T09:00:00"}}
-        self.assertEqual(full, ST.finished_rows(done))
-        half = {"rows": full[:1], "status": {"scanning": True, "last_scan": "2026-10-15T09:00:00"}}
-        self.assertEqual(full, ST.finished_rows(half), "BBB is not dropped mid-scan")
-        newer = [{"symbol": "AAA"}, {"symbol": "CCC"}]
-        self.assertEqual(newer, ST.finished_rows({"rows": newer, "status": {"scanning": False}}))
-
-    def test_no_finished_board_seen_yet(self):
-        self.assertIsNone(ST.finished_rows({"rows": [{"symbol": "AAA"}], "status": {"scanning": True}}))
-        self.assertEqual([{"symbol": "A"}], ST.finished_rows([{"symbol": "A"}]), "a plain list is used as is")
-        self.assertEqual([], ST.finished_rows(None))
-
-    def test_the_server_reads_it_for_the_scanner_and_the_list(self):
+    def test_the_server_reads_it_everywhere(self):
         from pathlib import Path
         src = (Path(__file__).resolve().parent / "options_dashboard.py").read_text()
-        live = src[src.index("shorted_fn="):]
-        live = live[:live.index("\n    )\n")]
-        self.assertIn("_shorted_live_rows", live)
-        fn = src[src.index("def _shorted_live_rows"):]
+        fn = src[src.index("def _scanner_board_rows"):]
         fn = fn[:fn.index("\n\n\n")]
-        self.assertIn("finished_rows(", fn)
-        self.assertIn("return None", fn)
-        api = src[src.index('snap["short_debt"] = _strend.shorted_debt(') - 600:
+        self.assertIn("_wltable.settled_rows()", fn)
+        sh = src[src.index("def _shorted_live_rows"):]
+        sh = sh[:sh.index("\n\n\n")]
+        self.assertIn("shorted_debt(_scanner_board_rows())", sh)
+        api = src[src.index('snap["short_debt"] = _strend.shorted_debt(') - 300:
                   src.index('snap["short_debt"] = _strend.shorted_debt(')]
-        self.assertIn("finished_rows(", api)
+        self.assertIn("board_rows = _scanner_board_rows()", api)
+        cfg = src[src.index("_strend.configure("):]
+        cfg = cfg[:cfg.index("\n    )\n")]
+        self.assertIn("rows=_wltable.settled_rows()", cfg)
 
 
 class Codex428d(unittest.TestCase):
@@ -359,7 +346,7 @@ class Codex428d(unittest.TestCase):
         self.assertIn("universe_fn=lambda: _scanner_board_rows()", live)
         fn = s[s.index("def _scanner_board_rows"):]
         fn = fn[:fn.index("\n\n\n")]
-        self.assertIn("finished_rows(", fn)
+        self.assertIn("settled_rows(", fn)
 
     def test_an_incomplete_fetch_is_not_kept(self):
         tmp = tempfile.mkdtemp()

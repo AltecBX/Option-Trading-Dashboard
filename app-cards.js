@@ -20963,7 +20963,7 @@ function DebtRatesCard({
     className: "dr-wall-h"
   }, "When its debt comes due", /*#__PURE__*/React.createElement("span", {
     className: "dr-wall-sub"
-  }, " \xB7 ", drMoney(mat.due_2y, ccy), " within two years", mat.due_2y_share != null ? ` (${Math.round(mat.due_2y_share * 100)}%)` : "", " \xB7 annual report, ", drDate(mat.as_of))), /*#__PURE__*/React.createElement("ul", {
+  }, mat.due_2y != null ? ` · ${drMoney(mat.due_2y, ccy)} within two years` : "", mat.due_2y != null && mat.due_2y_share != null ? ` (${Math.round(mat.due_2y_share * 100)}%)` : "", " \xB7 annual report, ", drDate(mat.as_of))), /*#__PURE__*/React.createElement("ul", {
     className: "dr-bars"
   }, mat.buckets.map((b, i) => /*#__PURE__*/React.createElement("li", {
     key: b.label,

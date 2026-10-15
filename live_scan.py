@@ -67,6 +67,8 @@ TICKS_KEEP = 90            # 45 minutes of 30-second ticks: the breakout reads 5
 ALERTS_KEEP_DAYS = 30      # graded alert history used for track records
 MAX_ALERTS_DAY = 5000      # a runaway setup cannot fill the disk
 PUSH_PER_HOUR = 12         # the phone is not a firehose
+PUSH_RETRY_S = 600         # a push the provider failed to send is tried again for ten minutes ...
+PUSH_RETRY_EVERY_S = 60    # ... once a minute; after that it is old news
 RANK_N = 25
 
 # Base filter for the ranking lists: without it "top gainers" is a list of
@@ -304,6 +306,7 @@ def _fresh_state() -> dict:
         "last_sweep": None, "phase": None, "error": None,
         "universe_n": 0, "quoted_n": 0, "sweeps": 0,
         "pushes": deque(maxlen=200),
+        "push_retry": [],        # pushes the provider failed to send, tried again
         "scanning": False, "thread": None,
     }
 
@@ -1070,11 +1073,52 @@ def _maybe_push(alert: dict, setup: dict) -> None:
     if len(recent) >= PUSH_PER_HOUR:
         return
     _STATE["pushes"].append(now_ts)
+    arrow = "▲" if alert["side"] == "long" else "▼"
+    push = {"title": f"{arrow} {alert['symbol']} · {setup['name']}", "msg": alert["why"],
+            "first": now_ts, "next": now_ts + PUSH_RETRY_EVERY_S}
+    if not _send_push(push, now_ts):
+        with _LOCK:
+            _STATE.setdefault("push_retry", []).append(push)
+
+
+def _send_push(push: dict, now_ts: float) -> bool:
+    """Send one push; True when it went out or retrying cannot help. The
+    app's push answers {"ok": False} on a failed send rather than raising,
+    and {"configured": False} when no phone is set up."""
+    late = now_ts - push["first"]
+    msg = push["msg"] + (f" (sent {int(late // 60)} min late)" if late >= 120 else "")
     try:
-        arrow = "▲" if alert["side"] == "long" else "▼"
-        _NOTIFY_FN(f"{arrow} {alert['symbol']} · {setup['name']}", alert["why"], 0)
+        res = _NOTIFY_FN(push["title"], msg, 0)
     except Exception:  # noqa: BLE001
-        pass
+        return False
+    if isinstance(res, dict):
+        return bool(res.get("ok", True)) or res.get("configured") is False
+    return True
+
+
+def retry_pushes(now_ts: float) -> int:
+    """Try again the pushes the provider failed to send. The alert was
+    recorded as fired for the day when it was raised, so a failed send
+    would otherwise never reach the phone (Codex, #428). Once a minute for
+    PUSH_RETRY_S, then dropped. Returns how many went out."""
+    if _NOTIFY_FN is None:
+        return 0
+    with _LOCK:
+        due, keep = [], []
+        for p in _STATE.get("push_retry") or []:
+            if now_ts - p["first"] > PUSH_RETRY_S:
+                continue
+            (due if p["next"] <= now_ts else keep).append(p)
+        _STATE["push_retry"] = keep
+    sent = 0
+    for p in due:
+        if _send_push(p, now_ts):
+            sent += 1
+            continue
+        p["next"] = now_ts + PUSH_RETRY_EVERY_S
+        with _LOCK:
+            _STATE["push_retry"].append(p)
+    return sent
 
 
 def _rank(pics: list, key, reverse=True, filt=None, n=RANK_N) -> list:
@@ -1119,6 +1163,7 @@ def sweep(now: datetime | None = None) -> dict:
     Returns a short summary. Safe to call from a test with fakes."""
     now = now or _now()
     ph = phase(now)
+    retry_pushes(now.timestamp())
     with _LOCK:
         _roll_day(now)
         _STATE["phase"] = ph

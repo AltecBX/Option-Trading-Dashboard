@@ -973,3 +973,69 @@ class ShortedDipsBetweenSweeps(Harness):
         a = self.alerts("shorted_debt_drop")
         self.assertEqual(1, len(a))
         self.assertIn("Fell 3.4% today (low $96.60) and is down 1.5% at $98.50", a[0]["why"])
+
+
+
+class PushRetry(Harness):
+    """Codex, #428: a push the provider failed to send is tried again; the
+    alert is recorded as fired for the day, so it would otherwise be lost."""
+
+    def setUp(self):
+        super().setUp()
+        self.answers = []
+        self.sent = []
+
+        def notify(t, m, p=0):
+            self.sent.append((t, m))
+            return self.answers.pop(0) if self.answers else {"ok": True}
+        self.rows = [row("AAA", lo52=95.0)]
+        LS.configure(quotes_fn=lambda syms: {s: self.quotes[s] for s in syms if s in self.quotes},
+                     universe_fn=lambda: self.rows, notify_fn=notify,
+                     now_fn=lambda: self.clock, data_dir=self.tmp.name,
+                     shorted_fn=lambda: ShortedDebtDrop.ROWS)
+        LS.refresh_shorted(at(9, 30), force=True)
+        self.only("shorted_debt_drop")
+
+    def test_a_failed_push_is_sent_again_a_minute_later(self):
+        self.answers = [{"ok": False, "configured": True, "error": "ntfy timed out"}]
+        self.step(at(10, 0), AAA=quote(98.0))
+        self.step(at(10, 0, 30), AAA=quote(96.5))
+        self.assertEqual(1, len(self.alerts("shorted_debt_drop")))
+        self.assertEqual(1, len(self.sent))
+        self.step(at(10, 1), AAA=quote(96.4))
+        self.assertEqual(1, len(self.sent), "not before a minute has passed")
+        self.step(at(10, 1, 30), AAA=quote(96.4))
+        self.assertEqual(2, len(self.sent), "tried again")
+        self.assertEqual(self.sent[0], self.sent[1], "the same push, on time enough to say nothing")
+        self.step(at(10, 3), AAA=quote(96.4))
+        self.assertEqual(2, len(self.sent), "and not again once it went through")
+
+    def test_a_late_push_says_so(self):
+        fail = {"ok": False, "configured": True}
+        self.answers = [fail, fail, fail]
+        self.step(at(10, 0), AAA=quote(98.0))
+        self.step(at(10, 0, 30), AAA=quote(96.5))        # 1: fails
+        self.step(at(10, 2, 0), AAA=quote(96.4))         # 2: fails, 90 s late
+        self.step(at(10, 3, 30), AAA=quote(96.4))        # 3: fails
+        self.step(at(10, 4, 30), AAA=quote(96.4))        # 4: goes through
+        self.assertEqual(4, len(self.sent))
+        self.assertNotIn("min late", self.sent[1][1])
+        self.assertIn("(sent 4 min late)", self.sent[-1][1])
+
+    def test_ten_minutes_on_it_is_dropped(self):
+        self.answers = [{"ok": False, "configured": True}] * 40
+        self.step(at(10, 0), AAA=quote(98.0))
+        self.step(at(10, 0, 30), AAA=quote(96.5))
+        for m in range(1, 11):
+            self.step(at(10, m, 30), AAA=quote(96.4))
+        self.assertEqual(11, len(self.sent), "the first try and one a minute for ten minutes")
+        for m in range(11, 15):
+            self.step(at(10, m, 30), AAA=quote(96.4))
+        self.assertEqual(11, len(self.sent), "then it is old news")
+
+    def test_no_phone_set_up_is_not_retried(self):
+        self.answers = [{"ok": False, "configured": False}]
+        self.step(at(10, 0), AAA=quote(98.0))
+        self.step(at(10, 0, 30), AAA=quote(96.5))
+        self.step(at(10, 2), AAA=quote(96.4))
+        self.assertEqual(1, len(self.sent))

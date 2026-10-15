@@ -111,6 +111,8 @@ _LOCK = threading.RLock()
 _STATE: dict[str, Any] = {
     "scanning": False, "scanned": 0, "total": 0, "last_scan": None,
     "rows": [], "error": None, "auto_fired": [], "last_auto": None,
+    # The board a scan started from, kept until a scan finishes: see settled_rows().
+    "settled": None,
 }
 _THREAD: threading.Thread | None = None
 _SCHED_THREAD: threading.Thread | None = None
@@ -1013,6 +1015,7 @@ def _scan_worker(symbols: list[str]) -> None:
             _STATE["rows"] = rows
             _STATE["last_scan"] = _now_iso()
             _STATE["error"] = None
+            _STATE["settled"] = None
         _persist()  # cache to /data so the board survives restarts/redeploys
         # Morning Prime-setup push (only after the 9 AM auto-scan fired it).
         global _ALERT_PENDING
@@ -1043,10 +1046,27 @@ def trigger_scan(symbols: list[str], force: bool = False, overrides: dict | None
     with _LOCK:
         if _STATE["scanning"] and not force:
             return {"started": False, "reason": "already scanning"}
+        if _STATE.get("settled") is None:
+            # A scan that failed part way left its partial board published
+            # and this still holding the last good one: that stays.
+            _STATE["settled"] = _STATE["rows"]
         _STATE.update({"scanning": True, "scanned": 0, "total": len(syms)})
     _THREAD = threading.Thread(target=_scan_worker, args=(syms,), daemon=True)
     _THREAD.start()
     return {"started": True, "total": len(syms)}
+
+
+def settled_rows() -> list[dict]:
+    """The board as of the last finished scan. A scan publishes after every
+    chunk, so while one runs the board holds only the stocks done so far:
+    this keeps the board the scan started from (the saved one at boot)
+    until a scan finishes, and through a scan that failed part way. For
+    readers that need every stock rather than the freshest numbers: the
+    Live Scanner's quotes and its Shorted high-debt list (Codex, #428)."""
+    with _LOCK:
+        held = _STATE.get("settled")
+        rows = list(held if held is not None else _STATE["rows"])
+    return [{k: v for k, v in r.items() if k != "strat"} for r in rows]
 
 
 def get_board(with_strat: bool = False) -> dict:

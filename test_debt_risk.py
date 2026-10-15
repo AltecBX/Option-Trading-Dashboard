@@ -407,3 +407,34 @@ class Codex428c(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class Codex428e(unittest.TestCase):
+    """Codex, #428 (fifth review): a maturity schedule with gaps."""
+
+    def test_a_missing_later_year_leaves_the_share_unknown(self):
+        gappy = {k: v for k, v in M.items() if k != D.MATURITY_TAGS[3][1]}       # Year 4 untagged
+        m = D.maturities(facts_with(_annual(gappy, "2025-12-31", "2026-02-20")))
+        self.assertFalse(m["complete"])
+        self.assertAlmostEqual(11.0e9, m["due_2y"], msg="the first two years are both stated")
+        self.assertIsNone(m["due_2y_share"], "a share of an incomplete schedule is not a share")
+        c = D.card("x", D.row_fields(HEAVY, None, None),
+                   facts_with(_annual(gappy, "2025-12-31", "2026-02-20")), {})
+        self.assertNotIn("within two years", " ".join(c["filing_flags"]), "no wall from a gap")
+
+    def test_a_missing_year_two_leaves_the_two_years_unknown(self):
+        only_first = {D.MATURITY_TAGS[0][1]: 6.7e9}
+        m = D.maturities(facts_with(_annual(only_first, "2025-12-31", "2026-02-20")))
+        self.assertIsNone(m["due_2y"], "year two unknown is not year two zero")
+        self.assertIsNone(m["due_2y_share"])
+
+    def test_a_full_schedule_is_unchanged(self):
+        m = D.maturities(facts_with(_annual(M, "2025-12-31", "2026-02-20")))
+        self.assertTrue(m["complete"])
+        self.assertAlmostEqual(11.0 / 21.6, m["due_2y_share"], places=3)
+
+    def test_the_card_shows_no_two_year_figure_it_does_not_have(self):
+        src = (Path(__file__).resolve().parent / "app-cards.jsx").read_text()
+        body = src[src.index("const mat = d && d.maturities;"):]
+        body = body[:body.index("annual report, {drDate(mat.as_of)}")]
+        self.assertIn("mat.due_2y != null", body)

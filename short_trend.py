@@ -410,26 +410,6 @@ def snapshot(symbol: Optional[str] = None) -> dict:
     return out
 
 
-_FULL_ROWS: Optional[list] = None    # the last finished watchlist scan's rows
-
-
-def finished_rows(board: Any) -> Optional[list]:
-    """The watchlist rows to build the shorted list from. The board is
-    published after every chunk of a scan, so while one runs it holds only
-    the stocks scanned so far: the last finished scan's rows stand in until
-    it ends, so no stock drops off the list mid-scan (Codex, #428). None
-    while a scan runs and no finished board has been seen yet."""
-    global _FULL_ROWS
-    if not isinstance(board, Mapping):
-        return list(board or [])
-    rows = list(board.get("rows") or [])
-    with _LOCK:
-        if (board.get("status") or {}).get("scanning"):
-            return _FULL_ROWS
-        _FULL_ROWS = rows
-    return rows
-
-
 def shorted_debt(rows: Iterable[Mapping], live: Optional[Mapping[str, Mapping]] = None,
                  store: Optional[Mapping] = None) -> dict:
     """The Live Scanner's "Shorted high-debt stocks" (v5.41): every watchlist

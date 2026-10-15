@@ -280,9 +280,15 @@ def maturities(facts: Mapping | None) -> Optional[dict]:
         buckets.append({"label": label, "value": _f(hit["val"]) if hit else None})
     vals = [b["value"] for b in buckets if b["value"] is not None]
     total = sum(vals) if vals else None
-    due2 = sum(b["value"] or 0.0 for b in buckets[:2])
-    return {"as_of": end, "buckets": buckets, "total": total,
-            "due_2y": due2, "due_2y_share": (due2 / total if total else None),
+    # A year the filing does not tag is unknown, not zero: the two-year
+    # figure needs both years, and its share needs every year, or a partly
+    # tagged schedule reads as a refinancing wall (Codex, #428).
+    complete = len(vals) == len(buckets)
+    first_two = [b["value"] for b in buckets[:2]]
+    due2 = sum(first_two) if all(v is not None for v in first_two) else None
+    return {"as_of": end, "buckets": buckets, "total": total, "complete": complete,
+            "due_2y": due2,
+            "due_2y_share": (due2 / total if (complete and due2 is not None and total) else None),
             "source": "the company's annual report (SEC)"}
 
 

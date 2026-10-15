@@ -16244,7 +16244,7 @@ function DebtRatesCard({ ticker, apiFetch }) {
         {mat ? (
           <div className="dr-wall">
             <div className="dr-wall-h">When its debt comes due
-              <span className="dr-wall-sub"> · {drMoney(mat.due_2y, ccy)} within two years{mat.due_2y_share != null ? ` (${Math.round(mat.due_2y_share * 100)}%)` : ""} · annual report, {drDate(mat.as_of)}</span></div>
+              <span className="dr-wall-sub">{mat.due_2y != null ? ` · ${drMoney(mat.due_2y, ccy)} within two years` : ""}{mat.due_2y != null && mat.due_2y_share != null ? ` (${Math.round(mat.due_2y_share * 100)}%)` : ""} · annual report, {drDate(mat.as_of)}</span></div>
             <ul className="dr-bars">
               {mat.buckets.map((b, i) => (
                 <li key={b.label} className={`dr-bar-row${i < 2 ? " soon" : ""}`}

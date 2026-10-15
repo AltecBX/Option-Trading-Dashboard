@@ -6010,3 +6010,29 @@ old code):
 
 Tests: `test_hf_scan.Providers.test_a_failed_later_page_is_not_the_whole_report`
 and `test_short_trend.Codex428d` (3).
+
+Codex on #428, fifth review, all three right and fixed (the tests fail on
+the old code):
+
+- **The board a scan started from, kept by the watchlist itself.**
+  `short_trend.finished_rows` only knew a board it had seen finished, so
+  after a restart during the 9 AM scan it fell back to the half-filled
+  board. It is replaced by `watchlist_table.settled_rows()`: a scan keeps
+  the board it started from (the saved one at boot) until a scan finishes,
+  and keeps it through a scan that fails part way. The scanner's quotes,
+  its Shorted list, the on-screen list and the FINRA report check all read
+  it (the check still waits out a running scan).
+- **A maturity schedule with gaps is not a refinancing wall.** A year the
+  annual report does not tag was counted as zero, so a partly tagged
+  schedule could show most of its debt due within two years. The
+  two-year figure now needs both years, the share needs all six
+  (`complete`), and the card leaves out what it does not have.
+- **The Live Scanner retries a failed push.** An alert is recorded as
+  fired for the day when raised, and the push answered `{"ok": False}`
+  was dropped. A failed send (not "no phone set up") is now tried again
+  once a minute for ten minutes, saying "(sent N min late)" when it is;
+  this covers every setup, the new drop and new-low ones included.
+
+Tests: `test_watchlist_settled` (3, the real scan worker with a fake
+download), `test_short_trend.SettledBoard`, `test_debt_risk.Codex428e`
+(4) and `test_live_scan.PushRetry` (4).

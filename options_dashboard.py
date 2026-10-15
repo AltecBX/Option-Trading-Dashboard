@@ -5167,28 +5167,20 @@ except Exception as _exc:  # noqa: BLE001
 # over the watchlist board's universe. Alerts, rankings and each setup's own
 # graded track record; runs whether or not the tab is open.
 def _scanner_board_rows():
-    """The watchlist rows the Live Scanner quotes. While a scan fills the
-    board in, chunk by chunk, the last finished scan's rows: a stock in a
-    later chunk is otherwise not quoted, and one that broke its 52-week low
-    before its first quote would never alert (Codex, #428). The board as it
-    is when no finished one has been seen."""
-    board = (_wltable.get_board() if (_WLTABLE_AVAILABLE and _wltable is not None) else {}) or {}
-    st = globals().get("_strend")
-    rows = st.finished_rows(board) if (globals().get("_STREND_AVAILABLE") and st is not None) else None
-    return rows if rows is not None else (board.get("rows") or [])
+    """The watchlist rows the Live Scanner quotes and builds its Shorted
+    high-debt list from: the board as of the last finished scan. Mid-scan
+    the board holds only the chunks done so far, and a stock left out is not
+    quoted; one that broke its 52-week low before its first quote would never
+    alert (Codex, #428). The saved board stands in during the first scan
+    after a restart."""
+    return _wltable.settled_rows() if (_WLTABLE_AVAILABLE and _wltable is not None) else []
 
 
 def _shorted_live_rows():
-    """The Live Scanner's Shorted high-debt list for its pushes. None (keep
-    the list you have) while the watchlist scan is filling the board in and
-    no finished board has been seen (Codex, #428)."""
+    """The Live Scanner's Shorted high-debt list, for its pushes."""
     if not (globals().get("_STREND_AVAILABLE") and _strend is not None):
         return []
-    board = (_wltable.get_board() if (_WLTABLE_AVAILABLE and _wltable is not None) else {}) or {}
-    rows = _strend.finished_rows(board)
-    if rows is None:
-        return None
-    return (_strend.shorted_debt(rows) or {}).get("rows") or []
+    return (_strend.shorted_debt(_scanner_board_rows()) or {}).get("rows") or []
 
 
 try:
@@ -5231,9 +5223,11 @@ try:
         fetch_fn=lambda st: _strend_src.finra_short_interest(st, complete_only=True),
         settlements_fn=lambda d: _strend_src.finra_settlements(d, n=_strend.SETTLEMENTS_KEEP),
         public_on_fn=lambda st: _strend_src.finra_public_on(st),
-        # the whole board, so a report waits for a finished scan (Codex, #428)
-        board_fn=lambda: ((_wltable.get_board() if (_WLTABLE_AVAILABLE and _wltable is not None)
-                           else {}) or {}),
+        # the board's status, so a report waits for a finished scan, with the
+        # last finished scan's rows: a scan that failed part way leaves half
+        # a board behind (Codex, #428)
+        board_fn=lambda: (dict(_wltable.get_board(), rows=_wltable.settled_rows())
+                          if (_WLTABLE_AVAILABLE and _wltable is not None) else {}),
         # returns {"ok": ...}: a failed send is retried on the next check
         notify_fn=lambda title, msg: (_push_notify(title, msg, priority=0) if _push_configured() else None),
         today_fn=(lambda: datetime.now(_ET).date()) if _ET is not None else None,
@@ -10865,12 +10859,8 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                             snap["short_debt"] = hit[1]
                         else:
                             try:
-                                # a finished scan's rows, not half a board mid-scan (Codex, #428)
-                                board = (_wltable.get_board() if (_WLTABLE_AVAILABLE and _wltable is not None)
-                                         else {}) or {}
-                                board_rows = _strend.finished_rows(board)
-                                if board_rows is None:
-                                    board_rows = board.get("rows") or []
+                                # the last finished scan's rows, not half a board mid-scan (Codex, #428)
+                                board_rows = _scanner_board_rows()
                                 snap["short_debt"] = _strend.shorted_debt(board_rows, _live.prices())
                                 _SHORT_DEBT_CACHE["v"] = (time.time(), snap["short_debt"])
                             except Exception as exc:  # noqa: BLE001
