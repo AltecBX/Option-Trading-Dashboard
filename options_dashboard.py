@@ -5166,11 +5166,23 @@ except Exception as _exc:  # noqa: BLE001
 # One batch quote per ~300 names every 30 seconds while the market is open,
 # over the watchlist board's universe. Alerts, rankings and each setup's own
 # graded track record; runs whether or not the tab is open.
+def _scanner_board_rows():
+    """The watchlist rows the Live Scanner quotes. While a scan fills the
+    board in, chunk by chunk, the last finished scan's rows: a stock in a
+    later chunk is otherwise not quoted, and one that broke its 52-week low
+    before its first quote would never alert (Codex, #428). The board as it
+    is when no finished one has been seen."""
+    board = (_wltable.get_board() if (_WLTABLE_AVAILABLE and _wltable is not None) else {}) or {}
+    st = globals().get("_strend")
+    rows = st.finished_rows(board) if (globals().get("_STREND_AVAILABLE") and st is not None) else None
+    return rows if rows is not None else (board.get("rows") or [])
+
+
 def _shorted_live_rows():
     """The Live Scanner's Shorted high-debt list for its pushes. None (keep
     the list you have) while the watchlist scan is filling the board in and
     no finished board has been seen (Codex, #428)."""
-    if not (_STREND_AVAILABLE and _strend is not None):
+    if not (globals().get("_STREND_AVAILABLE") and _strend is not None):
         return []
     board = (_wltable.get_board() if (_WLTABLE_AVAILABLE and _wltable is not None) else {}) or {}
     rows = _strend.finished_rows(board)
@@ -5183,8 +5195,7 @@ try:
     import live_scan as _live
     _live.configure(
         quotes_fn=lambda syms: (lambda c: c.get_quotes(syms) if c is not None else None)(_schwab()),
-        universe_fn=lambda: (((_wltable.get_board() if (_WLTABLE_AVAILABLE and _wltable is not None)
-                               else {}) or {}).get("rows") or []),
+        universe_fn=lambda: _scanner_board_rows(),
         notify_fn=lambda title, msg, priority=0: _push_notify(title, msg, priority=priority),
         now_fn=(lambda: datetime.now(_ET)) if _ET is not None else None,
         data_dir=_STABLE_DIR,
@@ -5216,7 +5227,8 @@ try:
     import hf_sources as _strend_src
     _strend.configure(
         data_dir=_STABLE_DIR,
-        fetch_fn=lambda st: _strend_src.finra_short_interest(st),
+        # None for a report cut short by a failed page: not kept, tried again (Codex, #428)
+        fetch_fn=lambda st: _strend_src.finra_short_interest(st, complete_only=True),
         settlements_fn=lambda d: _strend_src.finra_settlements(d, n=_strend.SETTLEMENTS_KEEP),
         public_on_fn=lambda st: _strend_src.finra_public_on(st),
         # the whole board, so a report waits for a finished scan (Codex, #428)

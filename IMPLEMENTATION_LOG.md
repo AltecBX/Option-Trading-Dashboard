@@ -5991,3 +5991,22 @@ the old code):
 Tests: `test_short_trend.Codex428c` (3), `test_short_trend.FinishedRows`
 (3), `test_live_scan.ShortedDebtDrop.test_no_answer_mid_scan_keeps_the_list`
 and `test_debt_risk.Codex428c` (3).
+
+Codex on #428, fourth review, both right and fixed (the tests fail on the
+old code):
+
+- **A FINRA report cut short is not kept as the whole.** The reader stops
+  at a failed page and returns the pages before it; the alerts kept that
+  as the full report, for months. `finra_short_interest(...,
+  complete_only=True)` returns None on a failed page (or pages running out
+  with more to come), so the report is not kept and is fetched again next
+  check; a 204 is still "not published". The board's other readers
+  (hf_scan) are unchanged.
+- **The Live Scanner quotes the finished board too.** Its universe read
+  the half-filled board mid-scan, so a shorted stock in a later chunk was
+  not quoted, and one that broke its low before its first quote would
+  never alert. `_scanner_board_rows` uses `short_trend.finished_rows`, as
+  the shorted list does.
+
+Tests: `test_hf_scan.Providers.test_a_failed_later_page_is_not_the_whole_report`
+and `test_short_trend.Codex428d` (3).

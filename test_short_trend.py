@@ -339,5 +339,41 @@ class FinishedRows(unittest.TestCase):
         self.assertIn("finished_rows(", api)
 
 
+class Codex428d(unittest.TestCase):
+    """Codex, #428 (fourth review): the wiring."""
+
+    def src(self):
+        from pathlib import Path
+        return (Path(__file__).resolve().parent / "options_dashboard.py").read_text()
+
+    def test_reports_are_kept_only_when_whole(self):
+        s = self.src()
+        cfg = s[s.index("_strend.configure("):]
+        cfg = cfg[:cfg.index("\n    )\n")]
+        self.assertIn("finra_short_interest(st, complete_only=True)", cfg)
+
+    def test_the_scanner_quotes_the_finished_board(self):
+        s = self.src()
+        live = s[s.index("_live.configure("):]
+        live = live[:live.index("\n    )\n")]
+        self.assertIn("universe_fn=lambda: _scanner_board_rows()", live)
+        fn = s[s.index("def _scanner_board_rows"):]
+        fn = fn[:fn.index("\n\n\n")]
+        self.assertIn("finished_rows(", fn)
+
+    def test_an_incomplete_fetch_is_not_kept(self):
+        tmp = tempfile.mkdtemp()
+        answers = {st: (None if st == "2026-08-31" else report(SETTS.index(st))) for st in SETTS}
+        ST.configure(data_dir=tmp, fetch_fn=lambda st: answers[st],
+                     settlements_fn=lambda today: sorted(SETTS, reverse=True),
+                     public_on_fn=lambda st: "2026-10-12" if st == "2026-09-30" else st,
+                     board_fn=lambda: [dict(r) for r in ROWS],
+                     notify_fn=lambda t, m: {"ok": True}, today_fn=lambda: date(2026, 10, 15))
+        r = ST.check()
+        self.assertEqual(["2026-08-31"], r["missing"])
+        answers["2026-08-31"] = report(SETTS.index("2026-08-31"))
+        self.assertEqual(2, ST.check()["new"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
