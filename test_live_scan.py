@@ -883,6 +883,15 @@ class ShortedDebtDrop(Harness):
         self.step(at(10, 0, 30), AAA=quote(96.0))
         self.assertEqual(1, len(self.alerts("shorted_debt_drop")), "and still alerts on it")
 
+    def test_no_answer_mid_scan_keeps_the_list(self):
+        # Codex, #428: while the watchlist scans, its board holds only the
+        # stocks done so far; the server answers None rather than half a list.
+        LS._SHORTED_FN = lambda: None
+        self.assertEqual(2, LS.refresh_shorted(at(9, 45), force=True))
+        self.step(at(10, 0), AAA=quote(99.0))
+        self.step(at(10, 0, 30), AAA=quote(96.0))
+        self.assertEqual(1, len(self.alerts("shorted_debt_drop")), "AAA is still on the list")
+
 
 
 class ShortedDebtNewLow(Harness):

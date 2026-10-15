@@ -2,6 +2,7 @@
 
 import unittest
 from datetime import date, timedelta
+from pathlib import Path
 
 import debt_risk as D
 
@@ -353,6 +354,55 @@ class Codex428(unittest.TestCase):
             W._FUND_CACHE.pop("ZZTEST", None)
         self.assertEqual(36.3e9, out["market_cap"])
         self.assertAlmostEqual(51.6e9 / 36.3e9, out["debt_to_mcap"], places=3)
+
+
+class Codex428c(unittest.TestCase):
+    """Codex, #428, third review: the card's path for a stock off the
+    watchlist recovers the market value before working anything out."""
+
+    def test_the_card_path_recovers_the_market_value_first(self):
+        class FastInfo:
+            market_cap = 36.3e9
+
+        class Tk:
+            info = {k: v for k, v in HEAVY.items() if k != "marketCap"}
+            fast_info = FastInfo()
+
+        out = D.ticker_fields(Tk(), {}, {})
+        self.assertEqual(36.3e9, out["market_cap"])
+        self.assertAlmostEqual(51.6e9 / 36.3e9, out["debt_to_mcap"], places=3)
+        full = D.row_fields(HEAVY, {}, {})
+        self.assertEqual(full["debt_score"], out["debt_score"], "the size points count too")
+
+    def test_a_full_profile_is_read_as_is_and_a_broken_one_is_empty(self):
+        class Tk:
+            info = dict(HEAVY)
+
+            @property
+            def fast_info(self):
+                raise AssertionError("not needed when .info has the market value")
+
+        self.assertEqual(HEAVY["marketCap"], D.ticker_fields(Tk(), {}, {})["market_cap"])
+
+        class Broken:
+            @property
+            def info(self):
+                raise RuntimeError("throttled")
+
+            @property
+            def fast_info(self):
+                raise RuntimeError("throttled")
+
+        out = D.ticker_fields(Broken(), {}, {})
+        self.assertIsNone(out["market_cap"])
+        self.assertIsNone(out["debt_risk"])
+
+    def test_the_card_uses_it(self):
+        src = (Path(__file__).resolve().parent / "options_dashboard.py").read_text()
+        body = src[src.index("def build_debt_card"):]
+        body = body[:body.index("\ndef ")]
+        self.assertIn("_dr.ticker_fields(", body)
+        self.assertNotIn("_dr.row_fields(", body)
 
 
 if __name__ == "__main__":

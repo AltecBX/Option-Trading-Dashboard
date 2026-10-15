@@ -51,6 +51,7 @@ ALERTS_KEEP_DAYS = 120
 SHORTED_MIN_PCT = 5.0       # the Live Scanner's list: at least this much of the float short ...
 SHORTED_KEEP = 40           # ... and at most this many stocks on it
 PUSH_FRESH_DAYS = 7         # a report published longer ago than this is not news
+HISTORY_WAIT_DAYS = 3       # how long a new report waits for a missing earlier one
 CHECK_EVERY_S = 3 * 3600    # the background check
 
 _LOCK = threading.RLock()
@@ -294,6 +295,14 @@ def check(today: Optional[date] = None) -> dict:
         done = st in (_STORE.get("notified") or [])
     new: list = []
     if not done:
+        missing = _missing_before(st, today)
+        if missing is None or missing:
+            # A report is judged once, on the reports before it: one whose
+            # earlier reports failed to download would lose its jumps and
+            # builds for good (Codex, #428). It waits for them a few days,
+            # then is judged with what is on file.
+            return {"ok": False, "reason": "waiting for earlier FINRA reports", "settlement": st,
+                    "missing": missing, "fetched": fetched}
         try:
             board = _BOARD_FN() if _BOARD_FN else []
         except Exception:  # noqa: BLE001
@@ -326,6 +335,25 @@ def check(today: Optional[date] = None) -> dict:
             _save()
     pushed = _push(st, today)
     return {"ok": True, "settlement": st, "new": len(new), "pushed": pushed, "fetched": fetched}
+
+
+def _missing_before(st: str, today: date) -> Optional[list]:
+    """The kept reports older than `st` not on file yet; None when the
+    schedule cannot be read. Empty once HISTORY_WAIT_DAYS have passed since
+    `st` went public: it is judged with what there is rather than never."""
+    public = (_PUBLIC_ON_FN(st) if _PUBLIC_ON_FN else None) or st
+    try:
+        if (today - date.fromisoformat(public)).days > HISTORY_WAIT_DAYS:
+            return []
+    except ValueError:
+        return []
+    try:
+        wanted = list(_SETTLEMENTS_FN(today) or [])[:SETTLEMENTS_KEEP] if _SETTLEMENTS_FN else []
+    except Exception:  # noqa: BLE001
+        return None
+    with _LOCK:
+        have = set(_STORE.get("settlements") or {})
+    return sorted(s for s in wanted if s < st and s not in have)
 
 
 def _push(st: str, today: date) -> bool:
@@ -380,6 +408,26 @@ def snapshot(symbol: Optional[str] = None) -> dict:
             out["trend"] = trend(series(_STORE, symbol))
             out["symbol_alerts"] = [a for a in alerts if a.get("symbol") == out["symbol"]]
     return out
+
+
+_FULL_ROWS: Optional[list] = None    # the last finished watchlist scan's rows
+
+
+def finished_rows(board: Any) -> Optional[list]:
+    """The watchlist rows to build the shorted list from. The board is
+    published after every chunk of a scan, so while one runs it holds only
+    the stocks scanned so far: the last finished scan's rows stand in until
+    it ends, so no stock drops off the list mid-scan (Codex, #428). None
+    while a scan runs and no finished board has been seen yet."""
+    global _FULL_ROWS
+    if not isinstance(board, Mapping):
+        return list(board or [])
+    rows = list(board.get("rows") or [])
+    with _LOCK:
+        if (board.get("status") or {}).get("scanning"):
+            return _FULL_ROWS
+        _FULL_ROWS = rows
+    return rows
 
 
 def shorted_debt(rows: Iterable[Mapping], live: Optional[Mapping[str, Mapping]] = None,

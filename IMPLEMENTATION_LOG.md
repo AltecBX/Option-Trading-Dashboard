@@ -5966,3 +5966,28 @@ the old code):
 
 Tests: `test_short_trend.Codex428b` (3) and
 `test_live_scan.ShortedDipsBetweenSweeps` (2), all red on the old code.
+
+Codex on #428, third review, all three right and fixed (the tests fail on
+the old code):
+
+- **A new FINRA report waits for the ones before it.** On a fresh store,
+  if the newest report downloaded but an older one failed, the newest was
+  judged on a gap (BUILD's three rises looked like two) and never judged
+  again. `check` now waits while an earlier kept report is missing (or the
+  schedule can't be read), for up to HISTORY_WAIT_DAYS (3) after the
+  report went public, then judges it with what is on file, still in time
+  for the push.
+- **The shorted list is built from a finished scan.** The watchlist
+  publishes its board after every chunk, so mid-scan the Live Scanner's
+  five-minute read took half a list and its stocks could miss a push.
+  `short_trend.finished_rows` keeps the last finished board's rows for use
+  while a scan runs; the scanner's read answers None (keep your list) when
+  no finished board has been seen, and the on-screen list falls back to
+  what the board has.
+- **The Debt card's off-watchlist path recovers the market value first.**
+  `debt_risk.ticker_fields` reads the Yahoo profile and, when it has no
+  market value, fast_info's, before working anything out, as the scan does.
+
+Tests: `test_short_trend.Codex428c` (3), `test_short_trend.FinishedRows`
+(3), `test_live_scan.ShortedDebtDrop.test_no_answer_mid_scan_keeps_the_list`
+and `test_debt_risk.Codex428c` (3).

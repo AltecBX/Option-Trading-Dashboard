@@ -5166,6 +5166,19 @@ except Exception as _exc:  # noqa: BLE001
 # One batch quote per ~300 names every 30 seconds while the market is open,
 # over the watchlist board's universe. Alerts, rankings and each setup's own
 # graded track record; runs whether or not the tab is open.
+def _shorted_live_rows():
+    """The Live Scanner's Shorted high-debt list for its pushes. None (keep
+    the list you have) while the watchlist scan is filling the board in and
+    no finished board has been seen (Codex, #428)."""
+    if not (_STREND_AVAILABLE and _strend is not None):
+        return []
+    board = (_wltable.get_board() if (_WLTABLE_AVAILABLE and _wltable is not None) else {}) or {}
+    rows = _strend.finished_rows(board)
+    if rows is None:
+        return None
+    return (_strend.shorted_debt(rows) or {}).get("rows") or []
+
+
 try:
     import live_scan as _live
     _live.configure(
@@ -5186,9 +5199,7 @@ try:
             earnings_dates=(load_earnings_history(sym, 60) or {}).get("past") or []),
         sell_symbols_fn=lambda: __import__("when_to_sell").table_symbols(),
         # v5.42: the Shorted high-debt list, for the "dropping" push.
-        shorted_fn=lambda: ((_strend.shorted_debt(
-            ((_wltable.get_board() if (_WLTABLE_AVAILABLE and _wltable is not None) else {}) or {}).get("rows") or [])
-            or {}).get("rows") or []) if (_STREND_AVAILABLE and _strend is not None) else [],
+        shorted_fn=lambda: _shorted_live_rows(),
     )
     _LIVE_AVAILABLE = True
 except Exception as _exc:  # noqa: BLE001
@@ -5846,15 +5857,10 @@ def build_debt_card(symbol: str) -> dict:
         row = None
     if row is None or (row.get("debt_risk") is None and row.get("debt_total") is None):
         try:
-            info = {}
-            try:
-                info = yf.Ticker(sym).info or {}
-            except Exception:  # noqa: BLE001
-                info = {}
             closes = {str(b["date"])[:10]: float(b["close"]) for b in (load_daily(sym, 200) or [])
                       if b.get("close") is not None}
-            fresh = _dr.row_fields(info, closes, yields)
-            fresh["market_cap"] = info.get("marketCap")
+            # a thin profile gets fast_info's market value first (Codex, #428)
+            fresh = _dr.ticker_fields(yf.Ticker(sym), closes, yields)
             row = dict(row or {}, **fresh)
         except Exception as exc:  # noqa: BLE001
             print(f"[debt] {sym}: {exc}", file=sys.stderr)
@@ -10847,8 +10853,12 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                             snap["short_debt"] = hit[1]
                         else:
                             try:
-                                board_rows = ((_wltable.get_board() if (_WLTABLE_AVAILABLE and _wltable is not None)
-                                               else {}) or {}).get("rows") or []
+                                # a finished scan's rows, not half a board mid-scan (Codex, #428)
+                                board = (_wltable.get_board() if (_WLTABLE_AVAILABLE and _wltable is not None)
+                                         else {}) or {}
+                                board_rows = _strend.finished_rows(board)
+                                if board_rows is None:
+                                    board_rows = board.get("rows") or []
                                 snap["short_debt"] = _strend.shorted_debt(board_rows, _live.prices())
                                 _SHORT_DEBT_CACHE["v"] = (time.time(), snap["short_debt"])
                             except Exception as exc:  # noqa: BLE001

@@ -212,6 +212,28 @@ def row_fields(info: Mapping[str, Any] | None, closes: Mapping[str, float] | Non
     return out
 
 
+def ticker_fields(ticker: Any, closes: Mapping[str, float] | None,
+                  yields: Mapping[str, float] | None) -> dict:
+    """row_fields for a stock off the watchlist, from a yfinance Ticker. A
+    thin .info without a market value gets fast_info's before anything is
+    worked out, as the watchlist scan does, so debt against market value
+    and its points still count (Codex, #428)."""
+    try:
+        info = dict(ticker.info or {})
+    except Exception:  # noqa: BLE001
+        info = {}
+    if not info.get("marketCap"):
+        try:
+            mc = getattr(ticker.fast_info, "market_cap", None)
+        except Exception:  # noqa: BLE001
+            mc = None
+        if mc:
+            info["marketCap"] = mc
+    out = row_fields(info, closes, yields)
+    out["market_cap"] = info.get("marketCap")
+    return out
+
+
 # ── the card: the company's own filings ─────────────────────────────────────
 MATURITY_TAGS = (
     ("Next 12 months", "LongTermDebtMaturitiesRepaymentsOfPrincipalInNextTwelveMonths"),

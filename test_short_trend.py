@@ -264,5 +264,80 @@ class Codex428b(Harness):
         self.assertEqual(2, ST.check()["new"], "BUILD was in a later chunk and is not lost")
 
 
+class Codex428c(Harness):
+    """Codex, #428 (third review): a report is judged on its full history."""
+
+    def test_a_report_waits_for_the_ones_before_it(self):
+        self.published = set(SETTS) - {"2026-08-31"}       # an older fetch fails
+        r = ST.check()
+        self.assertFalse(r["ok"])
+        self.assertIn("earlier", r["reason"])
+        self.assertEqual(["2026-08-31"], r["missing"])
+        self.assertEqual([], self.pushes)
+        self.assertEqual([], ST.snapshot()["alerts"])
+        self.published = set(SETTS)                         # and comes back
+        r = ST.check()
+        self.assertEqual(1, r["fetched"])
+        self.assertEqual(2, r["new"], "BUILD's three rises need the missing report")
+        self.assertTrue(r["pushed"])
+        self.assertIn("BUILD", self.pushes[0][1])
+
+    def test_it_does_not_wait_forever(self):
+        self.published = set(SETTS) - {"2026-08-31"}
+        self.today = date(2026, 10, 16)                     # four days after it went public
+        r = ST.check()
+        self.assertTrue(r["ok"])
+        self.assertEqual(["JUMP"], [a["symbol"] for a in ST.snapshot()["alerts"]],
+                         "judged with what is on file")
+        self.assertTrue(r["pushed"], "still news")
+
+    def test_an_unknown_schedule_waits_too(self):
+        def broken(today):
+            raise RuntimeError("calendar unavailable")
+        ST.check()                                          # the store is full
+        ST._STORE["notified"] = []
+        ST._STORE["alerts"] = []
+        ST._SETTLEMENTS_FN = broken
+        r = ST.check()
+        self.assertFalse(r["ok"], "cannot tell what is missing")
+        self.today = date(2026, 10, 16)
+        self.assertTrue(ST.check()["ok"])
+
+
+class FinishedRows(unittest.TestCase):
+    """Codex, #428: the shorted list is built from a finished scan's board."""
+
+    def setUp(self):
+        ST._FULL_ROWS = None
+
+    def test_a_scan_in_progress_uses_the_last_finished_board(self):
+        full = [{"symbol": "AAA"}, {"symbol": "BBB"}]
+        done = {"rows": full, "status": {"scanning": False, "last_scan": "2026-10-15T09:00:00"}}
+        self.assertEqual(full, ST.finished_rows(done))
+        half = {"rows": full[:1], "status": {"scanning": True, "last_scan": "2026-10-15T09:00:00"}}
+        self.assertEqual(full, ST.finished_rows(half), "BBB is not dropped mid-scan")
+        newer = [{"symbol": "AAA"}, {"symbol": "CCC"}]
+        self.assertEqual(newer, ST.finished_rows({"rows": newer, "status": {"scanning": False}}))
+
+    def test_no_finished_board_seen_yet(self):
+        self.assertIsNone(ST.finished_rows({"rows": [{"symbol": "AAA"}], "status": {"scanning": True}}))
+        self.assertEqual([{"symbol": "A"}], ST.finished_rows([{"symbol": "A"}]), "a plain list is used as is")
+        self.assertEqual([], ST.finished_rows(None))
+
+    def test_the_server_reads_it_for_the_scanner_and_the_list(self):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent / "options_dashboard.py").read_text()
+        live = src[src.index("shorted_fn="):]
+        live = live[:live.index("\n    )\n")]
+        self.assertIn("_shorted_live_rows", live)
+        fn = src[src.index("def _shorted_live_rows"):]
+        fn = fn[:fn.index("\n\n\n")]
+        self.assertIn("finished_rows(", fn)
+        self.assertIn("return None", fn)
+        api = src[src.index('snap["short_debt"] = _strend.shorted_debt(') - 600:
+                  src.index('snap["short_debt"] = _strend.shorted_debt(')]
+        self.assertIn("finished_rows(", api)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

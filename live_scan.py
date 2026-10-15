@@ -1295,7 +1295,9 @@ def _save_sell_taps() -> None:
 def refresh_shorted(now: datetime | None = None, force: bool = False) -> int:
     """Re-read the Shorted high-debt list (short_trend.py) at most every
     SHORTED_TTL_S. Returns how many stocks are on it. A failed read keeps
-    the list it had."""
+    the list it had, and so does None: the server's answer while the
+    watchlist is mid-scan and only half its stocks are on the board
+    (Codex, #428); it is asked again in SHORTED_TTL_S."""
     if _SHORTED_FN is None:
         return 0
     ts = (now or _now()).timestamp()
@@ -1303,9 +1305,14 @@ def refresh_shorted(now: datetime | None = None, force: bool = False) -> int:
         if not force and ts - _STATE.get("shorted_at", 0.0) < SHORTED_TTL_S:
             return len(_STATE.get("shorted") or {})
     try:
-        rows = list(_SHORTED_FN() or [])
+        got_rows = _SHORTED_FN()
     except Exception:  # noqa: BLE001
         return len(_STATE.get("shorted") or {})
+    if got_rows is None:
+        with _LOCK:
+            _STATE["shorted_at"] = ts
+            return len(_STATE.get("shorted") or {})
+    rows = list(got_rows)
     got = {str(r.get("symbol") or "").upper(): dict(r) for r in rows if r.get("symbol")}
     with _LOCK:
         _STATE["shorted"] = got
