@@ -1101,6 +1101,16 @@ function fmtUsd(v, dp) {
   const d = dp == null ? 2 : dp;
   return "$" + Number(v).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
 }
+// Debt and cash flow in the filer's own currency (v5.39): dollars as $, any
+// other currency named, so kroner never read as dollars.
+function wlDebt$(v, ccy) {
+  if (v == null || !isFinite(v)) return "—";
+  const a = Math.abs(v), c = !ccy || ccy === "USD" ? "$" : `${ccy} `;
+  const s = a >= 1e12 ? `${(a / 1e12).toFixed(1)}T` : a >= 1e9 ? `${(a / 1e9).toFixed(1)}B`
+    : a >= 1e6 ? `${Math.round(a / 1e6)}M` : `${Math.round(a)}`;
+  return `${v < 0 ? "-" : ""}${c}${s}`;
+}
+
 function fmtMktCap(v) {
   if (!v) return "—";
   if (v >= 1e12) return "$" + (v / 1e12).toLocaleString(undefined, { maximumFractionDigits: 2 }) + "T";
@@ -3028,8 +3038,14 @@ const WL_PRESETS = [
     tip: "The calendar and the fundamentals: next report, multiples, size and classification.",
     cols: ["symbol", "company", "next_earnings", "pe", "forward_pe", "market_cap",
            "sector", "industry", "weekly", "tag"] },
+  // v5.39: who owes the most, and how it is holding up as rates rise.
+  { id: "debt", label: "Debt & rates",
+    tip: "Debt, cash burn and short interest from each company's profile, a Debt risk rating with its reasons, and how the stock has moved when the 10-year yield rose. Sort Debt risk to see the most exposed first.",
+    cols: ["symbol", "company", "last", "mtd", "market_cap", "debt_risk", "debt_total",
+           "net_debt_ebitda", "debt_to_mcap", "fcf", "short_pct", "short_chg", "rate_move",
+           "sector", "tag"] },
   { id: "all", label: "All columns",
-    tip: "Every one of the forty-six columns, for a deliberate side-by-side comparison.",
+    tip: "Every column, for a deliberate side-by-side comparison.",
     cols: null },
 ];
 const WL_PRESET_KEY = "jerry_wl_preset_v1";
@@ -3155,6 +3171,11 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
     { k: "qtd", label: "QTD%", num: true }, { k: "ytd", label: "YTD%", num: true },
     { k: "from_ma20", label: "%20DMA", num: true }, { k: "from_ma50", label: "%50DMA", num: true },
     { k: "from_ma200", label: "%200DMA", num: true },
+    // v5.39 — Debt & rates
+    { k: "debt_risk", label: "Debt risk", num: true }, { k: "debt_total", label: "Debt", num: true },
+    { k: "net_debt_ebitda", label: "Debt/EBITDA", num: true }, { k: "debt_to_mcap", label: "Debt/Cap", num: true },
+    { k: "fcf", label: "FCF", num: true }, { k: "short_pct", label: "Short %", num: true },
+    { k: "short_chg", label: "Short Δ", num: true }, { k: "rate_move", label: "Rate move", num: true },
   ];
   const STR = new Set(["symbol", "company", "tag", "weekly", "industry", "sector", "flow_agree", "flow_verdict", "setup", "prem_sell", "swing_dir", "swing_stage"]);
   const setSortKey = (k) => setSort(s => s.key === k ? { key: k, dir: s.dir === "asc" ? "desc" : "asc" } : { key: k, dir: STR.has(k) ? "asc" : "desc" });
@@ -3184,6 +3205,14 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
     wtd: "Week-to-date % (live)", mtd: "Month-to-date % (live)",
     qtd: "Quarter-to-date % (live)", ytd: "Year-to-date % (live)",
     from_ma20: "% from the 20-day moving average (live)", from_ma50: "% from the 50-day MA (live)", from_ma200: "% from the 200-day MA (live)",
+    debt_risk: "Debt risk: High, Elevated or Low, from how much the company owes against its yearly operating profit and its size, whether it burns cash while in debt, and (when there is debt) whether shorts are piling in. Hover a rating for the reasons. Sorts most exposed first.",
+    debt_total: "Total debt (loans and bonds) from the company's profile",
+    net_debt_ebitda: "Net debt (debt minus cash) divided by a year of operating profit before interest, taxes and depreciation (EBITDA). 4x or more is heavily borrowed. \"Net cash\" = more cash than debt.",
+    debt_to_mcap: "Total debt as a share of the company's market value. 50% or more: the debt is half the company.",
+    fcf: "Free cash flow over the last year: cash in from the business minus spending on equipment. Negative = burning cash.",
+    short_pct: "Share of the tradable stock (the float) that is sold short",
+    short_chg: "Change in shares sold short against a month earlier. Rising = shorts piling in.",
+    rate_move: "How the stock has moved, on average, for each +0.10% rise in the 10-year Treasury yield, over the last six months of trading days. -2% means it fell about 2% per +0.10%.",
   };
   // Movable columns — drag a header to reorder; order persists per device.
   const COL_ORDER_KEY = "jerry_wl_colorder_v1";
@@ -3325,7 +3354,8 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
   //   wtd..%DMAs -> reb      (live, rebased to the live price)
   // Everything else sorts on the scanned field.
   const REB_KEYS = new Set(["wtd", "mtd", "qtd", "ytd", "from_ma20", "from_ma50", "from_ma200"]);
-  const sortValOf = (r, key) => key === "from_open" ? foVal(r)
+  const sortValOf = (r, key) => key === "debt_risk" ? r.debt_score
+    : key === "from_open" ? foVal(r)
     : key === "change" ? chgVal(r)
     : key === "last" ? liveLast(r)
     : (REB_KEYS.has(key) ? reb(r, r[key]) : r[key]);
@@ -3663,6 +3693,24 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
       case "from_ma20": case "from_ma50": case "from_ma200": {
         const v = reb(r, r[k]); return <td key={k} className={`scan-num ${pctCls(v)}`}>{pct(v)}</td>;
       }
+      // v5.39 — Debt & rates
+      case "debt_risk": return <td key={k} className="wl-txt" title={(r.debt_reasons || []).join(" ")}>
+        {r.debt_risk ? <span className={`wl-debt wl-debt-${String(r.debt_risk).toLowerCase()}`}>{r.debt_risk}</span> : "—"}</td>;
+      case "debt_total": return <td key={k} className="scan-num">{wlDebt$(r.debt_total, r.debt_ccy)}</td>;
+      case "net_debt_ebitda": return <td key={k} className="scan-num">
+        {r.net_debt != null && r.net_debt <= 0 ? <span className="up">net cash</span>
+          : r.ebitda != null && r.ebitda <= 0 && r.debt_total ? <span className="down">no profit</span>
+          : r.net_debt_ebitda != null ? <span className={r.net_debt_ebitda >= 4 ? "down" : ""}>{r.net_debt_ebitda.toFixed(1)}x</span> : "—"}</td>;
+      case "debt_to_mcap": return <td key={k} className={`scan-num ${r.debt_to_mcap != null && r.debt_to_mcap >= 0.5 ? "down" : ""}`}>
+        {r.debt_to_mcap != null ? `${Math.round(r.debt_to_mcap * 100)}%` : "—"}</td>;
+      case "fcf": return <td key={k} className={`scan-num ${r.fcf != null && r.fcf < 0 ? "down" : ""}`}>{wlDebt$(r.fcf, r.debt_ccy)}</td>;
+      case "short_pct": return <td key={k} className={`scan-num ${r.short_pct != null && r.short_pct >= 10 ? "down" : ""}`}>
+        {r.short_pct != null ? `${r.short_pct.toFixed(1)}%` : "—"}</td>;
+      case "short_chg": return <td key={k} className={`scan-num ${r.short_chg != null && r.short_chg >= 10 ? "down" : r.short_chg != null && r.short_chg <= -10 ? "up" : ""}`}>
+        {r.short_chg != null ? `${r.short_chg > 0 ? "+" : ""}${Math.round(r.short_chg)}%` : "—"}</td>;
+      case "rate_move": return <td key={k} className={`scan-num ${r.rate_move != null && r.rate_move <= -2 ? "down" : ""}`}
+        title={r.rate_r != null ? `Over six months; how closely the stock tracked the yield: ${r.rate_r}` : ""}>
+        {r.rate_move != null ? `${r.rate_move > 0 ? "+" : ""}${r.rate_move.toFixed(1)}%` : "—"}</td>;
       default: return <td key={k} className="scan-num">—</td>;
     }
   };
@@ -16050,6 +16098,118 @@ function WhenToSellCard({ ticker, plan, planTicker, currentPrice }) {
   );
 }
 
+// ── Debt & rates (v5.39) ───────────────────────────────────────────────────
+// Jerry: rates are rising and the companies with the most debt are selling
+// off, while the smart money shorts them with tools like the Bloomberg
+// terminal. This card is that view for one stock: what it owes against what
+// it earns, the cash it burns, when its debt comes due (from its own annual
+// report), what its interest costs, how heavily it is shorted, and how it has
+// moved when the 10-year yield rose. /api/debt?symbol= (debt_risk.py).
+const DR_TONE = { High: "dr-high", Elevated: "dr-elev", Low: "dr-low" };
+function drMoney(v, ccy) {
+  if (v == null || !isFinite(v)) return "—";
+  const a = Math.abs(v), c = !ccy || ccy === "USD" ? "$" : `${ccy} `;
+  const s = a >= 1e12 ? `${(a / 1e12).toFixed(1)}T` : a >= 1e9 ? `${(a / 1e9).toFixed(1)}B`
+    : a >= 1e6 ? `${Math.round(a / 1e6)}M` : `${Math.round(a).toLocaleString()}`;
+  return `${v < 0 ? "-" : ""}${c}${s}`;
+}
+function drDate(iso) {
+  if (!iso) return "";
+  return new Date(`${String(iso).slice(0, 10)}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+function DebtRatesCard({ ticker, apiFetch }) {
+  const [d, setD] = useState(null);
+  const [err, setErr] = useState(null);
+  useEffect(() => {
+    if (!ticker) return undefined;
+    let cancelled = false;
+    setD(null); setErr(null);
+    (async () => {
+      try {
+        const r = await apiFetch(`/api/debt?symbol=${encodeURIComponent(ticker)}`);
+        const j = await r.json();
+        if (cancelled) return;
+        if (j && j.ok) setD(j); else setErr((j && j.error) || "No answer");
+      } catch (e) { if (!cancelled) setErr(String(e.message || e)); }
+    })();
+    return () => { cancelled = true; };
+  }, [ticker]);
+  if (!ticker) return null;
+  const sc = (d && d.screen) || {};
+  const ccy = sc.debt_ccy;
+  const rates = d && d.rates;
+  const mat = d && d.maturities;
+  const maxB = mat ? Math.max(1, ...mat.buckets.map(b => b.value || 0)) : 1;
+  const reasons = d ? [...(sc.debt_reasons || []), ...(d.filing_flags || [])] : [];
+  const kicker = rates && rates.now != null
+    ? `Debt & rates · 10-year yield ${rates.now.toFixed(2)}%${rates.change_1m != null ? ` (${rates.change_1m >= 0 ? "+" : ""}${rates.change_1m.toFixed(2)}% in a month)` : ""}`
+    : "Debt & rates";
+  return (
+    <div className="card dr-card">
+      <div className="card-head"><div>
+        <div className="kicker">{kicker}</div>
+        <div className="card-title">Debt & rates · {ticker}</div>
+      </div></div>
+      {err && !d ? <CardNote kind="error">{err}</CardNote> : null}
+      {!d && !err ? <CardNote kind="loading">Reading the balance sheet…</CardNote> : null}
+      {d ? (<>
+        <div className={`dr-verdict ${DR_TONE[sc.debt_risk] || ""}`}>
+          <b>{sc.debt_risk ? `Debt risk: ${sc.debt_risk}` : "Debt risk: not rated"}</b>
+          {sc.rate_move != null
+            ? <span className="dr-rate">Moves <b>{sc.rate_move > 0 ? "+" : ""}{sc.rate_move.toFixed(1)}%</b> for each +0.10% in the 10-year yield (last six months)</span>
+            : null}
+        </div>
+        <div className="dr-grid">
+          <div className="dr-stat"><span className="dr-k">Total debt</span>
+            <span className="dr-v">{drMoney(sc.debt_total, ccy)}</span>
+            <span className="dr-s">cash {drMoney(sc.debt_cash, ccy)}</span></div>
+          <div className="dr-stat"><span className="dr-k">Debt / EBITDA</span>
+            <span className="dr-v">{sc.net_debt != null && sc.net_debt <= 0 ? "net cash"
+              : sc.ebitda != null && sc.ebitda <= 0 ? "no profit"
+              : sc.net_debt_ebitda != null ? `${sc.net_debt_ebitda.toFixed(1)}x` : "—"}</span>
+            <span className="dr-s">years of operating profit to repay</span></div>
+          <div className="dr-stat"><span className="dr-k">Debt vs company value</span>
+            <span className="dr-v">{sc.debt_to_mcap != null ? `${Math.round(sc.debt_to_mcap * 100)}%` : "—"}</span>
+            <span className="dr-s">of its market value</span></div>
+          <div className="dr-stat"><span className="dr-k">Free cash flow</span>
+            <span className={`dr-v ${sc.fcf != null && sc.fcf < 0 ? "down" : ""}`}>{drMoney(sc.fcf, ccy)}</span>
+            <span className="dr-s">{sc.fcf != null && sc.fcf < 0 ? "burning cash, last year" : "last year"}</span></div>
+          <div className="dr-stat"><span className="dr-k">Interest, last 12 months</span>
+            <span className="dr-v">{d.interest ? drMoney(d.interest.value, ccy) : "—"}</span>
+            <span className="dr-s">{d.avg_rate != null ? `about ${d.avg_rate.toFixed(1)}% on its debt` : "not reported separately"}</span></div>
+          <div className="dr-stat"><span className="dr-k">Interest cover</span>
+            <span className={`dr-v ${(d.coverage != null && d.coverage < 3) || (d.interest && d.operating_income != null && d.operating_income <= 0) ? "down" : ""}`}>
+              {d.coverage != null ? `${d.coverage.toFixed(1)}x` : d.interest && d.operating_income != null && d.operating_income <= 0 ? "loss" : "—"}</span>
+            <span className="dr-s">operating profit ÷ interest</span></div>
+          <div className="dr-stat"><span className="dr-k">Sold short</span>
+            <span className="dr-v">{sc.short_pct != null ? `${sc.short_pct.toFixed(1)}%` : "—"}</span>
+            <span className="dr-s">{sc.short_chg != null ? `${sc.short_chg > 0 ? "+" : ""}${Math.round(sc.short_chg)}% vs a month ago` : "of the float"}</span></div>
+        </div>
+        {mat ? (
+          <div className="dr-wall">
+            <div className="dr-wall-h">When its debt comes due
+              <span className="dr-wall-sub"> · {drMoney(mat.due_2y, ccy)} within two years{mat.due_2y_share != null ? ` (${Math.round(mat.due_2y_share * 100)}%)` : ""} · annual report, {drDate(mat.as_of)}</span></div>
+            <ul className="dr-bars">
+              {mat.buckets.map((b, i) => (
+                <li key={b.label} className={`dr-bar-row${i < 2 ? " soon" : ""}`}
+                    title={`${b.label}: ${drMoney(b.value, ccy)}${i < 2 ? " (refinanced at today's rates if not repaid)" : ""}`}>
+                  <span className="dr-bar-l">{b.label}{i < 2 ? <em> · soon</em> : null}</span>
+                  <span className="dr-bar-track"><span className="dr-bar-fill" style={{ width: `${Math.max(0, (b.value || 0) / maxB * 100)}%` }} /></span>
+                  <span className="dr-bar-v">{drMoney(b.value, ccy)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : <p className="dr-note">No debt schedule in its SEC filings (a fund, a foreign filer, or it does not tag one).</p>}
+        {reasons.length ? <ul className="dr-why">{reasons.map((t, i) => <li key={i}>{t}</li>)}</ul> : null}
+        <p className="dr-foot">Debt, cash, EBITDA, cash flow and short interest: the company profile (Yahoo).
+          Schedule and interest: its SEC filings. Rate move: daily changes against the 10-year Treasury yield (FRED).
+          {d.on_watchlist ? "" : " Not on your watchlist, so worked out just now."}</p>
+      </>) : null}
+    </div>
+  );
+}
+
 const _memo = React.memo;
 Object.assign(window, { TickerLogo, MarketBreadthCard: _memo(MarketBreadthCard),
   FridayCard: _memo(FridayCard),
@@ -16080,7 +16240,7 @@ Object.assign(window, { TickerLogo, MarketBreadthCard: _memo(MarketBreadthCard),
   StrategyReferenceCard: _memo(StrategyReferenceCard), WatchlistManager, QuickAddRow,
   WatchlistRow, FlashOnChange, SortableTh, PercentCalc: _memo(PercentCalc),
   RollManagerCard: _memo(RollManagerCard),
-  FlowScoreCard: _memo(FlowScoreCard), MoneyMapCard: _memo(MoneyMapCard), FridayWallsCard: _memo(FridayWallsCard), WhenToSellCard: _memo(WhenToSellCard), PullbackBacktest,
+  FlowScoreCard: _memo(FlowScoreCard), MoneyMapCard: _memo(MoneyMapCard), FridayWallsCard: _memo(FridayWallsCard), WhenToSellCard: _memo(WhenToSellCard), DebtRatesCard: _memo(DebtRatesCard), PullbackBacktest,
   TradeBuilderCard: _memo(TradeBuilderCard), AnalystCard: _memo(AnalystCard),
   PullbackProfileCard: _memo(PullbackProfileCard), BasingCard: _memo(BasingCard),
   Recommendation, RecommendationPair, StrategyCard: _memo(StrategyCard),

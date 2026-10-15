@@ -87,6 +87,11 @@ try:
 except Exception as _exc:  # noqa: BLE001
     print(f"[watchlist_table] strat_states unavailable: {_exc}", file=sys.stderr)
     _strat = None
+try:
+    import debt_risk as _debt           # v5.39: Debt & rates, from the same profile and bars
+except Exception as _exc:  # noqa: BLE001
+    print(f"[watchlist_table] debt_risk unavailable: {_exc}", file=sys.stderr)
+    _debt = None
 
 CHUNK = 40
 
@@ -430,6 +435,10 @@ def _fundamentals(symbol: str) -> dict:
         out["forward_pe"] = round(fpe, 1) if fpe is not None else None
         out["sector"] = info.get("sector")
         out["industry"] = info.get("industry")
+        # v5.39: debt, cash, EBITDA, free cash flow and short interest ride
+        # on the same .info call: no extra request per symbol.
+        if _debt is not None:
+            out.update(_debt.screen_fields(info))
 
         # fast_info is a lighter endpoint that survives throttling better —
         # backfill market cap (and infer P/E from price/EPS) when .info
@@ -723,6 +732,45 @@ def set_flow_provider(fn) -> None:
     _FLOW_FN = fn
 
 
+# v5.39: the 10-year Treasury yield, read once per scan, for each stock's
+# rate move (how it has moved per +0.10% in the yield).
+_YIELD_FN = None        # () -> [(iso_date, yield_pct), ...]
+_SCAN_YIELDS: dict = {}
+
+
+def set_yield_provider(fn) -> None:
+    global _YIELD_FN
+    _YIELD_FN = fn
+
+
+def _load_yields() -> dict:
+    if _YIELD_FN is None:
+        return {}
+    try:
+        return {str(d)[:10]: float(v) for d, v in (_YIELD_FN() or [])}
+    except Exception as exc:  # noqa: BLE001
+        print(f"[watchlist_table] 10-year yield unavailable: {exc}", file=sys.stderr)
+        return {}
+
+
+def _debt_fields(row: dict, close) -> None:
+    """The rate move and the debt assessment, on the row in hand."""
+    if _debt is None:
+        return
+    rb = None
+    if _SCAN_YIELDS:
+        try:
+            tail = close.dropna().iloc[-(_debt.BETA_SESSIONS + 40):]
+            closes = {str(ix)[:10]: float(v) for ix, v in tail.items()}
+            rb = _debt.rate_beta(closes, _SCAN_YIELDS)
+        except Exception:  # noqa: BLE001
+            rb = None
+    row["rate_move"] = rb["move_per_10bp"] if rb else None
+    row["rate_r"] = rb["r"] if rb else None
+    a = _debt.assess(row)
+    row.update({"debt_risk": a["level"], "debt_score": a["score"], "debt_reasons": a["reasons"]})
+
+
 def _fill_sector(row: dict, sym: str, prior_row: dict | None) -> None:
     """Give the row a sector when Yahoo did not.
 
@@ -784,6 +832,7 @@ def _scan_one(sym: str, sub, flow_fn, do_flow: bool = True, prior_row: dict | No
     except Exception:
         row["open"] = None
     row.update(_fundamentals(sym))
+    _debt_fields(row, close)
     # CSV import is the source of truth for tag/sector/industry/weekly. Override
     # whatever yfinance returned (and fill it in even when .info came back blank).
     with _OVERRIDES_LOCK:
@@ -888,6 +937,8 @@ def _scan_worker(symbols: list[str]) -> None:
     # baseline; every rescan after that is fast + bounded. 0 = always unlimited.
     cold = not prior
     flow_syms = set(symbols) if (cold or _FLOW_BUDGET <= 0) else set(symbols[:_FLOW_BUDGET])
+    global _SCAN_YIELDS
+    _SCAN_YIELDS = _load_yields()
     flow_fn = _FLOW_FN
     analyst_board.HEAVY_SCAN_LOCK.acquire()
     try:

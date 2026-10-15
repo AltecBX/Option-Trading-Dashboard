@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "5.38";
+const APP_VERSION = "5.39";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -5425,6 +5425,14 @@ function App() {
                             plan={(window.__LIVE && window.__LIVE.whenToSell) || null}
                             planTicker={(window.__LIVE && window.__LIVE.ticker) || null}
                             currentPrice={getLivePrice(ticker) ?? currentPrice} />
+          </CardErrorBoundary>
+        </div>
+
+        {/* Debt & rates (v5.39): what it owes, when it comes due, how it moves as rates rise. */}
+        <div id="jump-debt" className="jump-anchor" aria-hidden="true"></div>
+        <div style={{marginTop: "var(--row-gap)"}}>
+          <CardErrorBoundary label="Debt & rates">
+            <DebtRatesCard ticker={ticker} apiFetch={apiFetch} />
           </CardErrorBoundary>
         </div>
 

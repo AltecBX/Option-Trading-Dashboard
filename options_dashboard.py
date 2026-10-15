@@ -5785,6 +5785,69 @@ def _sec_filing_dates(symbol: str) -> list:
     return sorted(out)
 
 
+# ── Debt & rates (v5.39): one stock's debt, schedule, interest and rate move ──
+_DEBT_CARD_CACHE: dict = {}
+_DEBT_CARD_TTL = 1800.0
+
+
+def _ten_year_series() -> list:
+    """The 10-year Treasury yield, daily, about 13 months back (FRED DGS10)."""
+    if _treasury is None:
+        return []
+    try:
+        return _treasury._fred_series("DGS10", start=(date.today() - timedelta(days=400)).isoformat()) or []
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def build_debt_card(symbol: str) -> dict:
+    """The Debt & rates card. The watchlist row when the stock is on the
+    board (the same numbers the table shows); otherwise the same fields
+    worked out now from its Yahoo profile and a year of daily bars. The
+    debt schedule and interest come from its SEC filings."""
+    import debt_risk as _dr
+    sym = (symbol or "").upper().strip()
+    if not sym:
+        return {"ok": False, "error": "no symbol"}
+    hit = _DEBT_CARD_CACHE.get(sym)
+    if hit and time.time() - hit[0] < _DEBT_CARD_TTL:
+        return hit[1]
+    yields = {str(d)[:10]: float(v) for d, v in _ten_year_series()}
+    row = None
+    try:
+        board = (_wltable.get_board() if (_WLTABLE_AVAILABLE and _wltable is not None) else {}) or {}
+        row = next((r for r in (board.get("rows") or []) if str(r.get("symbol") or "").upper() == sym), None)
+    except Exception:  # noqa: BLE001
+        row = None
+    if row is None or (row.get("debt_risk") is None and row.get("debt_total") is None):
+        try:
+            info = {}
+            try:
+                info = yf.Ticker(sym).info or {}
+            except Exception:  # noqa: BLE001
+                info = {}
+            closes = {str(b["date"])[:10]: float(b["close"]) for b in (load_daily(sym, 200) or [])
+                      if b.get("close") is not None}
+            fresh = _dr.row_fields(info, closes, yields)
+            fresh["market_cap"] = info.get("marketCap")
+            row = dict(row or {}, **fresh)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[debt] {sym}: {exc}", file=sys.stderr)
+    facts = None
+    try:
+        import fundamentals as _fnd
+        facts = _fnd.company_facts(sym)
+    except Exception:  # noqa: BLE001
+        facts = None
+    on_board = row is not None and bool(row.get("last") is not None or row.get("company"))
+    out = _dr.card(sym, row, facts, yields)
+    out["on_watchlist"] = on_board
+    _DEBT_CARD_CACHE[sym] = (time.time(), out)
+    if len(_DEBT_CARD_CACHE) > 200:
+        _DEBT_CARD_CACHE.pop(next(iter(_DEBT_CARD_CACHE)))
+    return out
+
+
 def _deep_earn_hist(symbol: str) -> dict:
     """The deepest point-in-time earnings history the app has, as ISO dates.
 
@@ -9911,6 +9974,14 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+            return
+        if parsed.path == "/api/debt":
+            # v5.39: the Debt & rates card for one stock.
+            qs = parse_qs(parsed.query)
+            try:
+                self._send_json(build_debt_card(qs.get("symbol", [""])[0]))
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"ok": False, "error": str(exc)[:200]}, status=500)
             return
         if parsed.path == "/api/watchlist/diag":
             try:
@@ -14177,6 +14248,10 @@ def serve(host: str, port: int, weeks: int, friday_baseline: bool) -> None:
                         print(f"[watchlist_table] push failed: {e}", file=sys.stderr)
 
             _wltable.set_notify_provider(_wlt_notify)
+            # v5.39: the 10-year yield (FRED DGS10) for each stock's rate move.
+            if _treasury is not None:
+                _wltable.set_yield_provider(lambda: _treasury._fred_series(
+                    "DGS10", start=(date.today() - timedelta(days=400)).isoformat()))
             # Seed the CSV source-of-truth overrides at startup so the first
             # scheduled scan already honors imported tag/sector/industry.
             _push_watchlist_overrides()

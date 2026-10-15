@@ -5770,3 +5770,55 @@ Codex on #427, each proven red first:
   quote; the alert says "Touched ... Today's high was $X; it is $Y now."
 - **"N of M names" counts the table stocks** added to the quote list, so
   the status line can no longer say more names were quoted than exist.
+
+## v5.39 — Debt & rates
+
+Jerry: "Is there a way to add the debt each company has? The tech market
+has been selling off because interest rates are going higher. The
+companies with the highest debt are selling off. The smart money has been
+shorting these companies because they have tools to see it, like the
+Bloomberg terminal. I'd like to do the same."
+
+- **`debt_risk.py`** (pure). The screen numbers from the Yahoo profile the
+  watchlist scan already downloads (no new request per stock): total
+  debt, cash, net debt, EBITDA, free cash flow, debt / market value, net
+  debt / EBITDA, short % of float and the change in shares short against a
+  month earlier. A foreign filer's debt is kept in its own currency
+  (Novo Nordisk reports in kroner) and never set against a dollar market
+  value. `assess` gives High / Elevated / Low with the reasons in words:
+  points for net debt at 2.5x / 4x a year of EBITDA (or no EBITDA at all),
+  debt at 25% / 50% of market value, burning cash while in debt (heavier
+  at 10% of the debt a year), and only when there is debt to worry about,
+  10%+ of the float short and shorts up 10%+ in a month. Net cash is Low.
+- **The rate move**: the stock's average move per +0.10% in the 10-year
+  Treasury yield (FRED DGS10), the slope of daily returns on daily yield
+  changes over the last 126 trading days. Measured first on Jerry's 53
+  table stocks: -6% (OKLO) to +1.5% (VLO), median -2.3%, mostly how jumpy
+  a stock is; net of the market it is only loosely tied to debt (-0.18).
+  So it is a column to sort, and the rating comes from the balance sheet.
+- **Watchlist**: the scan reads the yield once per scan and rates every
+  row. A new "Debt & rates" preset (Debt risk, Debt, Debt/EBITDA,
+  Debt/Cap, FCF, Short %, Short change, Rate move), the reasons on hover,
+  Debt risk sorting by its score.
+- **Analyze: the Debt & rates card** (`/api/debt?symbol=`, 30-minute
+  cache): the same numbers, plus from the company's own SEC filings when
+  its debt comes due (next 12 months, years 2 to 5, after; annual reports
+  only, where the tags mean the same thing for every filer), the interest
+  it paid over the last four quarters (the tag reported most recently
+  wins; a figure stale against the balance sheet is dropped), its interest
+  cover and the average rate it pays. Warnings for a quarter or more of
+  the debt due within two years and for interest paid from an operating
+  loss. The 10-year yield and its move in the last month head the card.
+  A stock off the watchlist is worked out on the spot.
+
+Real data, October 2026: CoreWeave High (net debt 12x EBITDA, debt 142% of
+its value, -$9.1B free cash flow, 19% short, 51% of scheduled debt due in
+two years, operating loss against a $1.6B interest bill); Oracle High
+($169B debt, 3.8x, 43% of its value, -$46B free cash flow); Apple Low.
+
+Tests: `test_debt_risk.py` (27: units, currencies, every scoring rule,
+the rate move, the schedule from annual reports only with restatements,
+interest by the latest tag and its staleness, the card and its warnings,
+the scan wiring; mutation-checked) and two render tests (the card on
+desktop and phone from the real engine; the watchlist preset, its
+reasons and its sort).

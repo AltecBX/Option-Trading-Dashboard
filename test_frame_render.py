@@ -121,6 +121,28 @@ WATCHLIST_ROWS = [{
 } for i, s in enumerate(
     "AAPL MSFT NVDA AMD META GOOGL AMZN TSLA NFLX CRM ORCL ADBE".split())]
 
+
+def _with_debt(rows):
+    """v5.39: each row's Debt & rates fields, from the REAL debt_risk on
+    profiles shaped like Yahoo's: ORCL heavily borrowed and burning cash,
+    the rest covered."""
+    import debt_risk as _dr
+    heavy = {"totalDebt": 169e9, "totalCash": 37e9, "ebitda": 34e9, "freeCashflow": -46e9,
+             "marketCap": 396e9, "sharesShort": 52e6, "sharesShortPriorMonth": 45e6,
+             "shortPercentOfFloat": 0.026}
+    light = {"totalDebt": 8e9, "totalCash": 20e9, "ebitda": 40e9, "freeCashflow": 30e9,
+             "marketCap": 1e12, "sharesShort": 10e6, "sharesShortPriorMonth": 12e6,
+             "shortPercentOfFloat": 0.01}
+    out = []
+    for r in rows:
+        f = _dr.row_fields(heavy if r["symbol"] == "ORCL" else light, None, None)
+        f["rate_move"] = -2.3 if r["symbol"] == "ORCL" else -0.8
+        out.append(dict(r, **f))
+    return out
+
+
+WATCHLIST_ROWS = _with_debt(WATCHLIST_ROWS)
+
 # A board with rows on it, because that is what the live one has on any
 # ordinary morning. Nine is a normal day's worth; the defect this guards
 # against needs only that the board be non-empty.
@@ -523,7 +545,7 @@ class TheFrameStaysOnScreen(unittest.TestCase):
     def _measure(self, width, height, tab="trade", init="", ticker_payload=None,
                  timezone=None, safe_area=None, starred=None, ytd_bases=None,
                  quotes=None, tab_order=None, setup_board=None, live=None, uw=None,
-                 buyers=None, report_card=None, hotlist=None):
+                 buyers=None, report_card=None, hotlist=None, debt=None):
         """Open the app with a production-sized news feed and measure the
         frame. Returns (geometry, page errors)."""
         from playwright.sync_api import sync_playwright
@@ -552,6 +574,8 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         # v5.36: the board's report card.
         self._report_card = report_card
         self._hotlist = hotlist
+        # v5.39: the Debt & rates card's answer.
+        self._debt = debt
         pw = sync_playwright().start()
         kw = {"executable_path": CHROMIUM} if Path(CHROMIUM).exists() else {}
         browser = pw.chromium.launch(**kw)
@@ -668,6 +692,9 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                     r.fulfill(status=200, content_type="application/json",
                               body=json.dumps(self._live[key]))
                     return
+            if self._debt is not None and urllib.parse.urlsplit(url).path == "/api/debt":
+                r.fulfill(status=200, content_type="application/json", body=json.dumps(self._debt))
+                return
             if self._hotlist is not None and urllib.parse.urlsplit(url).path == "/api/uw/hotlist":
                 r.fulfill(status=200, content_type="application/json",
                           body=json.dumps({"data": self._hotlist, "configured": True}))
@@ -2776,6 +2803,81 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         geo, _ = self._sell_probe(payload=pay)
         self.assertTrue(geo["sell"]["found"], "the panel disappeared without a plan")
         self.assertIn("RANGE LOCATION", geo["sell"]["text"].upper())
+
+    # ── v5.39: Debt & rates ───────────────────────────────────────────────
+    def _debt_answer(self):
+        """The card's answer from the REAL debt_risk.card: a CoreWeave-shaped
+        profile and annual-report schedule, half of it due within two years."""
+        import debt_risk as _dr
+        import test_debt_risk as T
+        row = _dr.row_fields(T.HEAVY, None, None)
+        row["rate_move"], row["rate_r"] = -2.1, -0.16
+        facts = T.facts_with(T._annual(T.M, "2025-12-31", "2026-02-20"),
+                             quarters={**T._quarters("InterestExpenseDebt", [0.4e9] * 4),
+                                       **T._quarters("OperatingIncomeLoss", [-0.1e9] * 4)})
+        y = {"2025-10-10": 4.05, "2026-09-12": 4.96, "2026-10-13": 5.21}
+        out = _dr.card("DELL", row, facts, y)
+        out["on_watchlist"] = True
+        return out
+
+    def test_debt_and_rates_card(self):
+        debt = self._debt_answer()
+        for w, h in ((1900, 1200), (440, 956)):
+            geo, errs, handles = self._measure(w, h, tab="analyze", ticker_payload=sell_payload(), debt=debt)
+            page = handles[2]
+            try:
+                self.assertEqual(errs, [], f"the page threw at {w}px: {errs[:2]}")
+                page.wait_for_selector(".dr-card .dr-verdict", timeout=15000)
+                got = page.evaluate("""(() => {
+                  const c = document.querySelector('.dr-card');
+                  const clipped = [];
+                  for (const e of c.querySelectorAll('*')) {
+                    const cs = getComputedStyle(e);
+                    if (cs.display === 'none' || cs.overflowX === 'hidden') continue;
+                    if (e.scrollWidth > e.clientWidth + 1 && e.clientWidth > 0)
+                      clipped.push(String(e.getAttribute('class') || e.tagName).split(' ')[0]);
+                  }
+                  const m = document.querySelector('.main');
+                  return {text: c.innerText, verdict: c.querySelector('.dr-verdict b').innerText,
+                          bars: c.querySelectorAll('.dr-bar-row').length,
+                          soon: c.querySelectorAll('.dr-bar-row.soon').length,
+                          clipped, scroll: Math.max(0, m.scrollWidth - m.clientWidth)}; })()""")
+                self.assertEqual("Debt risk: High", got["verdict"])
+                self.assertEqual(6, got["bars"], "next 12 months, years 2 to 5, after year 5")
+                self.assertEqual(2, got["soon"], "the two due soonest are marked")
+                for bit in ("$51.6B", "12.1x", "142%", "-$9.1B", "$1.6B", "loss", "19.2%",
+                            "within two years", "-2.1%", "5.21%", "operating loss"):
+                    self.assertIn(bit, got["text"], f"{bit!r} missing at {w}px")
+                self.assertEqual([], got["clipped"], f"text runs out of its box at {w}px")
+                self.assertLessEqual(got["scroll"], 2, f"the page scrolls sideways at {w}px")
+            finally:
+                self._close(handles)
+
+    def test_the_watchlist_has_a_debt_and_rates_view(self):
+        geo, errs, handles = self._measure(1900, 1200, tab="watchlist")
+        page = handles[2]
+        try:
+            self.assertEqual(errs, [], f"the page threw: {errs[:2]}")
+            page.wait_for_selector(".wl-preset", timeout=15000)
+            page.click(".wl-preset:has-text('Debt & rates')")
+            page.wait_for_timeout(300)
+            got = page.evaluate("""(() => {
+              const heads = [...document.querySelectorAll('.wl-table thead th')].map(t => t.innerText.trim());
+              const chips = [...document.querySelectorAll('.wl-table .wl-debt')].map(c => ({
+                t: c.innerText.trim(), why: c.closest('td').getAttribute('title') || ''}));
+              return {heads, chips}; })()""")
+            for h in ("Debt risk", "Debt", "Debt/EBITDA", "Debt/Cap", "FCF", "Short %", "Short Δ", "Rate move"):
+                self.assertTrue(any(x.upper().startswith(h.upper()) for x in got["heads"]),
+                                f"no {h!r} column: {got['heads']}")
+            high = [c for c in got["chips"] if c["t"] == "High"]
+            self.assertEqual(1, len(high), "ORCL alone is High")
+            self.assertIn("Burning cash", high[0]["why"], "the reasons ride on the rating")
+            page.click(".wl-table thead th:has-text('Debt risk')")
+            page.wait_for_timeout(200)
+            first = page.evaluate("document.querySelector('.wl-table tbody tr td.wl-sym').innerText")
+            self.assertIn("ORCL", first, "sorting Debt risk puts the most exposed first")
+        finally:
+            self._close(handles)
 
     # ── v5.37: When to sell ───────────────────────────────────────────────
     def test_when_to_sell_shows_the_verdict_and_the_trigger(self):

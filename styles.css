@@ -15555,6 +15555,52 @@ body { overflow: hidden; overscroll-behavior: none; }
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
+   Debt & rates (v5.39): the watchlist's rating chip and the Analyze card.
+   One hue for the schedule's bars; the two due soonest are marked in words.
+   Tokens only.
+   ══════════════════════════════════════════════════════════════════════════ */
+.wl-debt { display: inline-block; padding: 1px 7px; border-radius: 6px; font-size: 11px; font-weight: 700;
+           color: var(--fg); border: 1px solid var(--line); background: var(--bg-3); white-space: nowrap; }
+.wl-debt-high { background: color-mix(in srgb, var(--down) 18%, transparent); border-color: color-mix(in srgb, var(--down) 55%, transparent); }
+.wl-debt-elevated { background: color-mix(in srgb, var(--warn) 16%, transparent); border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
+.wl-debt-low { color: var(--fg-2); }
+.dr-verdict { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 0 0 12px; }
+.dr-verdict > b { font-size: 15px; padding: 4px 12px; border-radius: 8px; color: var(--fg);
+                  background: var(--bg-3); border: 1px solid var(--line); }
+.dr-verdict.dr-high > b { background: color-mix(in srgb, var(--down) 18%, transparent); border-color: color-mix(in srgb, var(--down) 55%, transparent); }
+.dr-verdict.dr-elev > b { background: color-mix(in srgb, var(--warn) 16%, transparent); border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
+.dr-verdict.dr-low > b { background: color-mix(in srgb, var(--up) 14%, transparent); border-color: color-mix(in srgb, var(--up) 45%, transparent); }
+.dr-rate { font-size: 13px; color: var(--fg-2); }
+.dr-rate b { color: var(--fg); font-family: var(--font-mono); }
+.dr-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.dr-stat { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 8px;
+           border: 1px solid var(--line); background: var(--bg-2); min-width: 0; }
+.dr-k { font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--fg-3); }
+.dr-v { font-family: var(--font-mono); font-size: 17px; font-weight: 700; color: var(--fg); }
+.dr-s { font-size: 11.5px; color: var(--fg-3); }
+.dr-wall { margin-top: 14px; }
+.dr-wall-h { font-size: 13px; font-weight: 700; color: var(--fg); margin-bottom: 6px; }
+.dr-wall-sub { font-weight: 400; color: var(--fg-2); }
+.dr-bars { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.dr-bar-row { display: grid; grid-template-columns: 150px minmax(0, 1fr) 72px; align-items: center; gap: 10px; }
+.dr-bar-l { font-size: 12.5px; color: var(--fg-2); white-space: nowrap; }
+.dr-bar-l em { font-style: normal; font-weight: 700; color: var(--fg); }
+.dr-bar-track { height: 10px; border-radius: 4px; background: var(--bg-3); overflow: hidden; }
+/* neutral, not the brand green: an amount owed is not "good" */
+.dr-bar-fill { display: block; height: 100%; border-radius: 4px; background: color-mix(in srgb, var(--fg) 42%, transparent); }
+.dr-bar-row.soon .dr-bar-fill { background: var(--warn); }
+.dr-bar-v { font-family: var(--font-mono); font-size: 12.5px; color: var(--fg); text-align: right; }
+.dr-why { margin: 12px 0 0; padding: 0 0 0 18px; font-size: 13px; line-height: 1.5; color: var(--fg-2); }
+.dr-note { margin: 12px 0 0; font-size: 12.5px; color: var(--fg-3); }
+.dr-foot { margin: 10px 0 0; font-size: 11.5px; line-height: 1.45; color: var(--fg-3); }
+@media (max-width: 900px) {
+  .dr-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dr-bar-row { grid-template-columns: 112px minmax(0, 1fr) 62px; gap: 6px; }
+  .dr-bar-l { white-space: normal; line-height: 1.25; }
+  .dr-v { font-size: 15px; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
    v5.26 — EVERY DESTINATION ON A PHONE
    ──────────────────────────────────────────────────────────────────────────
    Jerry: "Optimize the rest of the tabs for my phone too."
