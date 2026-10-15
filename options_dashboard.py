@@ -5185,6 +5185,10 @@ try:
             sym, load_daily(sym, 260), day,
             earnings_dates=(load_earnings_history(sym, 60) or {}).get("past") or []),
         sell_symbols_fn=lambda: __import__("when_to_sell").table_symbols(),
+        # v5.42: the Shorted high-debt list, for the "dropping" push.
+        shorted_fn=lambda: ((_strend.shorted_debt(
+            ((_wltable.get_board() if (_WLTABLE_AVAILABLE and _wltable is not None) else {}) or {}).get("rows") or [])
+            or {}).get("rows") or []) if (_STREND_AVAILABLE and _strend is not None) else [],
     )
     _LIVE_AVAILABLE = True
 except Exception as _exc:  # noqa: BLE001

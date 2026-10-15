@@ -603,10 +603,11 @@ class NewTriggersReachASavedList(unittest.TestCase):
 
     def test_offered_once(self):
         got = self.load()
-        self.assertEqual(6, len(got), "the two v5.34 setups and v5.38's When to sell")
+        self.assertEqual(7, len(got), "the two v5.34 setups, v5.38's When to sell and v5.42's shorted drop")
         self.assertIn("gamma_flip_cross", got)
         self.assertIn("dark_pool_level", got)
         self.assertIn("sell_trigger_tap", got)
+        self.assertIn("shorted_debt_drop", got)
         keep = [s for s in LS.setups() if s["trigger"] != "dark_pool_level"]
         self.assertTrue(LS.save_setups(keep)["ok"])
         self.assertNotIn("dark_pool_level", self.load(), "a deleted setup came back")
@@ -796,3 +797,86 @@ class WhenToSell(Harness):
         snap = LS.snapshot()
         self.assertEqual(3, snap["universe_n"], "AAA and BBB on the board, ZZZ from the table")
         self.assertLessEqual(snap["quoted_n"], snap["universe_n"])
+
+
+
+class ShortedDebtDrop(Harness):
+    """v5.42: a push when a stock on the Shorted high-debt list drops."""
+
+    ROWS = [{"symbol": "AAA", "level": "High", "short_pct": 15.2, "si_chg": 14.0, "si_rises": 1,
+             "si_run": 14.0, "reason": "Net debt is 12.1x a year of operating profit (EBITDA)."},
+            {"symbol": "ZZZ", "level": "Elevated", "short_pct": 6.0, "si_rises": 3, "si_run": 26.0}]
+
+    def setUp(self):
+        super().setUp()
+        self.reads = 0
+
+        def shorted():
+            self.reads += 1
+            return self.ROWS
+        self.shorted = shorted
+        LS.configure(quotes_fn=lambda syms: {s: self.quotes[s] for s in syms if s in self.quotes},
+                     universe_fn=lambda: self.rows,
+                     notify_fn=lambda t, m, p=0: self.pushes.append((t, m)),
+                     now_fn=lambda: self.clock, data_dir=self.tmp.name, shorted_fn=self.shorted)
+        self.only("shorted_debt_drop")
+        LS.refresh_shorted(at(9, 30))
+
+    def test_a_drop_fires_once_with_its_reason_and_pushes(self):
+        self.step(at(10, 0), AAA=quote(98.0))           # -2%: not yet
+        self.step(at(10, 0, 30), AAA=quote(97.5))
+        self.assertEqual([], self.alerts())
+        self.step(at(10, 1), AAA=quote(96.8))           # -3.2%
+        a = self.alerts("shorted_debt_drop")
+        self.assertEqual(1, len(a))
+        self.assertEqual("short", a[0]["side"])
+        self.assertIn("Down 3.2% today at $96.80", a[0]["why"])
+        self.assertIn("a High-debt stock with 15.2% of its float short", a[0]["why"])
+        self.assertIn("shorts +14% in the latest report", a[0]["why"])
+        self.assertIn("Net debt is 12.1x", a[0]["why"])
+        self.assertEqual(1, len(self.pushes), "it goes to the phone")
+        self.step(at(10, 1, 30), AAA=quote(95.0))
+        self.step(at(11, 0), AAA=quote(93.0))
+        self.assertEqual(1, len(self.alerts("shorted_debt_drop")), "once a day")
+
+    def test_a_stock_off_the_list_never_fires(self):
+        self.step(at(10, 0), BBB=quote(99.0))
+        self.step(at(10, 0, 30), BBB=quote(90.0))
+        self.assertEqual([], self.alerts())
+        chk = {r["setup_id"]: r for r in LS.check("BBB", at(10, 1))["setups"]}
+        self.assertIn("Not on the Shorted high-debt list", chk["shorted_debt_drop"]["detail"])
+
+    def test_the_run_of_rising_reports_is_named(self):
+        self.rows = self.rows + [{"symbol": "ZZZ", "avg_volume": 5e6, "market_cap": 5e10}]
+        self.step(at(10, 0), ZZZ=quote(99.0))
+        self.step(at(10, 0, 30), ZZZ=quote(96.0))
+        a = self.alerts("shorted_debt_drop")
+        self.assertIn("an Elevated-debt stock", a[0]["why"])
+        self.assertIn("shorts up 3 reports in a row (+26%)", a[0]["why"])
+
+    def test_the_threshold_is_a_setting(self):
+        items = LS.setups()
+        for it in items:
+            if it["trigger"] == "shorted_debt_drop":
+                it["params"]["drop_pct"] = 5.0
+        LS.save_setups(items)
+        self.step(at(10, 0), AAA=quote(98.0))
+        self.step(at(10, 0, 30), AAA=quote(96.0))
+        self.assertEqual([], self.alerts(), "-4% is short of a 5% setting")
+        self.step(at(10, 1), AAA=quote(94.9))
+        self.assertEqual(1, len(self.alerts("shorted_debt_drop")))
+
+    def test_the_list_is_read_every_five_minutes_and_kept_on_failure(self):
+        n = self.reads
+        LS.refresh_shorted(at(9, 31))
+        self.assertEqual(n, self.reads, "a minute later the list is not read again")
+        LS.refresh_shorted(at(9, 36))
+        self.assertEqual(n + 1, self.reads)
+
+        def broken():
+            raise RuntimeError("board unavailable")
+        LS._SHORTED_FN = broken
+        self.assertEqual(2, LS.refresh_shorted(at(9, 45), force=True), "a failed read keeps the list it had")
+        self.step(at(10, 0), AAA=quote(99.0))
+        self.step(at(10, 0, 30), AAA=quote(96.0))
+        self.assertEqual(1, len(self.alerts("shorted_debt_drop")), "and still alerts on it")

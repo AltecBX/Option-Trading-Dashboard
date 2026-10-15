@@ -15554,6 +15554,7 @@ body { overflow: hidden; overscroll-behavior: none; }
 .lv-sell-st.debt-elev { color: var(--fg); background: color-mix(in srgb, var(--warn) 16%, transparent); border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
 .lv-short-piling td { background: color-mix(in srgb, var(--down) 6%, transparent); }
 .lv-piling-tag { color: var(--down); font-weight: 700; }
+.lv-short-push { margin: 6px 0 0; font-size: 12px; color: var(--fg-3); }
 @media (max-width: 900px) {
   .lv-sell { padding: 8px 10px; }
   /* the phone rule gives every .scan-table cell 8px a side, !important */

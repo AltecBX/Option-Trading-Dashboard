@@ -100,6 +100,7 @@ class Judge(unittest.TestCase):
         self.assertIn("2.0 days to cover", a["text"])
         self.assertIn("Net debt is 6.0x EBITDA.", a["text"])
         b = ST.judge(ROWS[1], self.t("BUILD"))
+        self.assertIn("Shorts are piling into BUILD, an Elevated-debt stock", b["text"])
         self.assertIn("rising 3 reports in a row (+17% since the Aug 14 report)", b["text"])
 
     def test_without_a_float_the_profile_short_share_stands_in(self):

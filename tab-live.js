@@ -26,7 +26,7 @@ const LV_TIP = {
   setups: "Rename, tune or switch off any setup, set the conditions a stock must pass, how long before the same stock can fire again, and whether it pushes to your phone.",
   sound: "Play a short beep in this browser when a new alert arrives.",
   sell: "Your When to sell system, for every stock in your regime table: this week's trigger (Friday's close plus the rise the table expects after a week like last week), the live price, and how far it has to go. A tap alerts here and on your phone. Tap a stock to open its When to sell card.",
-  shorted: "Watchlist stocks rated High or Elevated on Debt risk with at least 5% of their tradable shares sold short (FINRA's latest report), or where shorts just piled in. Today's move is live. Tap a stock to open its Debt & rates card.",
+  shorted: "Watchlist stocks rated High or Elevated on Debt risk with at least 5% of their tradable shares sold short (FINRA's latest report), or where shorts just piled in. Today's move is live. Tap a stock to open its Debt & rates card. When one falls 3% or more on the day, the \"Shorted high-debt stock dropping\" setup pushes to your phone (change the drop, or switch it off, in Setups).",
   lists: "Ranked lists from the same prices. Only stocks over $5 with at least 500K shares a day are listed, so the lists are names you can trade options on."
 };
 const LV_LISTS = [["gainers", "Gainers", "change_pct"], ["losers", "Losers", "change_pct"], ["active", "Most active", "volume"], ["rvol", "Volume surge", "rvol"], ["movers_5m", "5-min movers", "move_5m"], ["gap_up", "Gap up", "gap_pct"], ["gap_down", "Gap down", "gap_pct"]];
@@ -369,7 +369,9 @@ function LvShortDebt({
   }, piling, " with shorts piling in") : null, /*#__PURE__*/React.createElement("span", null, data.total, " with ", data.min_pct, "%+ of the float short")))), rows.length > LV_SHORT_SHOW || all ? /*#__PURE__*/React.createElement("button", {
     className: "lv-btn",
     onClick: () => setAll(v => !v)
-  }, all ? "Show fewer" : `Show all ${rows.length}`) : null), shown.length ? /*#__PURE__*/React.createElement("table", {
+  }, all ? "Show fewer" : `Show all ${rows.length}`) : null), rows.length ? /*#__PURE__*/React.createElement("p", {
+    className: "lv-short-push"
+  }, "Your phone gets a push when one drops sharply on the day (set the drop in Setups).") : null, shown.length ? /*#__PURE__*/React.createElement("table", {
     className: "scan-table lv-sell-table lv-short-table"
   }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Symbol"), /*#__PURE__*/React.createElement("th", {
     className: "scan-num"

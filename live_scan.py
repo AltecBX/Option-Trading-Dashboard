@@ -186,6 +186,13 @@ TRIGGERS = {
         "help": "Trades at or above this week's When to sell trigger: Friday's close plus the rise your regime table expects after a week like last week. Your system sells the call on that tap. Fires once a week per stock. Covers the stocks in your regime table.",
         "params": {},
     },
+    # v5.42 — a stock on the Shorted high-debt list (short_trend.py) falling:
+    # the trade Jerry described, rates up, indebted names sold and shorted.
+    "shorted_debt_drop": {
+        "label": "Shorted high-debt stock dropping", "side": "short", "once": True, "session": "open",
+        "help": "A stock on the Shorted high-debt list (High or Elevated debt with at least 5% of its float sold short, or shorts just piling in) is down at least X% on the day. Fires once a day per stock.",
+        "params": {"drop_pct": (3.0, 1.0, 20.0, "Down on the day at least (%)")},
+    },
     "premarket_mover": {
         "label": "Pre-market mover", "side": "either", "once": True, "session": "pre",
         "help": "Before the open: at least X% from yesterday's close on at least N shares traded.",
@@ -226,6 +233,10 @@ DEFAULT_SETUPS = [
     # volume or size condition stands in its way: the table chose the stocks.
     ("sell_trigger_tap", "When to sell: trigger tapped", {},
      {"min_price": 0, "min_avg_volume": 0, "min_market_cap": 0}, 0, True),
+    # The list already chose the stocks, and the drop is the news: no other
+    # condition, and it goes to the phone.
+    ("shorted_debt_drop", "Shorted high-debt stock dropping", {},
+     {"min_price": 0, "min_avg_volume": 0, "min_market_cap": 0}, 0, True),
 ]
 # The triggers a setups.json written before a release already knew. A
 # trigger added later is offered once to a saved list (see _load_setups);
@@ -246,6 +257,9 @@ SELL_FETCH_PER_PASS = 8    # weekly triggers worked out per loop pass (each read
 SELL_RETRY_S = 1800        # a stock whose trigger could not be set is retried after this
 SELL_NEAR_PCT = 2.0        # "close" on the list: within this much of the trigger
 
+# ── Shorted high-debt stocks (v5.42) ───────────────────────────────────────
+SHORTED_TTL_S = 300        # the list is re-read from short_trend every five minutes
+
 # Grading: minutes after an alert at which its move is recorded.
 HORIZONS = (15, 30, 60)
 # A graded alert "followed through" when it was in profit, in its own
@@ -260,6 +274,7 @@ _NOW_FN = None         # () -> aware datetime in Eastern
 _LEVELS_FN = None      # (symbol) -> {"gamma_flip": float|None, "dark": [[price, shares], ...]} | None
 _SELL_FN = None        # (symbol, date) -> when_to_sell.weekly_trigger(...) dict
 _SELL_SYMBOLS_FN = None  # () -> [symbols with a When to sell trigger] (the regime table)
+_SHORTED_FN = None     # () -> short_trend.shorted_debt(...)["rows"]
 _DATA_DIR: Path | None = None
 
 _LOCK = threading.RLock()
@@ -275,6 +290,8 @@ def _fresh_state() -> dict:
         "prior": {},             # SYM -> [high, low, close] of the prior session
         "levels": {},            # SYM -> {"at", "gamma_flip", "dark"} from Unusual Whales
         "sell": {},              # SYM -> this week's When to sell trigger (+ "at", "tapped")
+        "shorted": {},           # SYM -> its row on the Shorted high-debt list
+        "shorted_at": 0.0,
         "rankings": {},
         "last_sweep": None, "phase": None, "error": None,
         "universe_n": 0, "quoted_n": 0, "sweeps": 0,
@@ -288,13 +305,15 @@ _SETUPS: list = []
 
 
 def configure(quotes_fn=None, universe_fn=None, notify_fn=None, now_fn=None,
-              data_dir=None, levels_fn=None, sell_fn=None, sell_symbols_fn=None) -> None:
+              data_dir=None, levels_fn=None, sell_fn=None, sell_symbols_fn=None,
+              shorted_fn=None) -> None:
     global _QUOTES_FN, _UNIVERSE_FN, _NOTIFY_FN, _NOW_FN, _DATA_DIR, _LEVELS_FN
-    global _SELL_FN, _SELL_SYMBOLS_FN
+    global _SELL_FN, _SELL_SYMBOLS_FN, _SHORTED_FN
     with _LOCK:
         _QUOTES_FN, _UNIVERSE_FN, _NOTIFY_FN, _NOW_FN = quotes_fn, universe_fn, notify_fn, now_fn
         _LEVELS_FN = levels_fn
         _SELL_FN, _SELL_SYMBOLS_FN = sell_fn, sell_symbols_fn
+        _SHORTED_FN = shorted_fn
         _DATA_DIR = Path(data_dir) / "live_scan" if data_dir else None
         keep = {"scanning": _STATE.get("scanning"), "thread": _STATE.get("thread")}
         _STATE.clear()
@@ -641,6 +660,7 @@ def _picture(sym: str, q: dict, row: dict, st: dict, now: datetime) -> dict:
         "gamma_flip": ((_STATE.get("levels") or {}).get(sym) or {}).get("gamma_flip"),
         "dark_levels": ((_STATE.get("levels") or {}).get(sym) or {}).get("dark") or [],
         "sell": _sell_for(sym, now),
+        "shorted": (_STATE.get("shorted") or {}).get(sym),
     }
 
 
@@ -764,6 +784,27 @@ def _trigger_state(trig: str, p: dict, prev_p: dict | None, st: dict, params: di
                                         f"now {abs(_pct(tp, last) or 0):.1f}% below it.")
         return False, False, None, (f"This week's trigger is {_fmt_money(tp)}, "
                                     f"{abs(_pct(tp, last) or 0):.1f}% above the price.")
+
+    if trig == "shorted_debt_drop":
+        rec = p.get("shorted")
+        if not rec:
+            return False, False, None, ("Not on the Shorted high-debt list (High or Elevated debt with "
+                                        "at least 5% of its float short, or shorts piling in).")
+        chg = p.get("change_pct")
+        if chg is None:
+            return False, False, None, "No move on the day yet."
+        live = chg <= -params.get("drop_pct", 3.0)
+        short = f"{rec['short_pct']:.1f}% of its float short" if rec.get("short_pct") is not None else "heavily shorted"
+        trend = ""
+        if rec.get("si_rises") and rec["si_rises"] >= 2 and rec.get("si_run") is not None:
+            trend = f", shorts up {rec['si_rises']} reports in a row ({rec['si_run']:+.0f}%)"
+        elif rec.get("si_chg") is not None:
+            trend = f", shorts {rec['si_chg']:+.0f}% in the latest report"
+        why = f" {rec['reason']}" if rec.get("reason") else ""
+        return live, live, "short", (
+            f"Down {abs(chg):.1f}% today at {_fmt_money(last)}{rv}: "
+            f"{'an' if str(rec.get('level', 'High'))[:1] in 'AEIOU' else 'a'} {rec.get('level', 'High')}-debt stock "
+            f"with {short}{trend}.{why}")
 
     if trig in ("new_hod", "new_lod"):
         hi = trig == "new_hod"
@@ -1210,6 +1251,27 @@ def _save_sell_taps() -> None:
                                              if (_STATE["sell"][s].get("week") == wk)})
 
 
+def refresh_shorted(now: datetime | None = None, force: bool = False) -> int:
+    """Re-read the Shorted high-debt list (short_trend.py) at most every
+    SHORTED_TTL_S. Returns how many stocks are on it. A failed read keeps
+    the list it had."""
+    if _SHORTED_FN is None:
+        return 0
+    ts = (now or _now()).timestamp()
+    with _LOCK:
+        if not force and ts - _STATE.get("shorted_at", 0.0) < SHORTED_TTL_S:
+            return len(_STATE.get("shorted") or {})
+    try:
+        rows = list(_SHORTED_FN() or [])
+    except Exception:  # noqa: BLE001
+        return len(_STATE.get("shorted") or {})
+    got = {str(r.get("symbol") or "").upper(): dict(r) for r in rows if r.get("symbol")}
+    with _LOCK:
+        _STATE["shorted"] = got
+        _STATE["shorted_at"] = ts
+    return len(got)
+
+
 def refresh_sell(now: datetime | None = None) -> int:
     """Work out this week's When to sell trigger for the stocks that need
     one: new to the list, set for an earlier week, or failed a while ago. A
@@ -1452,6 +1514,7 @@ def _loop() -> None:
             now = _now()
             ph = phase(now)
             if ph in ("pre", "open"):
+                refresh_shorted(now)
                 sweep(now)
                 wait = SWEEP_OPEN_S if ph == "open" else SWEEP_PRE_S
                 if ph == "open":

@@ -5896,3 +5896,27 @@ Tests: `test_short_trend.ShortedDebt` (3: who is on it and in what order,
 the profile fallback without FINRA reports, the cap; filters
 mutation-checked) and a render test at 1440, 440 and 390px from the real
 engine.
+
+## v5.42 — A push when a shorted high-debt stock drops
+
+Jerry: "Add a push alert when a shorted high-debt stock drops."
+
+- **A Live Scanner setup, "Shorted high-debt stock dropping"**
+  (`shorted_debt_drop`): a stock on the Shorted high-debt list (v5.41) down
+  at least 3% on the day (the setting, 1-20%, in Setups). Once a day per
+  stock, pushes to the phone, no price/volume/size condition (the list
+  chose the stocks). SHORT side, so the scanner's grading measures whether
+  it kept falling. Saved setup lists are offered it once.
+- The sentence: "Down 3.2% today at $96.80: a High-debt stock with 15.2%
+  of its float short, shorts +14% in the latest report. Net debt is 12.1x
+  a year of operating profit (EBITDA)."
+- The list is read from `short_trend.shorted_debt` every five minutes
+  (`refresh_shorted`, before each sweep); a failed read keeps the list it
+  had.
+- "an Elevated-debt stock", not "a": fixed here and in v5.40's alert text.
+
+Tests: `test_live_scan.ShortedDebtDrop` (5: fires once with its reason
+and push, off-list stocks never fire, the run of rising reports named,
+the threshold as a setting, the five-minute read kept on failure;
+mutation-checked), the offered-once tests, and the article in
+`test_short_trend`.

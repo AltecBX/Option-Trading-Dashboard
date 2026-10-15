@@ -199,7 +199,8 @@ def judge(row: Mapping, t: Optional[Mapping]) -> Optional[dict]:
     if not (jump or build):
         return None
     sym = str(row.get("symbol") or "").upper()
-    parts = [f"Shorts are piling into {sym}, a {level}-debt stock: short interest "
+    art = "an" if str(level)[:1] in "AEIOU" else "a"
+    parts = [f"Shorts are piling into {sym}, {art} {level}-debt stock: short interest "
              f"{t['change_pct']:+.0f}% to {_shares(t['short'])} shares in the {_day(t['settlement'])} report "
              f"({pct_float:.1f}% of its float"
              + (f", {t['days_to_cover']:.1f} days to cover" if t.get("days_to_cover") else "") + ")"]
