@@ -55,7 +55,7 @@ class Harness(unittest.TestCase):
                      settlements_fn=lambda today: sorted(SETTS, reverse=True),
                      public_on_fn=lambda st: "2026-10-12" if st == "2026-09-30" else st,
                      board_fn=lambda: self.rows,
-                     notify_fn=lambda t, m: self.pushes.append((t, m)),
+                     notify_fn=lambda t, m: (self.pushes.append((t, m)), {"ok": True})[1],
                      today_fn=lambda: self.today)
 
 
@@ -226,6 +226,42 @@ class ShortedDebt(Harness):
         self.assertEqual(ST.SHORTED_KEEP, len(got["rows"]))
         self.assertEqual(60, got["total"])
         self.assertEqual("S059", got["rows"][0]["symbol"])
+
+
+
+class Codex428b(Harness):
+    """Codex, #428 (second review)."""
+
+    def test_a_failed_push_is_tried_again(self):
+        results = [{"ok": False, "error": "ntfy timed out"}, {"ok": True}]
+
+        def notify(t, m):
+            self.pushes.append((t, m))
+            return results.pop(0)
+        ST._NOTIFY_FN = notify
+        r = ST.check()
+        self.assertEqual(2, r["new"])
+        self.assertFalse(r["pushed"], "the provider said it failed")
+        r = ST.check()
+        self.assertTrue(r["pushed"], "the next check tries the push again")
+        self.assertEqual(2, len(self.pushes))
+        self.assertTrue(ST.check().get("pushed") in (False, None))
+        self.assertEqual(2, len(self.pushes), "and stops once it went through")
+        self.assertEqual(2, len(ST.snapshot()["alerts"]), "the alerts are raised once")
+
+    def test_no_push_provider_is_not_a_delivery(self):
+        ST._NOTIFY_FN = lambda t, m: None          # push not configured
+        self.assertFalse(ST.check()["pushed"])
+
+    def test_a_board_still_scanning_is_not_used(self):
+        full = [dict(x) for x in ROWS]
+        self.board = {"rows": full[:1], "status": {"scanning": True, "last_scan": None}}
+        ST._BOARD_FN = lambda: self.board
+        r = ST.check()
+        self.assertFalse(r["ok"])
+        self.assertIn("scan", r["reason"])
+        self.board = {"rows": full, "status": {"scanning": False, "last_scan": "2026-10-15T13:00:00"}}
+        self.assertEqual(2, ST.check()["new"], "BUILD was in a later chunk and is not lost")
 
 
 if __name__ == "__main__":

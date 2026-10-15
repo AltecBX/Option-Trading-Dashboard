@@ -815,22 +815,37 @@ def _trigger_state(trig: str, p: dict, prev_p: dict | None, st: dict, params: di
         rec = p.get("shorted")
         if not rec:
             return False, False, None, NOT_SHORTED
+        # A dip below the line and back between two 30-second sweeps still
+        # shows in the quote's low of the day (Codex, #428).
+        low = p.get("low")
         if trig == "shorted_debt_drop":
             chg = p.get("change_pct")
             if chg is None:
                 return False, False, None, "No move on the day yet."
-            live = chg <= -params.get("drop_pct", 3.0)
-            return live, live, "short", (f"Down {abs(chg):.1f}% today at {_fmt_money(last)}{rv}: "
-                                         + _shorted_context(rec))
+            drop = params.get("drop_pct", 3.0)
+            low_chg = _pct(low, prev_close) if (low and prev_close) else None
+            live = chg <= -drop
+            touched = live or (low_chg is not None and low_chg <= -drop)
+            if live or low_chg is None:
+                head = f"Down {abs(chg):.1f}% today at {_fmt_money(last)}{rv}: "
+            else:
+                head = (f"Fell {abs(low_chg):.1f}% today (low {_fmt_money(low)}) and is "
+                        f"{'down' if chg < 0 else 'up'} {abs(chg):.1f}% at {_fmt_money(last)}{rv}: ")
+            return live, touched, "short", head + _shorted_context(rec)
         lvl = p.get("low_52w")
         if not lvl:
             return False, False, None, "No 52-week range on the board for this name."
         live = last < lvl
-        prev_last = was("last")
-        prev_live = prev_last is not None and prev_last < lvl
-        return live, live and not prev_live, "short", (
-            f"New 52-week low at {_fmt_money(last)}, under the {_fmt_money(lvl)} low of the last year{rv}: "
-            + _shorted_context(rec))
+        touched = live or (low is not None and low < lvl)
+        prev_last, prev_low = was("last"), was("low")
+        prev_touched = ((prev_last is not None and prev_last < lvl)
+                        or (prev_low is not None and prev_low < lvl))
+        if live:
+            head = f"New 52-week low at {_fmt_money(last)}, under the {_fmt_money(lvl)} low of the last year{rv}: "
+        else:
+            head = (f"Touched a new 52-week low of {_fmt_money(low)} (today's low), under the "
+                    f"{_fmt_money(lvl)} low of the last year; it is {_fmt_money(last)} now{rv}: ")
+        return live, touched and not prev_touched, "short", head + _shorted_context(rec)
 
     if trig in ("new_hod", "new_lod"):
         hi = trig == "new_hod"

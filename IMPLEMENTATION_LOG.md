@@ -5943,3 +5943,26 @@ Tests: `test_live_scan.ShortedDebtNewLow` (3: the break fires once with
 its reason and push, a stock already below at the first look does not,
 off the list or without a range never; mutation-checked) and the
 offered-once tests.
+
+Codex on #428, second review, all three right and fixed (the tests fail on
+the old code):
+
+- **A report counted as pushed only once the push went out.** The report
+  was marked "told" before the push; a push that failed (or no phone set
+  up) meant Jerry never heard about it. Now `check` raises the alerts once
+  and a separate `pushed` list records only a delivery the push service
+  confirmed, so a failed push is tried again on the next check (while the
+  report is still fresh).
+- **The board is read only when its scan is finished.** A scan still
+  running (or never run) has stocks missing their debt rating, so a report
+  read then would skip them for good. `check` now waits for a board that
+  is not scanning and has a last scan.
+- **The day's low, not the last price.** The scanner looks every 30
+  seconds; a stock can dip under the line and come back between looks.
+  The drop and new-low setups now use the quote's low of the day, so a
+  touch between looks still fires, and the sentence says so ("Touched a
+  new 52-week low of $94.70 (today's low) ... it is $95.80 now", "Fell
+  3.4% today (low $96.60) and is down 1.5% at $98.50").
+
+Tests: `test_short_trend.Codex428b` (3) and
+`test_live_scan.ShortedDipsBetweenSweeps` (2), all red on the old code.

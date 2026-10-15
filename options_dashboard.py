@@ -5208,8 +5208,10 @@ try:
         fetch_fn=lambda st: _strend_src.finra_short_interest(st),
         settlements_fn=lambda d: _strend_src.finra_settlements(d, n=_strend.SETTLEMENTS_KEEP),
         public_on_fn=lambda st: _strend_src.finra_public_on(st),
-        board_fn=lambda: (((_wltable.get_board() if (_WLTABLE_AVAILABLE and _wltable is not None)
-                            else {}) or {}).get("rows") or []),
+        # the whole board, so a report waits for a finished scan (Codex, #428)
+        board_fn=lambda: ((_wltable.get_board() if (_WLTABLE_AVAILABLE and _wltable is not None)
+                           else {}) or {}),
+        # returns {"ok": ...}: a failed send is retried on the next check
         notify_fn=lambda title, msg: (_push_notify(title, msg, priority=0) if _push_configured() else None),
         today_fn=(lambda: datetime.now(_ET).date()) if _ET is not None else None,
     )

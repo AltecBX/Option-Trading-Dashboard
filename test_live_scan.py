@@ -931,3 +931,36 @@ class ShortedDebtNewLow(Harness):
         self.assertEqual([], self.alerts())
         chk = {r["setup_id"]: r for r in LS.check("AAA", at(10, 2))["setups"]}
         self.assertIn("No 52-week range", chk["shorted_debt_new_low"]["detail"])
+
+
+
+class ShortedDipsBetweenSweeps(Harness):
+    """Codex, #428: a dip below the line and back inside 30 seconds still
+    shows in the quote's low of the day."""
+
+    def setUp(self):
+        super().setUp()
+        self.rows = [row("AAA", lo52=95.0)]
+        LS.configure(quotes_fn=lambda syms: {s: self.quotes[s] for s in syms if s in self.quotes},
+                     universe_fn=lambda: self.rows,
+                     notify_fn=lambda t, m, p=0: self.pushes.append((t, m)),
+                     now_fn=lambda: self.clock, data_dir=self.tmp.name,
+                     shorted_fn=lambda: ShortedDebtDrop.ROWS)
+        LS.refresh_shorted(at(9, 30), force=True)
+
+    def test_a_new_low_touched_between_sweeps(self):
+        self.only("shorted_debt_new_low")
+        self.step(at(10, 0), AAA=quote(96.0, prev=97.0, low=95.5))
+        self.step(at(10, 0, 30), AAA=quote(95.8, prev=97.0, low=94.7))
+        a = self.alerts("shorted_debt_new_low")
+        self.assertEqual(1, len(a))
+        self.assertIn("Touched a new 52-week low of $94.70", a[0]["why"])
+        self.assertIn("it is $95.80 now", a[0]["why"])
+
+    def test_a_drop_touched_between_sweeps(self):
+        self.only("shorted_debt_drop")
+        self.step(at(10, 0), AAA=quote(98.0, prev=100.0, low=98.0))
+        self.step(at(10, 0, 30), AAA=quote(98.5, prev=100.0, low=96.6))
+        a = self.alerts("shorted_debt_drop")
+        self.assertEqual(1, len(a))
+        self.assertIn("Fell 3.4% today (low $96.60) and is down 1.5% at $98.50", a[0]["why"])

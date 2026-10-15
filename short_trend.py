@@ -58,7 +58,7 @@ _DATA_DIR: Optional[Path] = None
 _FETCH_FN: Optional[Callable[[str], Mapping]] = None          # settlement -> {SYM: row}
 _SETTLEMENTS_FN: Optional[Callable[[date], list]] = None      # today -> [settlement, ...] newest first
 _PUBLIC_ON_FN: Optional[Callable[[str], Optional[str]]] = None
-_BOARD_FN: Optional[Callable[[], list]] = None                # () -> watchlist rows
+_BOARD_FN: Optional[Callable[[], Any]] = None                 # () -> the watchlist board {rows, status} (or its rows)
 _NOTIFY_FN: Optional[Callable[..., Any]] = None               # (title, message) -> None
 _TODAY_FN: Optional[Callable[[], date]] = None
 _STORE: dict = {}
@@ -99,7 +99,9 @@ def _path() -> Optional[Path]:
 
 
 def _empty() -> dict:
-    return {"settlements": {}, "alerts": [], "notified": []}
+    # notified: reports whose alerts were raised; pushed: reports whose push
+    # the provider confirmed (retried until then, while fresh).
+    return {"settlements": {}, "alerts": [], "notified": [], "pushed": []}
 
 
 def _load() -> dict:
@@ -290,45 +292,74 @@ def check(today: Optional[date] = None) -> dict:
         return {"ok": False, "reason": "no FINRA report on file yet", "fetched": fetched}
     with _LOCK:
         done = st in (_STORE.get("notified") or [])
-    if done:
-        return {"ok": True, "settlement": st, "new": 0, "fetched": fetched}
-    try:
-        rows = list((_BOARD_FN() if _BOARD_FN else []) or [])
-    except Exception:  # noqa: BLE001
-        rows = []
-    if not any(r.get("debt_risk") for r in rows):
-        # The watchlist has not been scanned with debt ratings yet: the
-        # report waits for it rather than being marked as seen with nothing.
-        return {"ok": False, "reason": "waiting for the watchlist scan", "settlement": st, "fetched": fetched}
+    new: list = []
+    if not done:
+        try:
+            board = _BOARD_FN() if _BOARD_FN else []
+        except Exception:  # noqa: BLE001
+            board = []
+        if isinstance(board, Mapping):
+            rows = list(board.get("rows") or [])
+            status = board.get("status") or {}
+            # The watchlist publishes after every chunk of a scan: a report
+            # read against half a board would never see the rest of it
+            # (Codex, #428). It waits for a finished scan.
+            if status.get("scanning") or not status.get("last_scan"):
+                return {"ok": False, "reason": "waiting for the watchlist scan to finish",
+                        "settlement": st, "fetched": fetched}
+        else:
+            rows = list(board or [])
+        if not any(r.get("debt_risk") for r in rows):
+            # The watchlist has not been scanned with debt ratings yet: the
+            # report waits for it rather than being marked as seen with nothing.
+            return {"ok": False, "reason": "waiting for the watchlist scan", "settlement": st, "fetched": fetched}
+        with _LOCK:
+            new = alerts_for(rows, _STORE)
+            stamp = datetime.now().isoformat(timespec="seconds")
+            for a in new:
+                a["raised"] = stamp
+            cutoff = (today - timedelta(days=ALERTS_KEEP_DAYS)).isoformat()
+            kept = [a for a in (_STORE.get("alerts") or [])
+                    if a.get("settlement", "") >= cutoff and a.get("settlement") != st]
+            _STORE["alerts"] = kept + new
+            _STORE["notified"] = (list(_STORE.get("notified") or []) + [st])[-24:]
+            _save()
+    pushed = _push(st, today)
+    return {"ok": True, "settlement": st, "new": len(new), "pushed": pushed, "fetched": fetched}
+
+
+def _push(st: str, today: date) -> bool:
+    """Send the report's push if it has alerts, is fresh and has not been
+    delivered. Delivered means the provider said so: the app's push returns
+    {"ok": False} on a failed send rather than raising, and a report marked
+    sent on a failure would never be pushed (Codex, #428). Retried on each
+    check until it goes through or the report stops being fresh."""
     with _LOCK:
-        new = alerts_for(rows, _STORE)
-        stamp = datetime.now().isoformat(timespec="seconds")
-        for a in new:
-            a["raised"] = stamp
-        cutoff = (today - timedelta(days=ALERTS_KEEP_DAYS)).isoformat()
-        kept = [a for a in (_STORE.get("alerts") or [])
-                if a.get("settlement", "") >= cutoff and a.get("settlement") != st]
-        _STORE["alerts"] = kept + new
-        _STORE["notified"] = (list(_STORE.get("notified") or []) + [st])[-24:]
-        _save()
-    pushed = False
+        if st in (_STORE.get("pushed") or []):
+            return False
+        alerts = [a for a in (_STORE.get("alerts") or []) if a.get("settlement") == st]
+    if not alerts or _NOTIFY_FN is None:
+        return False
     public = _PUBLIC_ON_FN(st) if _PUBLIC_ON_FN else None
-    fresh = True
     if public:
         try:
-            fresh = (today - date.fromisoformat(public)).days <= PUSH_FRESH_DAYS
+            if (today - date.fromisoformat(public)).days > PUSH_FRESH_DAYS:
+                return False
         except ValueError:
-            fresh = True
-    if new and fresh and _NOTIFY_FN is not None:
-        names = ", ".join(f"{a['symbol']} {a['change_pct']:+.0f}%" for a in new[:6])
-        more = f" and {len(new) - 6} more" if len(new) > 6 else ""
-        try:
-            _NOTIFY_FN(f"Shorts piling into {len(new)} high-debt stock{'s' if len(new) != 1 else ''}",
-                       f"FINRA {_day(st)} report: {names}{more}.")
-            pushed = True
-        except Exception:  # noqa: BLE001
-            pushed = False
-    return {"ok": True, "settlement": st, "new": len(new), "pushed": pushed, "fetched": fetched}
+            pass
+    names = ", ".join(f"{a['symbol']} {a['change_pct']:+.0f}%" for a in alerts[:6])
+    more = f" and {len(alerts) - 6} more" if len(alerts) > 6 else ""
+    try:
+        res = _NOTIFY_FN(f"Shorts piling into {len(alerts)} high-debt stock{'s' if len(alerts) != 1 else ''}",
+                         f"FINRA {_day(st)} report: {names}{more}.")
+    except Exception:  # noqa: BLE001
+        return False
+    ok = res is not None and not (isinstance(res, Mapping) and not res.get("ok", True))
+    if ok:
+        with _LOCK:
+            _STORE["pushed"] = (list(_STORE.get("pushed") or []) + [st])[-24:]
+            _save()
+    return ok
 
 
 def snapshot(symbol: Optional[str] = None) -> dict:
