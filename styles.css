@@ -15593,6 +15593,25 @@ body { overflow: hidden; overscroll-behavior: none; }
 .dr-why { margin: 12px 0 0; padding: 0 0 0 18px; font-size: 13px; line-height: 1.5; color: var(--fg-2); }
 .dr-note { margin: 12px 0 0; font-size: 12.5px; color: var(--fg-3); }
 .dr-foot { margin: 10px 0 0; font-size: 11.5px; line-height: 1.45; color: var(--fg-3); }
+/* v5.40 — short interest trend: the strip above the table, the column, the card's reports */
+.wl-si-strip { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 8px;
+               padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg-2); }
+.wl-si-h { font-size: 11.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--fg-3); }
+.wl-si-chip { font-size: 12px; padding: 2px 9px; border-radius: 999px; cursor: pointer; color: var(--fg);
+              border: 1px solid var(--line); background: var(--bg-3); }
+.wl-si-chip b { font-weight: 800; }
+.wl-si-chip.high { background: color-mix(in srgb, var(--down) 16%, transparent); border-color: color-mix(in srgb, var(--down) 55%, transparent); }
+.wl-si-chip.elev { background: color-mix(in srgb, var(--warn) 14%, transparent); border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
+.wl-si-none { font-size: 12.5px; color: var(--fg-2); }
+.wl-si-run { white-space: nowrap; }
+.dr-si-alert { margin: 0 0 8px; padding: 6px 10px; border-radius: 8px; font-size: 12.5px; line-height: 1.45; color: var(--fg);
+               border-left: 3px solid var(--down); background: color-mix(in srgb, var(--down) 10%, transparent); }
+.dr-si .dr-bar-row.rise .dr-bar-fill { background: color-mix(in srgb, var(--down) 70%, transparent); }
+.dr-bar-v em { font-style: normal; font-size: 11px; color: var(--fg-3); }
+.dr-si .dr-bar-row { grid-template-columns: 150px minmax(0, 1fr) 104px; }
+@media (max-width: 900px) {
+  .dr-si .dr-bar-row { grid-template-columns: 96px minmax(0, 1fr) 96px; }
+}
 @media (max-width: 900px) {
   .dr-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dr-bar-row { grid-template-columns: 112px minmax(0, 1fr) 62px; gap: 6px; }

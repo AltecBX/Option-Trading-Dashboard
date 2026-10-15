@@ -3042,7 +3042,7 @@ const WL_PRESETS = [
   { id: "debt", label: "Debt & rates",
     tip: "Debt, cash burn and short interest from each company's profile, a Debt risk rating with its reasons, and how the stock has moved when the 10-year yield rose. Sort Debt risk to see the most exposed first.",
     cols: ["symbol", "company", "last", "mtd", "market_cap", "debt_risk", "debt_total",
-           "net_debt_ebitda", "debt_to_mcap", "fcf", "short_pct", "short_chg", "rate_move",
+           "net_debt_ebitda", "debt_to_mcap", "fcf", "short_pct", "si_trend", "rate_move",
            "sector", "tag"] },
   { id: "all", label: "All columns",
     tip: "Every column, for a deliberate side-by-side comparison.",
@@ -3176,6 +3176,8 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
     { k: "net_debt_ebitda", label: "Debt/EBITDA", num: true }, { k: "debt_to_mcap", label: "Debt/Cap", num: true },
     { k: "fcf", label: "FCF", num: true }, { k: "short_pct", label: "Short %", num: true },
     { k: "short_chg", label: "Short Δ", num: true }, { k: "rate_move", label: "Rate move", num: true },
+    // v5.40 — FINRA's twice-monthly short interest
+    { k: "si_trend", label: "Short trend", num: true },
   ];
   const STR = new Set(["symbol", "company", "tag", "weekly", "industry", "sector", "flow_agree", "flow_verdict", "setup", "prem_sell", "swing_dir", "swing_stage"]);
   const setSortKey = (k) => setSort(s => s.key === k ? { key: k, dir: s.dir === "asc" ? "desc" : "asc" } : { key: k, dir: STR.has(k) ? "asc" : "desc" });
@@ -3213,6 +3215,7 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
     short_pct: "Share of the tradable stock (the float) that is sold short",
     short_chg: "Change in shares sold short against a month earlier. Rising = shorts piling in.",
     rate_move: "How the stock has moved, on average, for each +0.10% rise in the 10-year Treasury yield, over the last six months of trading days. -2% means it fell about 2% per +0.10%.",
+    si_trend: "Short interest in FINRA's latest twice-monthly report against the one before. ▲3 means it rose three reports in a row (about six weeks), with the total rise over that run. Sorts by the latest change.",
   };
   // Movable columns — drag a header to reorder; order persists per device.
   const COL_ORDER_KEY = "jerry_wl_colorder_v1";
@@ -3355,6 +3358,7 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
   // Everything else sorts on the scanned field.
   const REB_KEYS = new Set(["wtd", "mtd", "qtd", "ytd", "from_ma20", "from_ma50", "from_ma200"]);
   const sortValOf = (r, key) => key === "debt_risk" ? r.debt_score
+    : key === "si_trend" ? r.si_chg
     : key === "from_open" ? foVal(r)
     : key === "change" ? chgVal(r)
     : key === "last" ? liveLast(r)
@@ -3711,9 +3715,35 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
       case "rate_move": return <td key={k} className={`scan-num ${r.rate_move != null && r.rate_move <= -2 ? "down" : ""}`}
         title={r.rate_r != null ? `Over six months; how closely the stock tracked the yield: ${r.rate_r}` : ""}>
         {r.rate_move != null ? `${r.rate_move > 0 ? "+" : ""}${r.rate_move.toFixed(1)}%` : "—"}</td>;
+      case "si_trend": {
+        if (r.si_chg == null) return <td key={k} className="scan-num">—</td>;
+        const up = r.si_chg > 0, run = (r.si_rises || 0) >= 2;
+        const tip = `FINRA ${r.si_settlement || ""} report: ${r.si_chg > 0 ? "+" : ""}${r.si_chg}% vs the one before`
+          + (run ? `; ${r.si_rises} rising reports in a row, ${r.si_run > 0 ? "+" : ""}${r.si_run}% over them` : "")
+          + (r.si_dtc != null ? `; ${r.si_dtc} days to cover` : "");
+        return <td key={k} className={`scan-num ${r.si_chg >= 10 || (run && r.si_run >= 15) ? "down" : !up && r.si_chg <= -10 ? "up" : ""}`} title={tip}>
+          {run ? <span className="wl-si-run">▲{r.si_rises} {r.si_run > 0 ? "+" : ""}{Math.round(r.si_run)}%</span>
+               : `${r.si_chg > 0 ? "+" : ""}${Math.round(r.si_chg)}%`}</td>;
+      }
       default: return <td key={k} className="scan-num">—</td>;
     }
   };
+
+  // v5.40: the newest FINRA report's alerts — shorts piling into High or
+  // Elevated debt stocks — above the table in the Debt & rates view.
+  const [siAlerts, setSiAlerts] = useState(null);
+  useEffect(() => {
+    if (wlPreset !== "debt" || !apiFetch) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await apiFetch("/api/short_trend");
+        const j = await r.json();
+        if (!cancelled && j && Array.isArray(j.alerts)) setSiAlerts(j);
+      } catch (e) { /* the strip simply stays away */ }
+    })();
+    return () => { cancelled = true; };
+  }, [wlPreset, board && board.status && board.status.last_scan]);
 
   return (
     <div className="card ab-card">
@@ -3939,6 +3969,18 @@ function WatchlistTableCard({ apiFetch, onSwitchTicker, market, onRemoveSymbol, 
                   onClick={() => setChooserOpen(o => !o)}>
             Choose… <span className="wl-cols-n">{visibleCols.length}/{orderedCols.length}</span>
           </button>
+          {wlPreset === "debt" && siAlerts && siAlerts.settlement ? (
+            <div className="wl-si-strip" title="FINRA's twice-monthly short-interest report against each stock's Debt risk: short interest up 10% or more in one report, or up three reports in a row by 15% or more, on a High or Elevated debt stock with at least 2% of its float short. A push goes to your phone when a new report brings alerts.">
+              <span className="wl-si-h">Shorts piling in · FINRA {drDate(siAlerts.settlement)} report</span>
+              {siAlerts.alerts.length
+                ? siAlerts.alerts.map(a => (
+                    <button key={a.symbol} type="button" className={`wl-si-chip ${a.level === "High" ? "high" : "elev"}`}
+                            title={a.text} onClick={() => onSwitchTicker && onSwitchTicker(a.symbol)}>
+                      <b>{a.symbol}</b> {a.change_pct > 0 ? "+" : ""}{Math.round(a.change_pct)}%{a.rises >= 2 ? ` ▲${a.rises}` : ""}
+                    </button>))
+                : <span className="wl-si-none">No High or Elevated debt stock had shorts piling in.</span>}
+            </div>
+          ) : null}
           {chooserOpen && (
             <div className="wl-chooser" role="dialog" aria-label="Choose columns">
               <div className="wl-chooser-head">
@@ -16120,6 +16162,20 @@ function drDate(iso) {
 function DebtRatesCard({ ticker, apiFetch }) {
   const [d, setD] = useState(null);
   const [err, setErr] = useState(null);
+  const [si, setSi] = useState(null);
+  useEffect(() => {
+    if (!ticker) return undefined;
+    let cancelled = false;
+    setSi(null);
+    (async () => {
+      try {
+        const r = await apiFetch(`/api/short_trend?symbol=${encodeURIComponent(ticker)}`);
+        const j = await r.json();
+        if (!cancelled && j && j.trend) setSi(j);
+      } catch (e) { /* the section simply stays away */ }
+    })();
+    return () => { cancelled = true; };
+  }, [ticker]);
   useEffect(() => {
     if (!ticker) return undefined;
     let cancelled = false;
@@ -16201,9 +16257,35 @@ function DebtRatesCard({ ticker, apiFetch }) {
             </ul>
           </div>
         ) : <p className="dr-note">No debt schedule in its SEC filings (a fund, a foreign filer, or it does not tag one).</p>}
+        {si && si.trend ? (() => {
+          const t = si.trend, pts = t.points || [];
+          const maxS = Math.max(1, ...pts.map(p => p.short || 0));
+          const live = (si.symbol_alerts || []).find(a => a.settlement === t.settlement);
+          return (
+            <div className="dr-wall dr-si">
+              <div className="dr-wall-h">Short interest, last {pts.length} FINRA reports
+                <span className="dr-wall-sub"> · {t.change_pct > 0 ? "+" : ""}{t.change_pct}% in the latest
+                  {t.rises >= 2 ? `, up ${t.rises} reports in a row (${t.run_pct > 0 ? "+" : ""}${t.run_pct}%)` : ""}
+                  {t.days_to_cover != null ? ` · ${t.days_to_cover} days to cover` : ""}</span></div>
+              {live ? <p className="dr-si-alert">{live.text}</p> : null}
+              <ul className="dr-bars">
+                {pts.map((p, i) => {
+                  const prev = i ? pts[i - 1].short : null;
+                  const ch = prev ? (p.short / prev - 1) * 100 : null;
+                  return (
+                    <li key={p.settlement} className={`dr-bar-row${ch != null && ch > 0 ? " rise" : ""}`}
+                        title={`${drDate(p.settlement)}: ${(p.short / 1e6).toFixed(1)}M shares short${ch != null ? ` (${ch > 0 ? "+" : ""}${ch.toFixed(1)}%)` : ""}`}>
+                      <span className="dr-bar-l">{drDate(p.settlement)}</span>
+                      <span className="dr-bar-track"><span className="dr-bar-fill" style={{ width: `${p.short / maxS * 100}%` }} /></span>
+                      <span className="dr-bar-v">{(p.short / 1e6).toFixed(1)}M{ch != null ? <em> {ch > 0 ? "+" : ""}{Math.round(ch)}%</em> : null}</span>
+                    </li>);
+                })}
+              </ul>
+            </div>);
+        })() : null}
         {reasons.length ? <ul className="dr-why">{reasons.map((t, i) => <li key={i}>{t}</li>)}</ul> : null}
         <p className="dr-foot">Debt, cash, EBITDA, cash flow and short interest: the company profile (Yahoo).
-          Schedule and interest: its SEC filings. Rate move: daily changes against the 10-year Treasury yield (FRED).
+          Schedule and interest: its SEC filings. Rate move: daily changes against the 10-year Treasury yield (FRED). Short interest trend: FINRA's twice-monthly reports.
           {d.on_watchlist ? "" : " Not on your watchlist, so worked out just now."}</p>
       </>) : null}
     </div>

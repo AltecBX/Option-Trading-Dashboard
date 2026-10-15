@@ -92,6 +92,9 @@ def screen_fields(info: Mapping[str, Any] | None) -> dict:
     out = {
         "debt_total": debt, "debt_cash": cash, "net_debt": net,
         "ebitda": ebitda, "fcf": fcf, "debt_ccy": ccy,
+        # v5.40: the tradable share count, for FINRA's short interest as a
+        # share of the float (short_trend.py).
+        "float_shares": _f(i.get("floatShares")),
         "net_debt_ebitda": (round(net / ebitda, 2) if (net is not None and ebitda and ebitda > 0) else None),
         "debt_to_mcap": (round(debt / mcap, 3) if (same and debt is not None and mcap and mcap > 0) else None),
         # Yahoo gives the float share as a fraction (0.19 = 19%).

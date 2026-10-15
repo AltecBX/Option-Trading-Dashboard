@@ -5833,3 +5833,41 @@ Codex on #428, each proven red first:
   net debt equal to all of its debt.
 - **A market value recovered from fast_info counts.** The debt fields are
   worked out after the watchlist's market-cap fallback.
+
+## v5.40 — Short-interest trend alerts for high-debt stocks
+
+Jerry: "Add short interest trend alerts for high debt stocks."
+
+- **`short_trend.py`.** FINRA's official short-interest report (every US
+  stock, settled on the 15th and the last business day, public about eight
+  business days later), read through the app's existing
+  `hf_sources.finra_short_interest`. The last six reports (about three
+  months) are kept on disk for every symbol, so a stock added to the
+  watchlist later already has its history; a report not yet published is
+  tried again on the next check.
+- **The alert**, on a stock the Debt & rates screen rates High or
+  Elevated with at least 2% of its float short (FINRA's short shares over
+  Yahoo's float): short interest up 10% or more in the newest report (a
+  jump), or up three reports in a row by 15% or more over the run (a
+  build). Report-to-report swings of 10-20% are ordinary on Jerry's 53
+  table stocks, hence both rules. The sentence names the debt level, the
+  change, the shares, the float share, days to cover, the run, and the
+  first debt reason.
+- **Delivery.** Checked every three hours; a new report waits for the
+  watchlist to have its debt ratings, then raises its alerts once, keeps
+  them 120 days, and sends ONE push naming the stocks when the report is
+  fresh (published within a week). `/api/short_trend` serves the alerts
+  and, with `?symbol=`, a stock's trend.
+- **On screen.** The watchlist's Debt & rates view gains a "Shorts piling
+  in" strip with the newest report's alerts (a tap opens the stock) and a
+  Short trend column ("▲3 +26%" = three rising reports, +26% over them),
+  which replaces Yahoo's month-on-month change in that view (both remain
+  columns). The Debt & rates card shows the last six reports as bars, the
+  rising ones marked, with the live alert above them.
+- `debt_risk.screen_fields` now also carries `float_shares`.
+
+Tests: `test_short_trend.py` (14: the trend, every rule, the sentence,
+once per report, a restart, waiting for the scan, an unpublished report,
+a stale report not pushed, the kept window, the watchlist and card
+fields, no sources; mutation-checked) and the render tests extended (the
+strip, the column, the card's reports and alert).

@@ -5192,6 +5192,28 @@ except Exception as _exc:  # noqa: BLE001
     _LIVE_AVAILABLE = False
     _live = None  # type: ignore
 
+# ── Short-interest trend alerts for high-debt stocks (v5.40) ────────────────
+# FINRA's twice-monthly short-interest report against the watchlist's Debt &
+# rates ratings: an alert when shorts pile into a High or Elevated debt stock.
+try:
+    import short_trend as _strend
+    import hf_sources as _strend_src
+    _strend.configure(
+        data_dir=_STABLE_DIR,
+        fetch_fn=lambda st: _strend_src.finra_short_interest(st),
+        settlements_fn=lambda d: _strend_src.finra_settlements(d, n=_strend.SETTLEMENTS_KEEP),
+        public_on_fn=lambda st: _strend_src.finra_public_on(st),
+        board_fn=lambda: (((_wltable.get_board() if (_WLTABLE_AVAILABLE and _wltable is not None)
+                            else {}) or {}).get("rows") or []),
+        notify_fn=lambda title, msg: (_push_notify(title, msg, priority=0) if _push_configured() else None),
+        today_fn=(lambda: datetime.now(_ET).date()) if _ET is not None else None,
+    )
+    _STREND_AVAILABLE = True
+except Exception as _exc:  # noqa: BLE001
+    print(f"[short_trend] wiring failed: {_exc}", file=sys.stderr)
+    _STREND_AVAILABLE = False
+    _strend = None  # type: ignore
+
 # ── Hedge Fund Intelligence: Named Fund Watch (HEDGE_FUND_INTEL.md) ─────────
 # EDGAR is the source of record; Unusual Whales is a cross-check. The sector
 # of a held name comes from the app's own board first (the user's sector map)
@@ -9971,6 +9993,18 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
+        if parsed.path == "/api/short_trend":
+            # v5.40: the newest FINRA report's alerts, the recent ones, and
+            # with ?symbol= that stock's short-interest trend.
+            qs = parse_qs(parsed.query)
+            if not (_STREND_AVAILABLE and _strend is not None):
+                self._send_json({"error": "short-interest trend unavailable", "alerts": []}, status=503)
+                return
+            try:
+                self._send_json(_strend.snapshot((qs.get("symbol", [""])[0] or "").strip() or None))
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)[:200], "alerts": []}, status=500)
+            return
         if parsed.path == "/api/debt":
             # v5.39: the Debt & rates card for one stock.
             qs = parse_qs(parsed.query)
@@ -11443,11 +11477,17 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                 return
             try:
                 board = _wltable.get_board()
+                # v5.40: each row's short-interest trend (FINRA), and the
+                # newest report in the version stamp so a new report shows.
+                si = None
+                if _STREND_AVAILABLE and _strend is not None:
+                    board["rows"] = _strend.board_fields(board.get("rows") or [])
+                    si = _strend.latest_settlement()
                 # Version stamp: changes when a scan chunk publishes (scanned
                 # advances) or a scan completes (last_scan). Unchanged board →
                 # 304 for pollers + the body is serialized once per version.
                 st = board.get("status") or {}
-                tag = f'W/"wlt-{st.get("last_scan")}-{st.get("scanned")}-{board.get("count")}"'
+                tag = f'W/"wlt-{st.get("last_scan")}-{st.get("scanned")}-{board.get("count")}-{si}"'
                 self._send_json(board, etag=tag)
             except Exception as exc:  # noqa: BLE001
                 _log_warn(None, "api/watchlist_table", exc)
@@ -14304,6 +14344,12 @@ def serve(host: str, port: int, weeks: int, friday_baseline: bool) -> None:
             _live.start_scheduler()
         except Exception as exc:  # noqa: BLE001
             print(f"[live_scan] scheduler start failed: {exc}", file=sys.stderr)
+    if _STREND_AVAILABLE and _strend is not None and not os.environ.get("JERRY_NO_NET"):
+        try:
+            # v5.40: checks for a new FINRA short-interest report every 3 hours
+            _strend.start_scheduler()
+        except Exception as exc:  # noqa: BLE001
+            print(f"[short_trend] scheduler start failed: {exc}", file=sys.stderr)
     if _SELL_AVAILABLE:
         try:
             # grades every recorded Best Sales recommendation after its expiry

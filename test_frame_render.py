@@ -143,6 +143,43 @@ def _with_debt(rows):
 
 WATCHLIST_ROWS = _with_debt(WATCHLIST_ROWS)
 
+
+def short_trend_store():
+    """v5.40: six FINRA reports, shaped like FINRA's, in which ORCL's short
+    interest rises three reports running and jumps 14% in the newest."""
+    import short_trend as _st
+    setts = ["2026-07-15", "2026-07-31", "2026-08-14", "2026-08-31", "2026-09-15", "2026-09-30"]
+    orcl = [40e6, 39e6, 38e6, 40e6, 42e6, 48e6]
+    store = {"settlements": {}, "alerts": [], "notified": []}
+    for i, st in enumerate(setts):
+        store["settlements"][st] = _st.compact({
+            r["symbol"]: {"short": (orcl[i] if r["symbol"] == "ORCL" else 20e6), "days_to_cover": 1.5}
+            for r in WATCHLIST_ROWS})
+    return store
+
+
+def _with_short_trend(rows):
+    import short_trend as _st
+    store = short_trend_store()
+    return [dict(r, **_st.row_fields(store, r["symbol"])) for r in rows]
+
+
+def short_trend_answer(symbol=None):
+    """The /api/short_trend answer from the REAL short_trend on that store."""
+    import short_trend as _st
+    store = short_trend_store()
+    rows = [dict(r, float_shares=1.8e9) for r in WATCHLIST_ROWS]
+    alerts = _st.alerts_for(rows, store)
+    out = {"settlement": "2026-09-30", "public_on": "2026-10-12", "reports": sorted(store["settlements"]),
+           "alerts": alerts, "recent": alerts, "rules": {}}
+    if symbol:
+        out.update(symbol=symbol, trend=_st.trend(_st.series(store, symbol)),
+                   symbol_alerts=[a for a in alerts if a["symbol"] == symbol])
+    return out
+
+
+WATCHLIST_ROWS = _with_short_trend(WATCHLIST_ROWS)
+
 # A board with rows on it, because that is what the live one has on any
 # ordinary morning. Nine is a normal day's worth; the defect this guards
 # against needs only that the board be non-empty.
@@ -692,6 +729,11 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                     r.fulfill(status=200, content_type="application/json",
                               body=json.dumps(self._live[key]))
                     return
+            if urllib.parse.urlsplit(url).path == "/api/short_trend":
+                sym = (urllib.parse.parse_qs(urllib.parse.urlsplit(url).query).get("symbol") or [None])[0]
+                r.fulfill(status=200, content_type="application/json",
+                          body=json.dumps(short_trend_answer("ORCL" if sym else None)))
+                return
             if self._debt is not None and urllib.parse.urlsplit(url).path == "/api/debt":
                 r.fulfill(status=200, content_type="application/json", body=json.dumps(self._debt))
                 return
@@ -2839,12 +2881,20 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                   }
                   const m = document.querySelector('.main');
                   return {text: c.innerText, verdict: c.querySelector('.dr-verdict b').innerText,
-                          bars: c.querySelectorAll('.dr-bar-row').length,
-                          soon: c.querySelectorAll('.dr-bar-row.soon').length,
+                          bars: c.querySelectorAll('.dr-wall:not(.dr-si) .dr-bar-row').length,
+                          soon: c.querySelectorAll('.dr-wall:not(.dr-si) .dr-bar-row.soon').length,
                           clipped, scroll: Math.max(0, m.scrollWidth - m.clientWidth)}; })()""")
                 self.assertEqual("Debt risk: High", got["verdict"])
                 self.assertEqual(6, got["bars"], "next 12 months, years 2 to 5, after year 5")
                 self.assertEqual(2, got["soon"], "the two due soonest are marked")
+                page.wait_for_selector(".dr-si", timeout=8000)
+                si = page.evaluate("""(() => { const s = document.querySelector('.dr-si');
+                  return {text: s.innerText, bars: s.querySelectorAll('.dr-bar-row').length,
+                          rises: s.querySelectorAll('.dr-bar-row.rise').length}; })()""")
+                self.assertIn("Short interest, last 6 FINRA reports", si["text"])
+                self.assertEqual(6, si["bars"])
+                self.assertEqual(3, si["rises"], "the three rising reports are marked")
+                self.assertIn("Shorts are piling into ORCL", si["text"], "the live alert sits on the card")
                 for bit in ("$51.6B", "12.1x", "142%", "-$9.1B", "$1.6B", "loss", "19.2%",
                             "within two years", "-2.1%", "5.21%", "operating loss"):
                     self.assertIn(bit, got["text"], f"{bit!r} missing at {w}px")
@@ -2866,7 +2916,7 @@ class TheFrameStaysOnScreen(unittest.TestCase):
               const chips = [...document.querySelectorAll('.wl-table .wl-debt')].map(c => ({
                 t: c.innerText.trim(), why: c.closest('td').getAttribute('title') || ''}));
               return {heads, chips}; })()""")
-            for h in ("Debt risk", "Debt", "Debt/EBITDA", "Debt/Cap", "FCF", "Short %", "Short Δ", "Rate move"):
+            for h in ("Debt risk", "Debt", "Debt/EBITDA", "Debt/Cap", "FCF", "Short %", "Short trend", "Rate move"):
                 self.assertTrue(any(x.upper().startswith(h.upper()) for x in got["heads"]),
                                 f"no {h!r} column: {got['heads']}")
             high = [c for c in got["chips"] if c["t"] == "High"]
@@ -2876,6 +2926,20 @@ class TheFrameStaysOnScreen(unittest.TestCase):
             page.wait_for_timeout(200)
             first = page.evaluate("document.querySelector('.wl-table tbody tr td.wl-sym').innerText")
             self.assertIn("ORCL", first, "sorting Debt risk puts the most exposed first")
+            # v5.40: the newest FINRA report's alerts above the table, and the trend column.
+            page.wait_for_selector(".wl-si-strip", timeout=8000)
+            strip = page.evaluate("""(() => { const s = document.querySelector('.wl-si-strip');
+              return {text: s.innerText, chips: [...s.querySelectorAll('.wl-si-chip')].map(c => ({
+                t: c.innerText.trim(), why: c.getAttribute('title') || ''}))}; })()""")
+            self.assertIn("SHORTS PILING IN", strip["text"].upper())
+            self.assertIn("SEP 30, 2026", strip["text"].upper())
+            self.assertEqual(1, len(strip["chips"]), strip)
+            self.assertTrue(strip["chips"][0]["t"].startswith("ORCL +14%"), strip["chips"][0])
+            self.assertIn("High-debt stock", strip["chips"][0]["why"])
+            trend = page.evaluate("""[...document.querySelectorAll('.wl-table tbody tr')]
+              .filter(tr => tr.querySelector('td.wl-sym').innerText.includes('ORCL'))
+              .map(tr => tr.innerText)[0]""")
+            self.assertIn("▲3 +26%", trend, "three rising reports, +26% over them")
         finally:
             self._close(handles)
 
