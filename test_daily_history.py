@@ -74,3 +74,52 @@ class DailyHistory(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class GapActions(unittest.TestCase):
+    """Codex, #430: _gap_actions says whether it could ask."""
+
+    def setUp(self):
+        self.saved = (od.yf, os.environ.get("JERRY_NO_NET"))
+        od._GAP_ACT_CACHE.clear()
+        os.environ.pop("JERRY_NO_NET", None)
+
+    def tearDown(self):
+        od.yf = self.saved[0]
+        if self.saved[1] is not None:
+            os.environ["JERRY_NO_NET"] = self.saved[1]
+        od._GAP_ACT_CACHE.clear()
+
+    def test_a_failed_lookup_is_marked_and_tried_again_soon(self):
+        import pandas as pd
+        calls = []
+
+        class T:
+            def __init__(self, s):
+                calls.append(s)
+
+            @property
+            def splits(self):
+                if len(calls) == 1:
+                    raise RuntimeError("Too Many Requests")
+                return pd.Series([10.0], index=pd.to_datetime(["2024-06-10"]))
+
+            @property
+            def dividends(self):
+                return pd.Series([], dtype=float)
+
+        class YF:
+            Ticker = T
+        od.yf = YF
+        a = od._gap_actions("NVDA")
+        self.assertFalse(a["ok"])
+        self.assertTrue(od._gap_actions("NVDA") is a, "kept a little while")
+        k, (ts, v) = next(iter(od._GAP_ACT_CACHE.items()))
+        od._GAP_ACT_CACHE[k] = (ts - 601, v)          # eleven minutes on
+        b = od._gap_actions("NVDA")
+        self.assertTrue(b["ok"])
+        self.assertEqual({"2024-06-10": 10.0}, b["split_ratios"])
+
+    def test_offline_is_not_ok(self):
+        os.environ["JERRY_NO_NET"] = "1"
+        self.assertFalse(od._gap_actions("NVDA")["ok"])

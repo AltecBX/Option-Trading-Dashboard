@@ -390,7 +390,7 @@ class Wiring(unittest.TestCase):
     def test_configured_with_the_apps_sources(self):
         cfg = self.SRC[self.SRC.index("_shist.configure("):]
         cfg = cfg[:cfg.index("\n    )\n")]
-        for part in ("facts_fn=_shist_facts", "fetch_fn=_shist_fetch", "split_ratios", "_ticker_info"):
+        for part in ("facts_fn=_shist_facts", "fetch_fn=_shist_fetch", "splits_fn=_shist_splits", "_ticker_info"):
             self.assertIn(part, cfg)
         facts = self.SRC[self.SRC.index("def _shist_facts"):]
         facts = facts[:facts.index("\n\n\n")]
@@ -574,3 +574,35 @@ class StaleTickerMap(unittest.TestCase):
         SF._fetch_json = lambda url: {"0": {"ticker": "NEWCO", "cik_str": 99}}
         self.assertEqual(99, SF.cik_for("NEWCO"))
         self.assertTrue(SF.ticker_map_ready())
+
+
+class Codex430c(Base):
+    """Codex, #430 (fourth review): a lookup that failed is not an answer."""
+
+    def test_no_split_history_is_not_no_splits(self):
+        self.facts = facts(dei=[("2024-05-15", 2.46e9, acc(1), "10-Q", "2024-05-29")],
+                           filings=[(acc(1), "10-Q", "2024-05-29")])
+        self.web.docs = {acc(1): instance([(None, "2024-05-15", int(2.46e9))])}
+
+        def throttled(sym):
+            raise OSError("Yahoo said 429")
+        SH.configure(data_dir=self.tmp, facts_fn=lambda s: self.facts, fetch_fn=self.web,
+                     splits_fn=throttled, today_fn=lambda: self.today)
+        r = SH.build("NVDA")
+        self.assertEqual("unavailable", r["status"], "counts on a mix of share bases are not shown")
+        self.assertTrue(r["partial"])
+        self.assertIn("split history", r["reason"])
+        SH.get("NVDA", wait=5)
+        self.assertEqual([], list(Path(self.tmp).rglob("NVDA.json")))
+
+    def test_the_server_says_when_it_could_not_ask(self):
+        src = (Path(__file__).resolve().parent / "options_dashboard.py").read_text()
+        cfg = src[src.index("_shist.configure("):]
+        cfg = cfg[:cfg.index("\n    )\n")]
+        self.assertIn("splits_fn=_shist_splits", cfg)
+        fn = src[src.index("def _shist_splits"):]
+        fn = fn[:fn.index("\n\n\n")]
+        self.assertIn('.get("ok")', fn, "a failed lookup raises rather than reading as no splits")
+        facts = src[src.index("def _shist_facts"):]
+        facts = facts[:facts.index("\n\n\n")]
+        self.assertIn("available()", facts, "SEC switched off is could-not-ask too")

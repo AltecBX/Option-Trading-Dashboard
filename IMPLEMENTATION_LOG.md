@@ -6275,3 +6275,21 @@ Found by the full runs, fixed:
 - The fetch-error tests now use a throwaway cache directory: the suite
   imports the dashboard, which points fundamentals at the app's own cache,
   and one test's fake facts were being read back by the next run.
+
+Codex on #430, fourth review, both right and fixed (the tests fail on the
+old code):
+
+- **No split history is not "no splits".** `_gap_actions` swallowed a
+  failed Yahoo lookup (a throttle is common) and cached the empty answer
+  for a day; the share history then left pre-split counts on their old
+  basis and cached it as good. `_gap_actions` now says `ok`, keeps a
+  failed answer ten minutes instead of a day, and the server's
+  `_shist_splits` raises on one, so the history answers "unavailable"
+  (retried soon, not kept on disk) rather than a broken series.
+- **SEC switched off is "could not ask".** With SEC access off and nothing
+  cached, Company Facts returned None with no error recorded, and the
+  ticker was cached "unsupported". `_shist_facts` checks
+  `fundamentals.available()` as well.
+
+Tests: `test_share_history.Codex430c` (2), `test_daily_history.GapActions`
+(2).

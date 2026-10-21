@@ -273,12 +273,11 @@ def _weighted(cover: Mapping, weights: Mapping) -> float:
 
 
 def _splits(symbol: str) -> list:
+    """[(date, ratio)]. Raises when the split history could not be had:
+    counts left on a mix of share bases must not be shown (Codex, #430)."""
     if _SPLITS_FN is None:
         return []
-    try:
-        raw = list(_SPLITS_FN(symbol) or [])
-    except Exception:  # noqa: BLE001
-        return []
+    raw = list(_SPLITS_FN(symbol) or [])
     out = []
     for d, r in raw:
         r = _f(r)
@@ -424,7 +423,11 @@ def build(symbol: str) -> dict:
         return dict(base, status="unsupported", entity=facts.get("entityName"),
                     reason="Its filings state no share count on the cover page.")
 
-    splits = _splits(sym)
+    try:
+        splits = _splits(sym)
+    except Exception:  # noqa: BLE001
+        return dict(base, status="unavailable", partial=True, entity=facts.get("entityName"),
+                    reason="The split history could not be fetched just now; trying again in a few minutes.")
     _place_on_todays_basis(points, splits)
     warnings = []
     moves = []

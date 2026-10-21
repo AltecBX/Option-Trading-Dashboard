@@ -5216,12 +5216,22 @@ except Exception as _exc:  # noqa: BLE001
 # share_history.py for what is and is not supported.
 def _shist_facts(symbol: str):
     """Company Facts for share_history: None when SEC has none for the
-    ticker, an error when SEC could not be reached (tried again soon)."""
+    ticker, an error when SEC could not be reached or is switched off
+    (tried again soon)."""
     import fundamentals as _fnd_sh
     facts = _fnd_sh.company_facts(symbol)
-    if facts is None and _fnd_sh.last_fetch_failed(symbol):
+    if facts is None and (not _fnd_sh.available() or _fnd_sh.last_fetch_failed(symbol)):
         raise OSError("SEC Company Facts could not be fetched")
     return facts
+
+
+def _shist_splits(symbol: str) -> list:
+    """[(date, ratio)] for share_history. A lookup that failed raises: an
+    empty answer from a throttled Yahoo is not "this stock never split"."""
+    acts = _gap_actions(symbol)
+    if not acts.get("ok"):
+        raise OSError("split history unavailable")
+    return sorted((acts.get("split_ratios") or {}).items())
 
 
 def _shist_fetch(url: str, limit=None) -> bytes:
@@ -5236,7 +5246,7 @@ try:
         data_dir=_STABLE_DIR,
         facts_fn=_shist_facts,
         fetch_fn=_shist_fetch,
-        splits_fn=lambda s: sorted((_gap_actions(s).get("split_ratios") or {}).items()),
+        splits_fn=_shist_splits,
         quote_fn=lambda s: (lambda i: {"price": i.get("currentPrice") or i.get("regularMarketPrice"),
                                        "market_cap": i.get("marketCap")})(_ticker_info(s, max_wait=8.0) or {}),
     )
@@ -5792,9 +5802,12 @@ def _gap_actions(symbol: str) -> dict:
     via yfinance, cached 24h. Empty offline — the engine's heuristic
     detector still guards the store."""
     hit = _GAP_ACT_CACHE.get(symbol)
-    if hit and time.time() - hit[0] < 24 * 3600:
+    # A failed lookup is kept ten minutes, not a day: "ok" says whether the
+    # answer is one (v5.45; an empty answer from a throttled Yahoo is not
+    # "this stock never split").
+    if hit and time.time() - hit[0] < (24 * 3600 if hit[1].get("ok") else 600):
         return hit[1]
-    out = {"splits": set(), "dividends": {}}
+    out = {"splits": set(), "dividends": {}, "ok": False}
     if not os.environ.get("JERRY_NO_NET") and yf is not None:
         try:
             t = yf.Ticker(symbol)
@@ -5809,6 +5822,7 @@ def _gap_actions(symbol: str) -> dict:
             if dv is not None and len(dv):
                 out["dividends"] = {str(ix)[:10]: float(v)
                                     for ix, v in dv.items()}
+            out["ok"] = True
         except Exception:
             pass
     _GAP_ACT_CACHE[symbol] = (time.time(), out)
