@@ -90,35 +90,61 @@ class GapActions(unittest.TestCase):
             os.environ["JERRY_NO_NET"] = self.saved[1]
         od._GAP_ACT_CACHE.clear()
 
-    def test_a_failed_lookup_is_marked_and_tried_again_soon(self):
+    def frame(self, splits=(), empty=False):
         import pandas as pd
-        calls = []
+        if empty:
+            return pd.DataFrame()
+        idx = pd.to_datetime(["2024-06-07", "2024-06-10", "2024-06-11"])
+        sp = [0.0, 0.0, 0.0]
+        for d, r in splits:
+            sp[list(idx.strftime("%Y-%m-%d")).index(d)] = r
+        return pd.DataFrame({"Close": [1200.0, 121.0, 122.0], "Dividends": [0.0, 0.0, 0.01],
+                             "Stock Splits": sp}, index=idx)
+
+    def fake(self, answers):
+        calls = self.calls = []
+        frame = self.frame
 
         class T:
             def __init__(self, s):
-                calls.append(s)
+                pass
 
-            @property
-            def splits(self):
-                if len(calls) == 1:
-                    raise RuntimeError("Too Many Requests")
-                return pd.Series([10.0], index=pd.to_datetime(["2024-06-10"]))
-
-            @property
-            def dividends(self):
-                return pd.Series([], dtype=float)
+            def history(self, **kw):
+                calls.append(kw)
+                a = answers.pop(0)
+                if isinstance(a, Exception):
+                    raise a
+                return frame(**a)
 
         class YF:
             Ticker = T
         od.yf = YF
+
+    def test_a_failed_lookup_is_marked_and_tried_again_soon(self):
+        self.fake([RuntimeError("Too Many Requests"), {"splits": [("2024-06-10", 10.0)]}])
         a = od._gap_actions("NVDA")
         self.assertFalse(a["ok"])
+        self.assertTrue(self.calls[0].get("raise_errors"), "a failed download raises")
         self.assertTrue(od._gap_actions("NVDA") is a, "kept a little while")
         k, (ts, v) = next(iter(od._GAP_ACT_CACHE.items()))
         od._GAP_ACT_CACHE[k] = (ts - 601, v)          # eleven minutes on
         b = od._gap_actions("NVDA")
         self.assertTrue(b["ok"])
         self.assertEqual({"2024-06-10": 10.0}, b["split_ratios"])
+        self.assertEqual({"2024-06-10"}, b["splits"])
+        self.assertEqual({"2024-06-11": 0.01}, b["dividends"])
+
+    def test_an_empty_download_is_a_failed_one(self):
+        # yfinance can hand back an empty frame instead of raising: a real
+        # ticker always has prices, so that is not "never split" (Codex, #430).
+        self.fake([{"empty": True}])
+        self.assertFalse(od._gap_actions("NVDA")["ok"])
+
+    def test_no_splits_is_ok_when_the_prices_came(self):
+        self.fake([{}])
+        a = od._gap_actions("KO")
+        self.assertTrue(a["ok"])
+        self.assertEqual({}, a.get("split_ratios", {}))
 
     def test_offline_is_not_ok(self):
         os.environ["JERRY_NO_NET"] = "1"

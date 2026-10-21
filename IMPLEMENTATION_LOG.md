@@ -6311,3 +6311,13 @@ be done keeps serving the last good history, marked partial (retried in
 ten minutes) with one line saying the refresh failed; an "error" is
 partial too, so it is retried in minutes, not hours. Test:
 `test_share_history.Codex430e`.
+
+Codex on #430, seventh review, right and fixed (the tests fail on the old
+code): **an empty download is a failed one.** yfinance answers a failed
+history download with an empty frame rather than an error, so `t.splits`
+came back empty and `_gap_actions` called that "ok, never split". It now
+reads the full daily history itself with `raise_errors=True` (the same
+download `t.splits` made, Stock Splits and Dividends columns), and an
+empty frame is a failure: a real ticker always has prices. Checked live:
+NVDA's 2007/2021/2024 splits and 56 dividends, KO's 1992/1996/2012 splits.
+Tests: `test_daily_history.GapActions` (4).

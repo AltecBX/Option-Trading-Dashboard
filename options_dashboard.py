@@ -5816,18 +5816,30 @@ def _gap_actions(symbol: str) -> dict:
     if not os.environ.get("JERRY_NO_NET") and yf is not None:
         try:
             t = yf.Ticker(symbol)
-            sp = t.splits
-            if sp is not None and len(sp):
-                out["splits"] = {str(ix)[:10] for ix in sp.index}
-                # v5.45: the ratios too, for putting filed share counts on
-                # today's split basis (share_history.py).
-                out["split_ratios"] = {str(ix)[:10]: float(v) for ix, v in sp.items()
-                                       if v and float(v) > 0}
-            dv = t.dividends
-            if dv is not None and len(dv):
-                out["dividends"] = {str(ix)[:10]: float(v)
-                                    for ix, v in dv.items()}
-            out["ok"] = True
+            # The full daily history carries both columns. It is read with
+            # raise_errors because yfinance otherwise answers a failed
+            # download with an empty frame, and an empty answer is not
+            # "this stock never split" (Codex, #430). A real ticker always
+            # has prices, so an empty frame is a failure too.
+            try:
+                h = t.history(period="max", auto_adjust=False, actions=True, raise_errors=True)
+            except TypeError:                    # a yfinance without raise_errors
+                h = t.history(period="max", auto_adjust=False, actions=True)
+            if h is not None and len(h):
+                cols = getattr(h, "columns", [])
+                if "Stock Splits" in cols:
+                    sp = h["Stock Splits"]
+                    sp = sp[sp.fillna(0) != 0]
+                    out["splits"] = {str(ix)[:10] for ix in sp.index}
+                    # v5.45: the ratios too, for putting filed share counts
+                    # on today's split basis (share_history.py).
+                    out["split_ratios"] = {str(ix)[:10]: float(v) for ix, v in sp.items()
+                                           if v and float(v) > 0}
+                if "Dividends" in cols:
+                    dv = h["Dividends"]
+                    dv = dv[dv.fillna(0) != 0]
+                    out["dividends"] = {str(ix)[:10]: float(v) for ix, v in dv.items()}
+                out["ok"] = True
         except Exception:
             pass
     _GAP_ACT_CACHE[symbol] = (time.time(), out)
