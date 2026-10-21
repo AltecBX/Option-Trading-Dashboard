@@ -6211,3 +6211,24 @@ Tests: `test_share_history` (32; every rule above broken in turn fails a
 test: the split factor, the near-split choice, the co-registrant filter,
 adding classes, the age limit, the one-class re-read, class weights,
 first-filed wins, covers kept).
+
+Codex on #430:
+
+- **Right, fixed:** SEC unreachable is not "unsupported". Company Facts
+  returned None both for a ticker SEC has nothing for and for a fetch that
+  failed, and the history cached "unsupported" for 12 hours either way.
+  `fundamentals.last_fetch_failed` now tells the two apart (a 404 is
+  nothing there), the server's `_shist_facts` raises on the second, and
+  the history answers "unavailable", partial: retried in ten minutes,
+  never kept on disk.
+- **Right, fixed:** a newest-cover probe that could not be read was taken
+  as proof the company has one class. It now counts as an unread filing,
+  so the history is partial and checked again soon.
+- **Not a bug:** "the yfinance fallback serves raw prices with jumps at
+  splits". `history(auto_adjust=False)` returns OHLC already split-adjusted
+  (only "Adj Close" also takes out dividends): AAPL closed $124.81 on
+  2020-08-28, its $499.23 pre-split price on the post-split basis, and
+  NVDA $83.04 on 2024-05-01. The market-cap continuity check across eight
+  splits used exactly these closes.
+
+Tests: `test_share_history.Codex430` (2) and `LastFetchFailed`, red first.

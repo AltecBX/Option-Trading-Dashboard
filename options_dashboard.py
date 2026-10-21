@@ -5214,6 +5214,16 @@ except Exception as _exc:  # noqa: BLE001
 # Step 1 of market-cap charts: every count a company filed on a 10-Q/10-K
 # cover page, on today's split basis, checked against Yahoo today. See
 # share_history.py for what is and is not supported.
+def _shist_facts(symbol: str):
+    """Company Facts for share_history: None when SEC has none for the
+    ticker, an error when SEC could not be reached (tried again soon)."""
+    import fundamentals as _fnd_sh
+    facts = _fnd_sh.company_facts(symbol)
+    if facts is None and _fnd_sh.last_fetch_failed(symbol):
+        raise OSError("SEC Company Facts could not be fetched")
+    return facts
+
+
 def _shist_fetch(url: str, limit=None) -> bytes:
     if not (_SEC_AVAILABLE and _sec_filings is not None and _sec_filings.available()):
         raise OSError("SEC unavailable")
@@ -5224,7 +5234,7 @@ try:
     import share_history as _shist
     _shist.configure(
         data_dir=_STABLE_DIR,
-        facts_fn=lambda s: __import__("fundamentals").company_facts(s),
+        facts_fn=_shist_facts,
         fetch_fn=_shist_fetch,
         splits_fn=lambda s: sorted((_gap_actions(s).get("split_ratios") or {}).items()),
         quote_fn=lambda s: (lambda i: {"price": i.get("currentPrice") or i.get("regularMarketPrice"),

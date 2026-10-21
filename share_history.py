@@ -349,7 +349,10 @@ def build(symbol: str) -> dict:
         try:
             facts = _FACTS_FN(sym)
         except Exception:  # noqa: BLE001
-            facts = None
+            # Could not ask is not "nothing there": tried again in minutes,
+            # and never kept on disk (Codex, #430).
+            return dict(base, status="unavailable", partial=True,
+                        reason="SEC could not be reached just now; trying again in a few minutes.")
     if not facts or not facts.get("facts"):
         return dict(base, status="unsupported",
                     reason="No SEC share counts for this symbol: ETFs, funds and indexes file none, "
@@ -398,6 +401,8 @@ def build(symbol: str) -> dict:
     if plain and not weights:
         newest = max(plain, key=lambda a: filings[a]["filed"])
         rec = read_filing_cover(cik, newest)
+        if rec is None:
+            unread += 1                         # not proof of one class: checked again soon
         cov = (rec or {}).get("cover")
         if cov and cov.get("classes") and abs(cov["shares"] / from_facts[newest]["shares"] - 1) > 0.01:
             points = []
@@ -410,8 +415,8 @@ def build(symbol: str) -> dict:
     points = [by_date[k] for k in sorted(by_date)]
     if not points:
         if unread:
-            return dict(base, status="building", entity=facts.get("entityName"),
-                        reason="SEC filings could not be read just now; trying again.")
+            return dict(base, status="unavailable", partial=True, entity=facts.get("entityName"),
+                        reason="SEC filings could not be read just now; trying again in a few minutes.")
         return dict(base, status="unsupported", entity=facts.get("entityName"),
                     reason="Its filings state no share count on the cover page.")
 

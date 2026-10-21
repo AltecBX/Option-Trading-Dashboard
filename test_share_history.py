@@ -384,8 +384,12 @@ class Wiring(unittest.TestCase):
     def test_configured_with_the_apps_sources(self):
         cfg = self.SRC[self.SRC.index("_shist.configure("):]
         cfg = cfg[:cfg.index("\n    )\n")]
-        for part in ("company_facts", "fetch_fn=_shist_fetch", "split_ratios", "_ticker_info"):
+        for part in ("facts_fn=_shist_facts", "fetch_fn=_shist_fetch", "split_ratios", "_ticker_info"):
             self.assertIn(part, cfg)
+        facts = self.SRC[self.SRC.index("def _shist_facts"):]
+        facts = facts[:facts.index("\n\n\n")]
+        self.assertIn("company_facts(", facts)
+        self.assertIn("last_fetch_failed(", facts, "could not ask is raised, not None")
         fetch = self.SRC[self.SRC.index("def _shist_fetch"):]
         fetch = fetch[:fetch.index("\n\n\n")]
         self.assertIn("_sec_filings._fetch(", fetch, "SEC's polite, throttled client")
@@ -404,3 +408,70 @@ class Wiring(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class Codex430(Base):
+    """Codex, #430: a failure to read is not an answer."""
+
+    def test_sec_unreachable_is_not_unsupported(self):
+        def down(sym):
+            raise OSError("SEC timed out")
+        SH.configure(data_dir=self.tmp, facts_fn=down, fetch_fn=self.web, today_fn=lambda: self.today)
+        r = SH.build("AAPL")
+        self.assertEqual("unavailable", r["status"])
+        self.assertTrue(r["partial"], "tried again in minutes, not hours")
+        self.assertIn("could not be reached", r["reason"])
+        SH.get("AAPL", wait=5)
+        self.assertEqual([], list(Path(self.tmp).rglob("AAPL.json")), "not kept on disk")
+        self.facts = facts(dei=[("2026-07-17", 14.6e9, acc(1), "10-Q", "2026-08-01")],
+                           filings=[(acc(1), "10-Q", "2026-08-01")])
+        self.web.docs = {acc(1): instance([(None, "2026-07-17", int(14.6e9))])}
+        self.config()
+        SH._RESULTS["AAPL"] = (time.time() - SH.PARTIAL_TTL_S - 1, r)
+        self.assertEqual("ok", SH.get("AAPL", wait=5)["status"], "SEC back: the answer comes back")
+
+    def test_a_failed_class_probe_is_not_proof_of_one_class(self):
+        self.facts = facts(dei=[("2026-07-24", 2205128509, acc(2), "10-Q", "2026-07-30")],
+                           filings=[(acc(2), "10-Q", "2026-07-30")])
+        self.web.docs = {}                            # the newest cover cannot be read
+        r = SH.build("META")
+        self.assertEqual("ok", r["status"])
+        self.assertTrue(r["partial"], "checked again soon")
+        self.assertEqual(1, r["checks"]["unread_filings"])
+        self.assertTrue(any("could not be read" in w for w in r["warnings"]))
+
+
+class LastFetchFailed(unittest.TestCase):
+    """fundamentals.last_fetch_failed: "could not ask" against "nothing there"."""
+
+    def setUp(self):
+        import fundamentals as F
+        self.F = F
+        self.saved = (F._fetch_facts, F._sec.cik_for, F.available)
+        F._sec.cik_for = lambda s: 884394
+        F.available = lambda: True
+        F._MEM.clear()
+
+    def tearDown(self):
+        self.F._fetch_facts, self.F._sec.cik_for, self.F.available = self.saved
+        self.F._FETCH_ERRORS.clear()
+        self.F._MEM.clear()
+
+    def test_a_404_is_nothing_there_and_a_timeout_is_could_not_ask(self):
+        import urllib.error
+        F = self.F
+
+        def gone(cik):
+            raise urllib.error.HTTPError("u", 404, "Not Found", {}, None)
+        F._fetch_facts = gone
+        self.assertIsNone(F.company_facts("SPYX", max_age=0))
+        self.assertFalse(F.last_fetch_failed("SPYX"))
+
+        def slow(cik):
+            raise TimeoutError("timed out")
+        F._fetch_facts = slow
+        self.assertIsNone(F.company_facts("ZZZZ", max_age=0))
+        self.assertTrue(F.last_fetch_failed("zzzz"))
+        F._fetch_facts = lambda cik: {"cik": cik, "facts": {"dei": {}}}
+        self.assertIsNotNone(F.company_facts("ZZZZ", max_age=0))
+        self.assertFalse(F.last_fetch_failed("ZZZZ"), "a good fetch clears it")
