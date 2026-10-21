@@ -158,11 +158,26 @@ def company_facts(symbol: str, max_age: float = _FACTS_TTL) -> dict | None:
         return disk
     cik = _sec.cik_for(sym)
     if not cik:
+        # No CIK because SEC's ticker map could not be fetched is "could not
+        # ask", not "no such company" (Codex, #430).
+        try:
+            ready = _sec.ticker_map_ready()
+        except Exception:  # noqa: BLE001
+            ready = True
+        with _LOCK:
+            if ready:
+                _FETCH_ERRORS.pop(sym, None)      # asked, and there is no such ticker
+            else:
+                _FETCH_ERRORS[sym] = LookupError("SEC ticker map unavailable")
         return disk
     try:
         facts = _fetch_facts(int(cik))
-    except Exception:
+    except Exception as exc:
+        with _LOCK:
+            _FETCH_ERRORS[sym] = exc
         return disk                                  # last good beats nothing
+    with _LOCK:
+        _FETCH_ERRORS.pop(sym, None)
     facts["_fetched_ts"] = time.time()
     facts["_cik"] = int(cik)
     if path is not None:
@@ -172,6 +187,20 @@ def company_facts(symbol: str, max_age: float = _FACTS_TTL) -> dict | None:
             pass
     _remember(sym, facts)
     return facts
+
+
+_FETCH_ERRORS: dict = {}     # SYMBOL -> the exception from its last failed fetch
+
+
+def last_fetch_failed(symbol: str) -> bool:
+    """Whether the last Company Facts fetch for `symbol` failed for a reason
+    other than SEC having no facts for it (a 404: ETFs, funds). A caller
+    that got None can tell "could not ask" from "nothing there"."""
+    with _LOCK:
+        exc = _FETCH_ERRORS.get((symbol or "").upper().strip())
+    if exc is None:
+        return False
+    return getattr(exc, "code", None) != 404
 
 
 def _remember(sym: str, facts: dict) -> None:

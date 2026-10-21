@@ -6129,3 +6129,195 @@ them every day. The class now pins the backtest's clock to the day after
 the last bar (as the time-travel step asks: pin the clock, don't loosen
 the assertion); it passes today, 400 and 800 days ahead, and
 `test_time_travel.py 400` is green.
+
+## v5.44 — 2Y / 5Y / 10Y on the Trade chart
+
+Jerry: "add 2Y/5Y/10Y" (with the market-cap charting plan, whose value
+shows over years, not the 250 days the chart stopped at).
+
+- **Three more range buttons** after 30D/60D/120D/250D. The dashboard
+  payload still carries a year of bars; a long range asks
+  `/api/daily_history?symbol=&years=2|5|10` once (kept ten minutes on the
+  server). It is the same `load_daily` rows (split-adjusted, warmed-up
+  MA/MACD), asked for in calendar days so the Yahoo fallback, which counts
+  calendar days, covers the whole span too, then trimmed to exactly N
+  years. Today's live candle is laid on it the same way (`withTodayBar`,
+  pulled out of the `daily` memo). Until it arrives, and if it cannot, the
+  chart shows the year it has and says so; a stock listed more recently
+  says where its history starts.
+- **10 years fit.** lightweight-charts' 0.5px minimum bar spacing fits about
+  six years of daily bars on a desktop chart: `minBarSpacing: 0.1`.
+- **Zoom survives the quote poll.** The chart called `fitContent` whenever
+  its bars changed, and the app hands it a new slice on every render — the
+  15-second quote poll among them — so any zoom or pan was thrown away
+  within seconds. It now fits only when the window changes (ticker, range,
+  first or last bar).
+
+Tests: `test_daily_history` (4: exactly N years, the fields, cached per
+range, only 2/5/10 and real symbols), the smoke test's new endpoints, and
+two browser tests in `test_frame_render` (10Y spans ten years and a
+re-render keeps a zoom — red on the old fit; 2Y; 250D asks nothing; the
+buttons fit a 390px phone; a failed load says so).
+
+## v5.45 — Shares outstanding over time (market cap, step 1)
+
+Jerry: a Price | Market cap toggle on every chart, from historical shares
+outstanding, "as accurate as possible", never today's share count for the
+past and never an estimate presented as filed data. Evaluated first (data
+sources, accuracy, limits), then step 1: the share-count history.
+
+- **`share_history.py`**: every count a company filed on the cover page of
+  a 10-Q or 10-K ("X shares outstanding as of [date]",
+  dei:EntityCommonStockSharesOutstanding).
+  - One class of stock: from SEC Company Facts, which the app already
+    caches. No extra downloads.
+  - Several classes (Meta A/B, Alphabet A/B/C, Strategy, CoreWeave):
+    Company Facts drops per-class counts, so each filing's XBRL instance is
+    read (index.json, then the instance, first 1.5MB: the cover sits at the
+    top) and the classes added. A filing never changes, so what it said is
+    kept for good, including "nothing here". A company whose summary count
+    turns out to be one class of several (the newest cover says so) is read
+    the same way.
+  - Berkshire: Class A converts into 1,500 B by charter, so the classes are
+    weighted (`CLASS_WEIGHTS`).
+  - Only the share-class dimension counts; a co-registrant's count
+    (LegalEntityAxis) is another company's shares.
+  - Split basis: prices are split-adjusted, so each count is multiplied by
+    the splits after its date (yfinance split ratios, now also returned by
+    `_gap_actions`). A count dated in the days just before a split may
+    already be on the new basis; there the factor that agrees with its
+    neighbours wins.
+  - Checks: today's count against Yahoo's market cap (warned beyond 3%, in
+    words: "shares issued since that report"); a jump that looks like a
+    split the prices were not adjusted for; a 5x+ jump; a count too old to
+    stand for today; big real moves listed (Plug's 66% issues).
+  - Not supported, with the reason: ETFs/funds (no SEC count), foreign
+    filers (yearly counts of home shares, ADR ratio not in SEC data).
+  - `shares_on(history, day)`: the last count on or before a day, with its
+    age; a gap (None) before the first count or past 200 days.
+    `market_cap_bars` for the chart step.
+- **`/api/share_history?symbol=`**: cached 12 hours (10 minutes when a
+  filing could not be read), built in the background; "building" while a
+  multi-class company's filings are read the first time.
+
+Checked on real data: AAPL, NVDA, TSLA, PLUG, META, GOOGL, CRWV and BRK-B
+match Yahoo's market cap today within 0.2%; Strategy is 10.2% short of it,
+explained (shares issued since its July report); market cap through all
+eight splits in the window (AAPL 2014/2020, NVDA 2021/2024, TSLA 2020/2022,
+GOOGL 2022, MSTR 2024) moves exactly as the price did that day. TSM and SPY
+come back unsupported with the reason.
+
+Tests: `test_share_history` (32; every rule above broken in turn fails a
+test: the split factor, the near-split choice, the co-registrant filter,
+adding classes, the age limit, the one-class re-read, class weights,
+first-filed wins, covers kept).
+
+Codex on #430:
+
+- **Right, fixed:** SEC unreachable is not "unsupported". Company Facts
+  returned None both for a ticker SEC has nothing for and for a fetch that
+  failed, and the history cached "unsupported" for 12 hours either way.
+  `fundamentals.last_fetch_failed` now tells the two apart (a 404 is
+  nothing there), the server's `_shist_facts` raises on the second, and
+  the history answers "unavailable", partial: retried in ten minutes,
+  never kept on disk.
+- **Right, fixed:** a newest-cover probe that could not be read was taken
+  as proof the company has one class. It now counts as an unread filing,
+  so the history is partial and checked again soon.
+- **Not a bug:** "the yfinance fallback serves raw prices with jumps at
+  splits". `history(auto_adjust=False)` returns OHLC already split-adjusted
+  (only "Adj Close" also takes out dividends): AAPL closed $124.81 on
+  2020-08-28, its $499.23 pre-split price on the post-split basis, and
+  NVDA $83.04 on 2024-05-01. The market-cap continuity check across eight
+  splits used exactly these closes.
+
+Tests: `test_share_history.Codex430` (2) and `LastFetchFailed`, red first.
+
+Codex on #430, second review, both right and fixed (the tests fail on the
+old code):
+
+- **Berkshire before 2010.** Class B alone split 50-for-1 on 2010-01-21,
+  and the A-to-B conversion went from 30 to 1,500 with it. The fixed 1,500
+  weight plus the split factor over-counted Class A 50x for any earlier
+  cover (2009: 79.4B B-equivalent shares instead of 2.27B). The class
+  ratios are now dated (`CLASS_WEIGHTS` per effective date): 30 before the
+  split, in the B shares of the day, which the split then carries onto
+  today's basis; BRK-A takes 1/30 and 1/1,500 likewise. The live history
+  starts in 2011, so today's numbers are unchanged.
+- **A CIK lookup that could not be made.** With SEC's ticker map
+  unreachable, `cik_for` returned None and Company Facts reported nothing
+  failed, so the ticker was cached "unsupported" for 12 hours. The map's
+  state (`sec_filings.ticker_map_ready`) now decides: no map is "could not
+  ask" (`last_fetch_failed`), a map without the ticker is "nothing there".
+
+Tests: `test_share_history.Codex430b` and `TickerMapDown`.
+
+Codex on #430, third review, right and fixed (the test fails on the old
+code): **a week-old ticker map whose refresh fails.** `cik_for` returned
+None for every ticker when the refresh timed out, though last week's map
+still had them, and `ticker_map_ready` read the stale map as proof of
+absence. A failed refresh now keeps the old map answering for the tickers
+it has, and marks the map not ready (`_TICKERS_FAILED`), so a ticker it
+lacks is "could not ask", retried soon. Test:
+`test_share_history.StaleTickerMap`.
+
+Found by the full runs, fixed:
+
+- **The Trade card was 11px too wide on a 375px phone.** Seven range
+  buttons at the phone's 44px tap size are wider than the screen and the
+  button group never wrapped; it wraps now (`.seg.chart-range`).
+  `test_every_destination_is_usable_on_a_phone` caught it.
+- **Two share-history tests under the 400-days-ahead clock.** The shifted
+  clock reaches only the calling thread, so the background build stamped
+  its cache with the real time and the next read found it 400 days old.
+  share_history's cache stamps go through one `_clock()`, which the tests
+  pin; `test_time_travel.py 400` is green.
+- The fetch-error tests now use a throwaway cache directory: the suite
+  imports the dashboard, which points fundamentals at the app's own cache,
+  and one test's fake facts were being read back by the next run.
+
+Codex on #430, fourth review, both right and fixed (the tests fail on the
+old code):
+
+- **No split history is not "no splits".** `_gap_actions` swallowed a
+  failed Yahoo lookup (a throttle is common) and cached the empty answer
+  for a day; the share history then left pre-split counts on their old
+  basis and cached it as good. `_gap_actions` now says `ok`, keeps a
+  failed answer ten minutes instead of a day, and the server's
+  `_shist_splits` raises on one, so the history answers "unavailable"
+  (retried soon, not kept on disk) rather than a broken series.
+- **SEC switched off is "could not ask".** With SEC access off and nothing
+  cached, Company Facts returned None with no error recorded, and the
+  ticker was cached "unsupported". `_shist_facts` checks
+  `fundamentals.available()` as well.
+
+Tests: `test_share_history.Codex430c` (2), `test_daily_history.GapActions`
+(2).
+
+Codex on #430, fifth review, right and fixed (the test fails on the old
+code): **last good facts after a failed refresh.** Company Facts returns
+its expired disk copy when a refresh fails; the history was built from it
+as good and kept 12 hours, so a filing that came out meanwhile stayed
+missing long after SEC was back. `_shist_facts` marks those facts
+`_stale`, and the history uses them but is partial (retried in ten
+minutes) and says which day's copy it is from. Test:
+`test_share_history.Codex430d`.
+
+Codex on #430, sixth review, right and fixed (the tests fail on the old
+code): **a failed refresh keeps the last good history.** When a 12-hour
+refresh hit SEC or Yahoo down, the "unavailable" answer (or an "error"
+from a crash) was stored over the good series. Now a refresh that cannot
+be done keeps serving the last good history, marked partial (retried in
+ten minutes) with one line saying the refresh failed; an "error" is
+partial too, so it is retried in minutes, not hours. Test:
+`test_share_history.Codex430e`.
+
+Codex on #430, seventh review, right and fixed (the tests fail on the old
+code): **an empty download is a failed one.** yfinance answers a failed
+history download with an empty frame rather than an error, so `t.splits`
+came back empty and `_gap_actions` called that "ok, never split". It now
+reads the full daily history itself with `raise_errors=True` (the same
+download `t.splits` made, Stock Splits and Dividends columns), and an
+empty frame is a failure: a real ticker always has prices. Checked live:
+NVDA's 2007/2021/2024 splits and 56 dividends, KO's 1992/1996/2012 splits.
+Tests: `test_daily_history.GapActions` (4).

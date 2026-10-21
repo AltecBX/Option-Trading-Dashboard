@@ -1826,6 +1826,11 @@ input, select, textarea {
   margin-left: 6px;
 }
 .zoom-reset:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+/* v5.44: 2Y/5Y/10Y — said while the longer history loads, or if it cannot */
+.chart-range-note {
+  font-size: 12px; color: var(--muted);
+  margin: 0 0 6px; line-height: 1.35;
+}
 
 /* Earnings pill in chart title */
 .earn-pill {
@@ -2315,6 +2320,9 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
     padding: 6px 10px !important; font-size: 12px !important;
   }
   .zoom-reset { min-height: 36px; }
+  /* v5.44: seven ranges (30D to 10Y) at phone tap size are wider than a
+     375px screen: the group wraps rather than widening the card. */
+  .seg.chart-range { flex-wrap: wrap; max-width: 100%; }
 
   /* Strike pair (suggested call/put) becomes single column */
   .strike-pair { grid-template-columns: 1fr !important; gap: 10px; }
