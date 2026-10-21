@@ -1826,6 +1826,11 @@ input, select, textarea {
   margin-left: 6px;
 }
 .zoom-reset:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+/* v5.44: 2Y/5Y/10Y — said while the longer history loads, or if it cannot */
+.chart-range-note {
+  font-size: 12px; color: var(--muted);
+  margin: 0 0 6px; line-height: 1.35;
+}
 
 /* Earnings pill in chart title */
 .earn-pill {

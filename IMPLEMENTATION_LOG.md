@@ -6129,3 +6129,85 @@ them every day. The class now pins the backtest's clock to the day after
 the last bar (as the time-travel step asks: pin the clock, don't loosen
 the assertion); it passes today, 400 and 800 days ahead, and
 `test_time_travel.py 400` is green.
+
+## v5.44 — 2Y / 5Y / 10Y on the Trade chart
+
+Jerry: "add 2Y/5Y/10Y" (with the market-cap charting plan, whose value
+shows over years, not the 250 days the chart stopped at).
+
+- **Three more range buttons** after 30D/60D/120D/250D. The dashboard
+  payload still carries a year of bars; a long range asks
+  `/api/daily_history?symbol=&years=2|5|10` once (kept ten minutes on the
+  server). It is the same `load_daily` rows (split-adjusted, warmed-up
+  MA/MACD), asked for in calendar days so the Yahoo fallback, which counts
+  calendar days, covers the whole span too, then trimmed to exactly N
+  years. Today's live candle is laid on it the same way (`withTodayBar`,
+  pulled out of the `daily` memo). Until it arrives, and if it cannot, the
+  chart shows the year it has and says so; a stock listed more recently
+  says where its history starts.
+- **10 years fit.** lightweight-charts' 0.5px minimum bar spacing fits about
+  six years of daily bars on a desktop chart: `minBarSpacing: 0.1`.
+- **Zoom survives the quote poll.** The chart called `fitContent` whenever
+  its bars changed, and the app hands it a new slice on every render — the
+  15-second quote poll among them — so any zoom or pan was thrown away
+  within seconds. It now fits only when the window changes (ticker, range,
+  first or last bar).
+
+Tests: `test_daily_history` (4: exactly N years, the fields, cached per
+range, only 2/5/10 and real symbols), the smoke test's new endpoints, and
+two browser tests in `test_frame_render` (10Y spans ten years and a
+re-render keeps a zoom — red on the old fit; 2Y; 250D asks nothing; the
+buttons fit a 390px phone; a failed load says so).
+
+## v5.45 — Shares outstanding over time (market cap, step 1)
+
+Jerry: a Price | Market cap toggle on every chart, from historical shares
+outstanding, "as accurate as possible", never today's share count for the
+past and never an estimate presented as filed data. Evaluated first (data
+sources, accuracy, limits), then step 1: the share-count history.
+
+- **`share_history.py`**: every count a company filed on the cover page of
+  a 10-Q or 10-K ("X shares outstanding as of [date]",
+  dei:EntityCommonStockSharesOutstanding).
+  - One class of stock: from SEC Company Facts, which the app already
+    caches. No extra downloads.
+  - Several classes (Meta A/B, Alphabet A/B/C, Strategy, CoreWeave):
+    Company Facts drops per-class counts, so each filing's XBRL instance is
+    read (index.json, then the instance, first 1.5MB: the cover sits at the
+    top) and the classes added. A filing never changes, so what it said is
+    kept for good, including "nothing here". A company whose summary count
+    turns out to be one class of several (the newest cover says so) is read
+    the same way.
+  - Berkshire: Class A converts into 1,500 B by charter, so the classes are
+    weighted (`CLASS_WEIGHTS`).
+  - Only the share-class dimension counts; a co-registrant's count
+    (LegalEntityAxis) is another company's shares.
+  - Split basis: prices are split-adjusted, so each count is multiplied by
+    the splits after its date (yfinance split ratios, now also returned by
+    `_gap_actions`). A count dated in the days just before a split may
+    already be on the new basis; there the factor that agrees with its
+    neighbours wins.
+  - Checks: today's count against Yahoo's market cap (warned beyond 3%, in
+    words: "shares issued since that report"); a jump that looks like a
+    split the prices were not adjusted for; a 5x+ jump; a count too old to
+    stand for today; big real moves listed (Plug's 66% issues).
+  - Not supported, with the reason: ETFs/funds (no SEC count), foreign
+    filers (yearly counts of home shares, ADR ratio not in SEC data).
+  - `shares_on(history, day)`: the last count on or before a day, with its
+    age; a gap (None) before the first count or past 200 days.
+    `market_cap_bars` for the chart step.
+- **`/api/share_history?symbol=`**: cached 12 hours (10 minutes when a
+  filing could not be read), built in the background; "building" while a
+  multi-class company's filings are read the first time.
+
+Checked on real data: AAPL, NVDA, TSLA, PLUG, META, GOOGL, CRWV and BRK-B
+match Yahoo's market cap today within 0.2%; Strategy is 10.2% short of it,
+explained (shares issued since its July report); market cap through all
+eight splits in the window (AAPL 2014/2020, NVDA 2021/2024, TSLA 2020/2022,
+GOOGL 2022, MSTR 2024) moves exactly as the price did that day. TSM and SPY
+come back unsupported with the reason.
+
+Tests: `test_share_history` (32; every rule above broken in turn fails a
+test: the split factor, the near-split choice, the co-registrant filter,
+adding classes, the age limit, the one-class re-read, class weights,
+first-filed wins, covers kept).

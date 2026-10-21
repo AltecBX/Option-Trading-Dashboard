@@ -516,6 +516,24 @@ _DEFAULT_PAYLOADS: dict[str, str] = {}
 DEFAULT_SPOT = 100.0   # the spot sell_payload() builds its chain around
 
 
+def daily_history_answer(years: int) -> dict:
+    """/api/daily_history: weekday bars for the last `years` years, the row
+    shape load_daily gives, a gentle zigzag so candles have bodies."""
+    end = date.today()
+    d = end - timedelta(days=int(years * 365.25))
+    rows, px, i = [], 50.0, 0
+    while d <= end:
+        if d.weekday() < 5:
+            i += 1
+            o = px
+            px = max(5.0, px * (1.0 + (0.012 if (i // 7) % 2 == 0 else -0.009)))
+            rows.append({"date": f"{d.isoformat()}T12:00:00-04:00", "open": round(o, 2),
+                         "high": round(max(o, px) * 1.01, 2), "low": round(min(o, px) * 0.99, 2),
+                         "close": round(px, 2), "volume": 1_000_000 + 1000 * (i % 50)})
+        d += timedelta(days=1)
+    return {"ok": True, "symbol": "AAPL", "years": years, "daily": rows, "first": rows[0]["date"][:10]}
+
+
 def _default_payload(symbol: str) -> str:
     """sell_payload() for `symbol`, serialized once per symbol per run —
     the plan is built by the real engine, which is not free."""
@@ -596,7 +614,7 @@ class TheFrameStaysOnScreen(unittest.TestCase):
     def _measure(self, width, height, tab="trade", init="", ticker_payload=None,
                  timezone=None, safe_area=None, starred=None, ytd_bases=None,
                  quotes=None, tab_order=None, setup_board=None, live=None, uw=None,
-                 buyers=None, report_card=None, hotlist=None, debt=None):
+                 buyers=None, report_card=None, hotlist=None, debt=None, daily_history=None):
         """Open the app with a production-sized news feed and measure the
         frame. Returns (geometry, page errors)."""
         from playwright.sync_api import sync_playwright
@@ -627,6 +645,9 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         self._hotlist = hotlist
         # v5.39: the Debt & rates card's answer.
         self._debt = debt
+        # v5.44: the Trade chart's 2Y/5Y/10Y history ("error" for a failed load).
+        self._daily_history = daily_history
+        self.daily_history_calls = []
         pw = sync_playwright().start()
         kw = {"executable_path": CHROMIUM} if Path(CHROMIUM).exists() else {}
         browser = pw.chromium.launch(**kw)
@@ -747,6 +768,14 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 sym = (urllib.parse.parse_qs(urllib.parse.urlsplit(url).query).get("symbol") or [None])[0]
                 r.fulfill(status=200, content_type="application/json",
                           body=json.dumps(short_trend_answer("ORCL" if sym else None)))
+                return
+            if self._daily_history is not None and urllib.parse.urlsplit(url).path == "/api/daily_history":
+                q = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)
+                yrs = int((q.get("years") or ["0"])[0])
+                self.daily_history_calls.append(yrs)
+                body = ({"ok": False, "error": "No daily history for AAPL.", "daily": []}
+                        if self._daily_history == "error" else daily_history_answer(yrs))
+                r.fulfill(status=200, content_type="application/json", body=json.dumps(body))
                 return
             if self._debt is not None and urllib.parse.urlsplit(url).path == "/api/debt":
                 r.fulfill(status=200, content_type="application/json", body=json.dumps(self._debt))
@@ -2974,6 +3003,82 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 self.assertLessEqual(got["scroll"], 2, f"the page scrolls sideways at {w}px")
             finally:
                 self._close(handles)
+
+    # v5.44 — the Trade chart's 2Y/5Y/10Y, and zoom that survives a refresh.
+    _VISIBLE_YEARS = """() => { const el = document.querySelector('.tv-price-chart');
+        const c = el && el.__chart; const r = c && c.timeScale().getVisibleRange();
+        if (!r) return null;
+        const t = (x) => typeof x === 'number' ? x * 1000 : typeof x === 'string' ? Date.parse(x)
+                         : Date.UTC(x.year, x.month - 1, x.day);
+        return (t(r.to) - t(r.from)) / 31557600000; }"""
+
+    def test_the_trade_chart_reaches_back_two_five_and_ten_years(self):
+        geo, errs, handles = self._measure(1440, 900, tab="trade", daily_history=True)
+        page = handles[2]
+        try:
+            self.assertEqual(errs, [], f"the page threw: {errs[:2]}")
+            page.wait_for_function("() => { const e = document.querySelector('.tv-price-chart'); return e && e.__chart; }",
+                                   timeout=20000)
+            labels = page.evaluate("() => [...document.querySelectorAll('.chart-range button')].map(b => b.innerText.trim())")
+            self.assertEqual(["30D", "60D", "120D", "250D", "2Y", "5Y", "10Y"], labels[:7])
+            self.assertEqual([], self.daily_history_calls, "a year comes with the dashboard; nothing more is asked")
+
+            page.click(".chart-range button:text-is('10Y')")
+            page.wait_for_function("() => /10-year price/i.test(document.body.innerText)", timeout=10000)
+            page.wait_for_function(f"() => ({self._VISIBLE_YEARS})() > 9.5", timeout=15000)
+            self.assertEqual([10], self.daily_history_calls)
+
+            # Zoom in to the last half year, then make the app render again
+            # (the quote poll does this every 15 seconds): the zoom stays.
+            page.evaluate("""() => { const c = document.querySelector('.tv-price-chart').__chart;
+                const n = c.timeScale().getVisibleLogicalRange();
+                c.timeScale().setVisibleLogicalRange({from: n.to - 126, to: n.to}); }""")
+            page.wait_for_timeout(300)
+            before = page.evaluate(f"({self._VISIBLE_YEARS})()")
+            self.assertLess(before, 0.8)
+            page.click("button.ma50")
+            page.wait_for_timeout(800)
+            page.click("button.ma50")
+            page.wait_for_timeout(800)
+            self.assertAlmostEqual(before, page.evaluate(f"({self._VISIBLE_YEARS})()"), places=2,
+                                   msg="a re-render threw the zoom away")
+
+            page.click(".chart-range button:text-is('2Y')")
+            page.wait_for_function("() => /2-year price/i.test(document.body.innerText)", timeout=10000)
+            page.wait_for_function(f"() => {{ const y = ({self._VISIBLE_YEARS})(); return y > 1.8 && y < 2.3; }}",
+                                   timeout=15000)
+            self.assertEqual([10, 2], self.daily_history_calls)
+
+            page.click(".chart-range button:text-is('250D')")
+            page.wait_for_function("() => /250 day price/i.test(document.body.innerText)", timeout=10000)
+            self.assertEqual([10, 2], self.daily_history_calls, "the year it already has")
+        finally:
+            self._close(handles)
+
+    def test_the_long_ranges_fit_a_phone_and_say_when_history_fails(self):
+        geo, errs, handles = self._measure(390, 844, tab="trade", daily_history="error")
+        page = handles[2]
+        try:
+            self.assertEqual(errs, [], f"the page threw: {errs[:2]}")
+            page.wait_for_selector(".chart-range button", timeout=20000)
+            got = page.evaluate("""() => { const vw = window.innerWidth;
+                const bad = [...document.querySelectorAll('.chart-range button')].filter(b => {
+                  const r = b.getBoundingClientRect(); return r.width === 0 || r.left < -1 || r.right > vw + 1; })
+                  .map(b => b.innerText);
+                const m = document.querySelector('.main');
+                return {bad, scroll: Math.max(0, m.scrollWidth - m.clientWidth)}; }""")
+            self.assertEqual([], got["bad"], "a range button runs off a phone")
+            self.assertLessEqual(got["scroll"], 2, "the page scrolls sideways")
+            page.click(".chart-range button:text-is('10Y')")
+            page.wait_for_selector(".chart-range-note", timeout=10000)
+            page.wait_for_function("() => /Couldn't load 10 years/.test(document.querySelector('.chart-range-note').innerText)",
+                                   timeout=10000)
+            note = page.inner_text(".chart-range-note")
+            self.assertIn("No daily history for AAPL.", note)
+            self.assertIn("Showing the last year", note)
+            self.assertEqual([], [e for e in errs])
+        finally:
+            self._close(handles)
 
     def test_the_watchlist_has_a_debt_and_rates_view(self):
         geo, errs, handles = self._measure(1900, 1200, tab="watchlist")

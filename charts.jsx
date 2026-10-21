@@ -170,7 +170,7 @@ function attachTouchZoom(el, chart, { getBarCount, onDoubleTap } = {}) {
   };
 }
 
-function TVPriceChart({ daily, expHigh, expLow, emHigh, emLow, callStrike, putStrike, currentPrice, chartStyle = "candles", earnings, showMA50 = false, showMA200 = false, showEMA21 = false, levels = null }) {
+function TVPriceChart({ daily, expHigh, expLow, emHigh, emLow, callStrike, putStrike, currentPrice, chartStyle = "candles", earnings, showMA50 = false, showMA200 = false, showEMA21 = false, levels = null, resetKey = "" }) {
   const LC = window.LightweightCharts;
   const wrapRef = React.useRef(null);
   const chartRef = React.useRef(null);
@@ -192,7 +192,9 @@ function TVPriceChart({ daily, expHigh, expLow, emHigh, emLow, callStrike, putSt
       layout: { background: { type: "solid", color: "transparent" }, textColor: "#9aa4b2", fontFamily: "JetBrains Mono, ui-monospace, monospace" },
       grid: { vertLines: { color: "rgba(255,255,255,0.04)" }, horzLines: { color: "rgba(255,255,255,0.06)" } },
       rightPriceScale: { borderColor: "rgba(255,255,255,0.1)" },
-      timeScale: { borderColor: "rgba(255,255,255,0.1)", rightOffset: 14 },
+      // minBarSpacing (v5.44): the library's 0.5px floor fits about six
+      // years of daily bars across a desktop chart; 10Y needs ten.
+      timeScale: { borderColor: "rgba(255,255,255,0.1)", rightOffset: 14, minBarSpacing: 0.1 },
       crosshair: { mode: LC.CrosshairMode.Normal },
       // Mobile touch (v3.97): built-in pinch OFF — attachTouchZoom drives a
       // smooth, anchored pinch instead. Horizontal drag pans the chart,
@@ -203,13 +205,14 @@ function TVPriceChart({ daily, expHigh, expLow, emHigh, emLow, callStrike, putSt
     const vol = chart.addHistogramSeries({ priceFormat: { type: "volume" }, priceScaleId: "vol" });
     chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
     chartRef.current = chart; volRef.current = vol;
+    el.__chart = chart;                    // the render tests read the visible range
     const detachTouch = attachTouchZoom(el, chart, {
       getBarCount: () => (dailyRef.current || []).length,
       onDoubleTap: () => { try { chart.timeScale().fitContent(); } catch (e) {} },
     });
     const ro = new window.ResizeObserver(() => { if (wrapRef.current) chart.applyOptions({ width: wrapRef.current.clientWidth }); });
     ro.observe(el);
-    return () => { ro.disconnect(); detachTouch(); try { chart.remove(); } catch (e) {} chartRef.current = null; mainRef.current = null; volRef.current = null; };
+    return () => { ro.disconnect(); detachTouch(); el.__chart = null; try { chart.remove(); } catch (e) {} chartRef.current = null; mainRef.current = null; volRef.current = null; };
   }, [LC]);
 
   // Add/swap ONLY the main price series when the style changes. The chart
@@ -237,12 +240,18 @@ function TVPriceChart({ daily, expHigh, expLow, emHigh, emLow, callStrike, putSt
     if (volRef.current) volRef.current.setData(hasVol ? ascendingByTime(rows.map(d => ({ time: norm(d.date), value: d.volume || 0, color: d.close >= d.open ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)" }))) : []);
   }, [daily, chartStyle]);
 
-  // Fit the time scale only when the data actually changes (new symbol /
-  // window), NOT on a style toggle — so flipping candles/area/ohlc keeps your
-  // current zoom and pan.
+  // Fit the time scale when the WINDOW changes (a new symbol or range, a new
+  // day's bar), NOT on a style toggle and NOT on each update of today's live
+  // candle: the quote poll rebuilds `daily` every 15 seconds, and fitting on
+  // every one threw away your zoom and pan within seconds (v5.44).
+  const fitKeyRef = React.useRef("");
   React.useEffect(() => {
-    if (chartRef.current && daily && daily.length) chartRef.current.timeScale().fitContent();
-  }, [daily]);
+    if (!chartRef.current || !daily || !daily.length) return;
+    const key = `${resetKey}|${norm(daily[0].date)}|${norm(daily[daily.length - 1].date)}|${daily.length}`;
+    if (key === fitKeyRef.current) return;
+    fitKeyRef.current = key;
+    chartRef.current.timeScale().fitContent();
+  }, [daily, resetKey]);
 
   React.useEffect(() => {
     const chart = chartRef.current, main = mainRef.current;

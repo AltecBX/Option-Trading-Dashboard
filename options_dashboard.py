@@ -5210,6 +5210,32 @@ except Exception as _exc:  # noqa: BLE001
     _LIVE_AVAILABLE = False
     _live = None  # type: ignore
 
+# ── Shares outstanding over time, from SEC filings (v5.45) ──────────────────
+# Step 1 of market-cap charts: every count a company filed on a 10-Q/10-K
+# cover page, on today's split basis, checked against Yahoo today. See
+# share_history.py for what is and is not supported.
+def _shist_fetch(url: str, limit=None) -> bytes:
+    if not (_SEC_AVAILABLE and _sec_filings is not None and _sec_filings.available()):
+        raise OSError("SEC unavailable")
+    return _sec_filings._fetch(url, limit=limit, timeout=30)
+
+
+try:
+    import share_history as _shist
+    _shist.configure(
+        data_dir=_STABLE_DIR,
+        facts_fn=lambda s: __import__("fundamentals").company_facts(s),
+        fetch_fn=_shist_fetch,
+        splits_fn=lambda s: sorted((_gap_actions(s).get("split_ratios") or {}).items()),
+        quote_fn=lambda s: (lambda i: {"price": i.get("currentPrice") or i.get("regularMarketPrice"),
+                                       "market_cap": i.get("marketCap")})(_ticker_info(s, max_wait=8.0) or {}),
+    )
+    _SHIST_AVAILABLE = True
+except Exception as _exc:  # noqa: BLE001
+    print(f"[share_history] wiring failed: {_exc}", file=sys.stderr)
+    _SHIST_AVAILABLE = False
+    _shist = None  # type: ignore
+
 # ── Short-interest trend alerts for high-debt stocks (v5.40) ────────────────
 _SHORT_DEBT_CACHE: dict = {}   # v5.41: the Live Scanner's shorted high-debt list, a minute at a time
 # FINRA's twice-monthly short-interest report against the watchlist's Debt &
@@ -5765,6 +5791,10 @@ def _gap_actions(symbol: str) -> dict:
             sp = t.splits
             if sp is not None and len(sp):
                 out["splits"] = {str(ix)[:10] for ix in sp.index}
+                # v5.45: the ratios too, for putting filed share counts on
+                # today's split basis (share_history.py).
+                out["split_ratios"] = {str(ix)[:10]: float(v) for ix, v in sp.items()
+                                       if v and float(v) > 0}
             dv = t.dividends
             if dv is not None and len(dv):
                 out["dividends"] = {str(ix)[:10]: float(v)
@@ -5840,6 +5870,54 @@ def _ten_year_series() -> list:
     """The 10-year Treasury yield, daily, about 13 months back (FRED DGS10)."""
     import debt_risk as _dr
     return _dr.ten_year_series(_treasury._fred_series if _treasury is not None else None)
+
+
+# v5.44: 2Y/5Y/10Y on the Trade chart. The dashboard payload carries a year
+# of daily bars; a long range is asked for once and kept ten minutes.
+_DAILY_HIST_CACHE: dict = {}
+_DAILY_HIST_TTL = 600.0
+_DAILY_HIST_YEARS = (2, 5, 10)
+_DAILY_HIST_KEYS = ("open", "high", "low", "close", "volume", "ma50", "ma200", "ema21",
+                    "macd", "signal", "hist")
+
+
+def build_daily_history(symbol: str, years: int) -> dict:
+    """Daily bars for the last `years` years, the same rows /api/ticker
+    carries (split-adjusted, with the warmed-up moving averages and MACD).
+    Asked for in calendar days so the Yahoo fallback, which counts calendar
+    days, covers the whole span too, then trimmed to exactly `years`."""
+    sym = (symbol or "").upper().strip()
+    if not re.fullmatch(r"[A-Z0-9][A-Z0-9.\-^=]{0,11}", sym):
+        return {"ok": False, "error": "Not a symbol."}
+    if years not in _DAILY_HIST_YEARS:
+        return {"ok": False, "error": f"years must be one of {', '.join(map(str, _DAILY_HIST_YEARS))}"}
+    key = (sym, years)
+    hit = _DAILY_HIST_CACHE.get(key)
+    if hit and time.time() - hit[0] < _DAILY_HIST_TTL:
+        return hit[1]
+    rows = load_daily(sym, int(years * 365.25)) or []
+    cutoff = (datetime.today() - timedelta(days=int(years * 365.25))).strftime("%Y-%m-%d")
+    out_rows = []
+    for r in rows:
+        d = str(r.get("date") or "")
+        if d[:10] < cutoff:
+            continue
+        row = {"date": d}
+        for k in _DAILY_HIST_KEYS:
+            v = r.get(k)
+            if v is not None:
+                row[k] = round(float(v), 4) if k != "volume" else int(v)
+        out_rows.append(row)
+    out = {"ok": bool(out_rows), "symbol": sym, "years": years, "daily": out_rows,
+           "first": out_rows[0]["date"][:10] if out_rows else None,
+           "source": _LAST_SOURCE.get("source")}
+    if not out_rows:
+        out["error"] = f"No daily history for {sym}."
+    else:
+        _DAILY_HIST_CACHE[key] = (time.time(), out)
+        if len(_DAILY_HIST_CACHE) > 60:
+            _DAILY_HIST_CACHE.pop(next(iter(_DAILY_HIST_CACHE)))
+    return out
 
 
 def build_debt_card(symbol: str) -> dict:
@@ -10024,6 +10102,20 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except Exception as exc:  # noqa: BLE001
                 self._send_json({"error": str(exc)[:200], "alerts": []}, status=500)
             return
+        if parsed.path == "/api/share_history":
+            # v5.45: shares outstanding over time, the basis of market-cap
+            # charts. "building" while a multi-class company's filings are
+            # read for the first time.
+            qs = parse_qs(parsed.query)
+            if not _SHIST_AVAILABLE:
+                self._send_json({"ok": False, "status": "error", "reason": "share history unavailable"},
+                                status=503)
+                return
+            try:
+                self._send_json(_shist.get(qs.get("symbol", [""])[0], wait=3.0), no_store=True)
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"ok": False, "status": "error", "reason": str(exc)[:200]}, status=500)
+            return
         if parsed.path == "/api/debt":
             # v5.39: the Debt & rates card for one stock.
             qs = parse_qs(parsed.query)
@@ -14030,6 +14122,19 @@ whole screen and send it back.</p>
                 self.wfile.write(body)
             except Exception as exc:  # noqa: BLE001
                 self._send_json({"error": str(exc)}, status=500)
+            return
+        if parsed.path == "/api/daily_history":
+            # v5.44: the Trade chart's 2Y/5Y/10Y ranges.
+            qs = parse_qs(parsed.query)
+            try:
+                years = int((qs.get("years", ["0"])[0] or "0"))
+            except ValueError:
+                years = 0
+            try:
+                res = build_daily_history(qs.get("symbol", [""])[0], years)
+                self._send_json(res, status=200 if res.get("ok") or res.get("daily") is not None else 400)
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"ok": False, "error": str(exc)[:200]}, status=500)
             return
         if parsed.path == "/api/ticker":
             qs = parse_qs(parsed.query)

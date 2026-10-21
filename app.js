@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "5.43";
+const APP_VERSION = "5.45";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -2955,8 +2955,9 @@ function App() {
     const minutes = hh * 60 + mm;
     return minutes >= 570 && minutes < 960;
   };
-  const daily = useMemo(() => {
-    const base = _payloadDaily || [];
+  // Today's live candle laid on a series of daily bars. Shared by the
+  // dashboard's year of bars and the 2Y/5Y/10Y history (v5.44).
+  const withTodayBar = base => {
     const live = liveTickerQuote;
     if (!live || live.last == null || !todayET) return base;
     if (!isMarketOpenForChart()) return base;
@@ -3014,7 +3015,62 @@ function App() {
       return [...base.slice(0, -1), todayCandle];
     }
     return [...base, todayCandle];
-  }, [_payloadDaily, liveTickerQuote?.last, liveTickerQuote?.ts, todayET, ticker]);
+  };
+  const daily = useMemo(() => withTodayBar(_payloadDaily || []), [_payloadDaily, liveTickerQuote?.last, liveTickerQuote?.ts, todayET, ticker]);
+
+  // v5.44: 2Y/5Y/10Y on the price chart. A long range loads its history
+  // once per ticker and range (/api/daily_history); until it arrives, and
+  // if it cannot, the chart shows the year the dashboard already has.
+  const longYears = chartDays >= 2520 ? 10 : chartDays >= 1260 ? 5 : chartDays >= 504 ? 2 : 0;
+  const [longHist, setLongHist] = useState(null); // {ticker, years, bars|null, error}
+  useEffect(() => {
+    if (!longYears || !ticker) return;
+    if (longHist && longHist.ticker === ticker && longHist.years === longYears && longHist.bars) return;
+    let cancelled = false;
+    setLongHist({
+      ticker,
+      years: longYears,
+      bars: null,
+      error: null
+    });
+    apiFetch(`/api/daily_history?symbol=${encodeURIComponent(ticker)}&years=${longYears}`).then(r => r.json().catch(() => ({
+      error: PAGE_NOT_DATA_MSG
+    }))).then(j => {
+      if (cancelled) return;
+      const rows = j && Array.isArray(j.daily) ? j.daily : [];
+      if (!rows.length) {
+        setLongHist({
+          ticker,
+          years: longYears,
+          bars: null,
+          error: j && j.error || "No history came back."
+        });
+        return;
+      }
+      setLongHist({
+        ticker,
+        years: longYears,
+        error: null,
+        first: j.first || String(rows[0].date).slice(0, 10),
+        bars: rows.map(d => Object.assign({}, d, {
+          date: new Date(d.date)
+        }))
+      });
+    }).catch(e => {
+      if (!cancelled) setLongHist({
+        ticker,
+        years: longYears,
+        bars: null,
+        error: String(e && e.message || e)
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [ticker, longYears]); // eslint-disable-line react-hooks/exhaustive-deps
+  const longReady = !!(longYears && longHist && longHist.ticker === ticker && longHist.years === longYears && longHist.bars);
+  const chartDaily = useMemo(() => longReady ? withTodayBar(longHist.bars) : daily, [longReady, longHist, daily]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const medianHigh = window.MockData.median(rows.map(r => r.high_return));
   const medianLow = window.MockData.median(rows.map(r => r.low_return));
   const medianClose = window.MockData.median(rows.map(r => r.close_return));
@@ -5578,7 +5634,7 @@ function App() {
     className: "card-head"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "kicker"
-  }, chartDays, " day price \xB7 expected weekly range"), /*#__PURE__*/React.createElement("div", {
+  }, longYears ? `${longYears}-year` : `${chartDays} day`, " price \xB7 expected weekly range"), /*#__PURE__*/React.createElement("div", {
     className: "card-title"
   }, ticker, " candlestick", (() => {
     if (!liveEarnings || !liveEarnings.next) return null;
@@ -5627,16 +5683,16 @@ function App() {
     onClick: () => setShowProbCone(v => !v),
     title: "Probability cone (\xB11\u03C3 / \xB12\u03C3 to expiration)"
   }, "CONE")), /*#__PURE__*/React.createElement("div", {
-    className: "seg",
-    title: "Visible day range"
-  }, [[30, "30D"], [60, "60D"], [120, "120D"], [250, "250D"]].map(([n, l]) => /*#__PURE__*/React.createElement("button", {
+    className: "seg chart-range",
+    title: "Visible range"
+  }, [[30, "30D"], [60, "60D"], [120, "120D"], [250, "250D"], [504, "2Y"], [1260, "5Y"], [2520, "10Y"]].map(([n, l]) => /*#__PURE__*/React.createElement("button", {
     key: n,
     className: !viewRange && chartDays === n ? "active" : "",
     onClick: () => {
       setChartDays(n);
       setViewRange(null);
     },
-    title: `Show last ${n} trading days`
+    title: n >= 504 ? `Show the last ${n / 252} years` : `Show last ${n} trading days`
   }, l)), viewRange && /*#__PURE__*/React.createElement("button", {
     className: "zoom-reset",
     onClick: () => setViewRange(null),
@@ -5681,14 +5737,19 @@ function App() {
     className: "ic-empty"
   }, "Loading today's bars\u2026")) : (() => {
     // Compute the visible window from either the explicit viewRange
-    // (set by wheel/drag interaction) or the chartDays preset.
-    const len = daily.length;
+    // (set by wheel/drag interaction) or the chartDays preset. The
+    // long ranges draw from their own history once it is here.
+    const len = chartDaily.length;
     const start = viewRange ? viewRange[0] : Math.max(0, len - chartDays);
     const end = viewRange ? viewRange[1] : len;
-    const visibleDaily = daily.slice(start, end);
+    const visibleDaily = chartDaily.slice(start, end);
+    const longNote = longYears && !longReady ? longHist && longHist.error && longHist.ticker === ticker ? `Couldn't load ${longYears} years of history (${longHist.error}). Showing the last year.` : `Loading ${longYears} years of history… showing the last year meanwhile.` : longReady && longHist.bars.length && (Date.now() - longHist.bars[0].date.getTime()) / 31557600000 < longYears - 0.25 ? `History for ${ticker} starts ${fmtUSDate(longHist.first)}.` : null;
     return /*#__PURE__*/React.createElement(CardErrorBoundary, {
       label: "Price chart"
-    }, window.LightweightCharts ? /*#__PURE__*/React.createElement(TVPriceChart, {
+    }, longNote && /*#__PURE__*/React.createElement("div", {
+      className: "chart-range-note",
+      role: "status"
+    }, longNote), window.LightweightCharts ? /*#__PURE__*/React.createElement(TVPriceChart, {
       daily: visibleDaily,
       expHigh: expHigh,
       expLow: expLow,
@@ -5702,7 +5763,8 @@ function App() {
       levels: rcvLevels && rcvLevels.symbol === ticker ? rcvLevels.levels : null,
       showMA50: showMA50,
       showMA200: showMA200,
-      showEMA21: showEMA21
+      showEMA21: showEMA21,
+      resetKey: `${ticker}|${chartDays}`
     }) : /*#__PURE__*/React.createElement(PriceChart, {
       daily: visibleDaily,
       expHigh: expHigh,

@@ -235,7 +235,8 @@ function TVPriceChart({
   showMA50 = false,
   showMA200 = false,
   showEMA21 = false,
-  levels = null
+  levels = null,
+  resetKey = ""
 }) {
   const LC = window.LightweightCharts;
   const wrapRef = React.useRef(null);
@@ -281,9 +282,12 @@ function TVPriceChart({
       rightPriceScale: {
         borderColor: "rgba(255,255,255,0.1)"
       },
+      // minBarSpacing (v5.44): the library's 0.5px floor fits about six
+      // years of daily bars across a desktop chart; 10Y needs ten.
       timeScale: {
         borderColor: "rgba(255,255,255,0.1)",
-        rightOffset: 14
+        rightOffset: 14,
+        minBarSpacing: 0.1
       },
       crosshair: {
         mode: LC.CrosshairMode.Normal
@@ -317,6 +321,7 @@ function TVPriceChart({
     });
     chartRef.current = chart;
     volRef.current = vol;
+    el.__chart = chart; // the render tests read the visible range
     const detachTouch = attachTouchZoom(el, chart, {
       getBarCount: () => (dailyRef.current || []).length,
       onDoubleTap: () => {
@@ -334,6 +339,7 @@ function TVPriceChart({
     return () => {
       ro.disconnect();
       detachTouch();
+      el.__chart = null;
       try {
         chart.remove();
       } catch (e) {}
@@ -395,12 +401,18 @@ function TVPriceChart({
     }))) : []);
   }, [daily, chartStyle]);
 
-  // Fit the time scale only when the data actually changes (new symbol /
-  // window), NOT on a style toggle — so flipping candles/area/ohlc keeps your
-  // current zoom and pan.
+  // Fit the time scale when the WINDOW changes (a new symbol or range, a new
+  // day's bar), NOT on a style toggle and NOT on each update of today's live
+  // candle: the quote poll rebuilds `daily` every 15 seconds, and fitting on
+  // every one threw away your zoom and pan within seconds (v5.44).
+  const fitKeyRef = React.useRef("");
   React.useEffect(() => {
-    if (chartRef.current && daily && daily.length) chartRef.current.timeScale().fitContent();
-  }, [daily]);
+    if (!chartRef.current || !daily || !daily.length) return;
+    const key = `${resetKey}|${norm(daily[0].date)}|${norm(daily[daily.length - 1].date)}|${daily.length}`;
+    if (key === fitKeyRef.current) return;
+    fitKeyRef.current = key;
+    chartRef.current.timeScale().fitContent();
+  }, [daily, resetKey]);
   React.useEffect(() => {
     const chart = chartRef.current,
       main = mainRef.current;
