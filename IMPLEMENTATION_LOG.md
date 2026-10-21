@@ -6129,3 +6129,67 @@ them every day. The class now pins the backtest's clock to the day after
 the last bar (as the time-travel step asks: pin the clock, don't loosen
 the assertion); it passes today, 400 and 800 days ahead, and
 `test_time_travel.py 400` is green.
+
+## perfection_data: market cap on one split basis
+
+Jerry found that `_valuation_history` multiplied two series on different
+bases. yfinance's `Close` with `auto_adjust=False` is split adjusted (only
+dividends are left out): NVDA closed 2024-05-01 at 83.04, today's basis, not
+the ~830 it traded at. `get_shares_full` is as reported: 2.5B NVDA shares on
+2024-04-04, 24.6B from the 2024-06-10 split on. The comment called the close
+"UNadjusted" and the product "split safe by identity"; in fact every market
+cap before a split was short by the split ratio, and so was every EV/S and
+P/E built on it.
+
+- **The fix.** `_split_adjusted_shares` multiplies each count by the ratios
+  of the splits that took effect after its date. Splits come from
+  `Ticker.splits` (the Stock Splits column of the same history response if
+  that is empty or fails). The declared ratio is used as is: it is exactly
+  the factor yfinance applied to the close. `fundamentals._snap_split` was
+  not used for it, because snapping would turn a stock dividend logged as a
+  1.05 split into "no split" and put the two series back on different bases.
+- **Around the split the date is not enough.** Probed live on 17 names with
+  splits in the window (NVDA, AVGO, WMT, CMG, SMCI, LRCX, CTAS, ANET, IBKR,
+  ORLY, FAST, APH, LCID, TLRY, SIRI, plus AAPL and MSFT as controls). AVGO
+  lists its new count on Saturday 2024-07-13 for a Monday 07-15 split, and
+  WMT, CMG, IBKR and APH list old counts on the split day itself. A pure
+  date rule would have put a 10x, 50x or 4x step on those split days.
+  Within 10 days of a split each count takes whichever basis matches the
+  median of its clean neighbours (120 days either side); a count matching
+  neither (IBKR's 749M on 2025-06-19, against 1.69B) is dropped and the
+  prior count carries forward. With that, all 17 show no split day step.
+- **Sanity check on the counts.** For a real split (ratio 1.5 or more) the
+  counts must step by about the ratio across it. If they show no step the
+  feed is already adjusted and the split is left out, with a note, instead
+  of creating the error in reverse.
+- **What it changes on screen.** The Priced for Perfection card: the
+  Valuation stretch component (EV/S and P/E percentile, multiple expansion
+  30/90/180d) and everything it feeds: the composite score (20% weight),
+  the "Consensus is NOT the hurdle" warning (stretch 70 or more is one
+  condition), the multiple compression flags on the scenarios, the top
+  factor explanations, and the "Guidance must be RAISED" checklist line
+  (EV/S percentile 80 or more with estimates rising). The series only
+  starts where four quarters of revenue exist, and yfinance returns five or
+  six quarters, so in practice it covers the last six to nine months. A
+  stock is affected only if it split inside that span. Today that is APH
+  (2 for 1 on 2026-09-03): EV/S percentile 86.4 → 55.7, P/E percentile
+  86.4 → 67.6, 180 day expansion +96.6% → −1.7%. NVDA, AVGO, CMG, WMT,
+  ORLY and LCID read the same before and after, because their splits fall
+  before the series starts.
+- **Caches.** The result lives only in the in process 24 hour cache
+  (`shares:<SYM>`) and the browser's in memory 10 minute `sharedJson`
+  cache, so the restart that ships this clears it. The per symbol
+  snapshot files under `data/perfection/` record component scores at the
+  time, but nothing reads those scores back (only `implied_move_pct` is
+  read), so they are left as written.
+- **Not fixed here.** The card labels the percentiles "own 3y", but as
+  above the series is six to nine months long. That is a separate change.
+
+Tests: `test_perfection.TestSplitBasis` (4): a 10 for 1 and a 1 for 10
+split with the AVGO, WMT and IBKR shaped noise leave no step in market cap
+on the split day and keep cap/close equal to the true count on every day;
+counts already on the new basis are left alone; and end to end through
+`_valuation_history`, flat revenue gives the close's own 180 day move as
+the expansion. On the old code that last test reads +1097% against a
+true +19.7%, and a date rule without the boundary handling fails the
+split day check.

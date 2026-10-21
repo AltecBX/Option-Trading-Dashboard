@@ -445,6 +445,116 @@ class TestSessionCutoffs(unittest.TestCase):
         self.assertEqual(near[0]["date"], "2026-02-01")
 
 
+class TestSplitBasis(unittest.TestCase):
+    """Market cap = yfinance Close × get_shares_full. The Close is split-
+    ADJUSTED (auto_adjust=False only leaves dividends out); the counts are AS
+    REPORTED. Multiplied raw, every pre-split day's market cap came out short
+    by the split ratio (10x for NVDA before June 2024). The fixtures carry the
+    feed's real mess around a split: a post-split count dated before the
+    split (AVGO), a pre-split count on the split day (WMT, CMG) and a junk
+    count matching neither basis (IBKR)."""
+
+    TZ = "America/New_York"
+    TRUE_SHARES = 25e9          # on today's basis, constant — so cap/close is too
+
+    def _fixture(self, ratio, periods=260, split_at=150):
+        import pandas as pd
+        days = pd.bdate_range("2025-06-02", periods=periods, tz=self.TZ)
+        split_day = days[split_at]
+        close = pd.Series(80.0 * (1.001 ** pd.Series(range(periods)).values), index=days)
+        old_basis = self.TRUE_SHARES / ratio
+        obs = []
+        for d in pd.date_range(days[0] - pd.Timedelta(days=3), days[-1], freq="7D", tz=self.TZ):
+            obs.append((d.normalize(), old_basis if d.normalize() < split_day else self.TRUE_SHARES))
+        obs += [
+            (split_day - pd.Timedelta(days=2), self.TRUE_SHARES),   # new basis, early
+            (split_day, self.TRUE_SHARES),
+            (split_day, old_basis),                                  # old basis, late (listed last)
+            (split_day + pd.Timedelta(days=1), self.TRUE_SHARES * 0.44),   # junk
+        ]
+        obs.sort(key=lambda x: x[0])                                 # stable: feed order kept
+        shares = pd.Series([v for _, v in obs], index=pd.DatetimeIndex([d for d, _ in obs]))
+        splits = pd.Series([ratio], index=[split_day + pd.Timedelta(hours=9, minutes=30)])
+        return close, shares, splits, split_day
+
+    def _assert_no_step(self, ratio):
+        import perfection_data as pd_mod
+        close, shares, splits, split_day = self._fixture(ratio)
+        mcap, notes = pd_mod._daily_market_cap(close, shares, splits)
+        implied = (mcap / close.values).dropna()
+        self.assertGreater(len(implied), 250)
+        for d, n in implied.items():
+            self.assertAlmostEqual(n / self.TRUE_SHARES, 1.0, places=9, msg=str(d.date()))
+        i = list(mcap.index).index(split_day.tz_localize(None))
+        self.assertAlmostEqual(mcap.iloc[i] / mcap.iloc[i - 1],
+                               close.iloc[i] / close.iloc[i - 1], places=12)
+        self.assertTrue(any("applied" in s for s in notes), notes)
+        self.assertTrue(any("dropped" in s for s in notes), notes)
+        # The fixture does exercise the defect: the raw product steps by
+        # the ratio across the split.
+        raw = shares[~shares.index.duplicated(keep="last")]
+        raw.index = raw.index.tz_localize(None)
+        raw = raw.reindex(mcap.index, method="ffill")
+        self.assertAlmostEqual(raw.iloc[i - 10] * ratio / raw.iloc[-1], 1.0, places=9)
+
+    def test_a_split_leaves_no_step_in_market_cap(self):
+        self._assert_no_step(10.0)
+
+    def test_a_reverse_split_is_restated_the_other_way(self):
+        self._assert_no_step(0.1)
+
+    def test_counts_already_on_the_split_basis_are_left_alone(self):
+        # Should the feed ever arrive adjusted, restating it would create
+        # the very error being fixed. The counts themselves say so.
+        import pandas as pd
+        import perfection_data as pd_mod
+        close, _, splits, _ = self._fixture(10.0)
+        shares = pd.Series(self.TRUE_SHARES,
+                           index=pd.date_range("2025-05-30", periods=40, freq="7D", tz=self.TZ))
+        mcap, notes = pd_mod._daily_market_cap(close, shares, splits)
+        for n in (mcap / close.values).dropna():
+            self.assertAlmostEqual(n / self.TRUE_SHARES, 1.0, places=9)
+        self.assertTrue(any("not applied" in s for s in notes), notes)
+
+    def test_valuation_history_shows_no_phantom_expansion(self):
+        # End to end: flat revenue, so EV/S moves only with the close. The
+        # raw product made the pre-split multiple a tenth of today's:
+        # +900% "expansion" over 180 days and a 100th-percentile reading.
+        import pandas as pd
+        import perfection_data as pd_mod
+        close, shares, splits, _ = self._fixture(10.0)
+        quarters = pd.to_datetime(["2024-06-30", "2024-09-30", "2024-12-31", "2025-03-31",
+                                   "2025-06-30", "2025-09-30", "2025-12-31", "2026-03-31"])
+        qi = pd.DataFrame([[1e10] * 8, [2e9] * 8], columns=quarters,
+                          index=["Total Revenue", "Net Income"])
+
+        class _T:
+            def history(self, period=None, auto_adjust=True):
+                return pd.DataFrame({"Close": close, "Stock Splits": 0.0})
+
+            def get_shares_full(self, start=None):
+                return shares
+
+            splits = property(lambda self: splits)
+            quarterly_income_stmt = qi
+
+        orig = pd_mod._yft
+        pd_mod._yft = lambda s: _T()
+        pd_mod._CACHE.clear()
+        try:
+            issues = []
+            out = pd_mod._valuation_history("TST", {"net_debt": 0.0}, issues)
+        finally:
+            pd_mod._yft = orig
+            pd_mod._CACHE.clear()
+        self.assertEqual(issues, [])
+        grown = close.iloc[-1] / close.iloc[-181]
+        self.assertAlmostEqual(out["evs_expansion_180d_pct"], (grown - 1.0) * 100.0, places=6)
+        self.assertAlmostEqual(out["evs_current_trailing"],
+                               round(close.iloc[-1] * self.TRUE_SHARES / 4e10, 2), places=6)
+        self.assertIn("split", out["note"])
+
+
 class TestModelContract(unittest.TestCase):
     def test_weights_sum_100(self):
         self.assertEqual(sum(pf.MODEL["weights"].values()), 100)

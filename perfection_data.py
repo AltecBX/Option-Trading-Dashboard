@@ -15,7 +15,8 @@ Honesty rules (same contract as the rest of the app):
     from the configured providers — disclosed in `limitations`.
   • Valuation history percentiles are TRAILING multiples rebuilt from
     daily price × actual share count and quarterly filings (forward-
-    multiple history is paid data) — labeled as such.
+    multiple history is paid data) — labeled as such. The counts are
+    restated onto the split-adjusted price basis (_split_adjusted_shares).
   • Point-in-time: pre-earnings snapshots are APPENDED (never rewritten)
     to data_dir/perfection/<SYM>.jsonl, so each day's view is preserved
     with its own as-of stamps; per-event "vs implied move" comparisons are
@@ -26,6 +27,7 @@ perfection.py stays pure; everything network-touching lives here.
 """
 from __future__ import annotations
 
+import itertools
 import json
 import math
 import os
@@ -631,6 +633,128 @@ def _prime_snapshot_index(symbol: str) -> None:
     _SNAP_INDEX["rows"] = rows
 
 
+# Share counts and prices on ONE basis. yfinance's Close is split-adjusted
+# even with auto_adjust=False (that flag only leaves dividends out): NVDA
+# closed 2024-05-01 at 83.04 on today's basis, not the ~830 it traded at.
+# get_shares_full is AS REPORTED: 2.5B NVDA shares on 2024-04-04, 24.6B from
+# the 2024-06-10 10-for-1 split on. Their raw product understated every
+# pre-split market cap by the split ratio, so each count is restated onto
+# today's basis by the splits that took effect after its date.
+#
+# Within a few days of a split the feed carries either basis: AVGO lists its
+# post-split count on 2024-07-13, two days before the 07-15 split, while WMT,
+# CMG, IBKR and APH list pre-split counts ON the split day. Inside that
+# window the basis is read from the neighbouring counts, not the date, and a
+# count matching neither basis is dropped (the prior one carries forward).
+_SPLIT_WINDOW = timedelta(days=10)
+_SPLIT_REF = timedelta(days=120)       # neighbourhood whose median is the reference level
+_SPLIT_MAX_MISS = math.log(1.25)       # a window count this far from both bases is dropped
+
+
+def _split_events(splits) -> list:
+    """yfinance's split table → [(tz-naive date, ratio)], ratio = new/old
+    shares (10.0 for 10-for-1, 0.1 for 1-for-10). The ratio is used as
+    declared: it is exactly the factor yfinance applied to Close."""
+    out = []
+    for ts, r in (splits.items() if splits is not None else ()):
+        r = _num(r)
+        if not r or r <= 0 or r == 1.0:
+            continue
+        ts = pd.Timestamp(ts)
+        if ts.tz is not None:
+            ts = ts.tz_localize(None)
+        out.append((ts.normalize(), r))
+    return sorted(out)
+
+
+def _split_adjusted_shares(shares, splits) -> tuple:
+    """As-reported share counts → the split-adjusted basis of yfinance's
+    Close. Returns (counts sorted by date, tz-naive, duplicates kept in feed
+    order; notes on what was changed)."""
+    sh = shares.astype(float)
+    if getattr(sh.index, "tz", None) is not None:
+        sh.index = sh.index.tz_localize(None)
+    sh = sh[sh > 0].sort_index(kind="stable")
+    notes = []
+    if sh.empty:
+        return sh, notes
+    applied = []
+    for s, r in _split_events(splits):
+        if s <= sh.index[0]:
+            continue                       # every count already on the post-split basis
+        # Sanity check against the counts themselves: as-reported counts step
+        # by ~r across the split. Should the feed ever arrive already
+        # adjusted (no step), restating it would CREATE the error. Only a
+        # real split can show it; a 5% stock dividend is buried in buyback
+        # drift, so those apply as declared.
+        pre = sh[(sh.index >= s - _SPLIT_REF) & (sh.index < s - _SPLIT_WINDOW)]
+        post = sh[(sh.index > s + _SPLIT_WINDOW) & (sh.index <= s + _SPLIT_REF)]
+        if len(pre) and len(post) and abs(math.log(r)) >= math.log(1.5):
+            step = float(post.median()) / float(pre.median())
+            if abs(math.log(step)) < abs(math.log(step / r)):
+                notes.append(f"{s.date()} split ({r:g}) not applied: reported counts show no step")
+                continue
+        applied.append((s, r))
+    if not applied:
+        return sh, notes
+    idx = sh.index
+    base = sh.to_numpy(copy=True)
+    for s, r in applied:
+        base[idx < s] *= r                 # date rule: before the split → old basis
+    near = [[(s, r) for s, r in applied if abs(d - s) <= _SPLIT_WINDOW] for d in idx]
+    clean_i = [i for i, n in enumerate(near) if not n]
+    vals, keep = base.copy(), [True] * len(idx)
+    for i, d in enumerate(idx):
+        if not near[i]:
+            continue
+        ref = [base[j] for j in clean_i if abs(idx[j] - d) <= _SPLIT_REF]
+        if not ref:
+            continue                       # nothing to compare with — date rule stands
+        ref = float(pd.Series(ref).median())
+        best = None
+        for flips in itertools.product((False, True), repeat=len(near[i])):
+            v = base[i]
+            for (s, r), flip in zip(near[i], flips):
+                if flip:                   # this count carries the OTHER basis
+                    v = v / r if d < s else v * r
+            miss = abs(math.log(v / ref))
+            if best is None or miss < best[0]:
+                best = (miss, v)
+        if best[0] > _SPLIT_MAX_MISS:
+            keep[i] = False
+            notes.append(f"{d.date()} count {sh.iloc[i]:,.0f} dropped: matches neither split basis")
+        else:
+            vals[i] = best[1]
+    out = pd.Series(vals, index=idx)[keep]
+    notes[:0] = [f"{s.date()} split ({r:g}) applied to earlier counts" for s, r in applied]
+    return out, notes
+
+
+def _declared_splits(t, h):
+    """The split table behind the Close: Ticker.splits, else (failed or
+    empty) the Stock Splits column of the same history response. None only
+    when neither exists."""
+    try:
+        sp = t.splits
+    except Exception:  # noqa: BLE001
+        sp = None
+    if sp is not None and len(sp):
+        return sp
+    col = h.get("Stock Splits") if h is not None else None
+    return col[col != 0] if col is not None else sp
+
+
+def _daily_market_cap(closes, shares, splits) -> tuple:
+    """Daily market cap: split-adjusted close × the share count of the day on
+    the same basis. Returns (Series on the tz-naive price index, notes)."""
+    sh, notes = _split_adjusted_shares(shares, splits)
+    sh = sh[~sh.index.duplicated(keep="last")]
+    px = closes.astype(float)
+    if getattr(px.index, "tz", None) is not None:
+        px.index = px.index.tz_localize(None)
+    return px * sh.reindex(px.index, method="ffill"), notes
+
+
 def _valuation_history(symbol: str, fund: dict, issues: list) -> dict:
     """Trailing EV/S and P/E percentiles from daily price × real share count
     and quarterly filings. Labeled approximation (see module docstring)."""
@@ -641,9 +765,9 @@ def _valuation_history(symbol: str, fund: dict, issues: list) -> dict:
     out = {}
     t = _yft(symbol)
     try:
-        h = t.history(period="3y", auto_adjust=False)   # UNadjusted close ×
+        h = t.history(period="3y", auto_adjust=False)   # Close is SPLIT-adjusted (dividends are not)
         shares = t.get_shares_full(start=(date.today() - timedelta(days=3 * 365)).isoformat())
-        # actual share count of the day = true market cap (split-safe by identity)
+        # counts are AS REPORTED — _daily_market_cap puts them on the Close's basis
     except Exception as exc:  # noqa: BLE001
         issues.append(f"yfinance shares/history: {exc}")
         h, shares = None, None
@@ -651,12 +775,10 @@ def _valuation_history(symbol: str, fund: dict, issues: list) -> dict:
         _cache_set(key, out, TTL["shares"])
         return out
     try:
-        sh = shares[~shares.index.duplicated(keep="last")]
-        # Normalize BOTH indexes to tz-naive before any alignment/compare.
-        if getattr(sh.index, "tz", None) is not None:
-            sh.index = sh.index.tz_localize(None)
-        px_idx = h.index.tz_localize(None) if getattr(h.index, "tz", None) is not None else h.index
-        sh = sh.reindex(px_idx, method="ffill")
+        splits = _declared_splits(t, h)
+        if splits is None:
+            issues.append("split table unavailable — share counts left as reported")
+        mcaps, split_notes = _daily_market_cap(h["Close"], shares, splits)
         qi = t.quarterly_income_stmt
         rev_row = _row(qi, ["Total Revenue", "Operating Revenue"])
         ni_row = _row(qi, ["Net Income", "Net Income Common Stockholders"])
@@ -673,13 +795,10 @@ def _valuation_history(symbol: str, fund: dict, issues: list) -> dict:
             ni_ttm_steps.append((cols[i], sum(v for v in nv if v is not None) if all(v is not None for v in nv) else None))
         net_debt = _num(fund.get("net_debt")) or 0.0
         evs_series, pe_series = [], []
-        closes = h["Close"]
-        for ts, px in closes.items():
-            key_ts = ts.tz_localize(None) if ts.tz is not None else ts
-            n_sh = _num(sh.get(key_ts))
-            if not n_sh or not _num(px):
+        for key_ts, mcap in mcaps.items():
+            mcap = _num(mcap)
+            if not mcap:
                 continue
-            mcap = float(px) * n_sh
             rev_ttm = next((v for c, v in reversed(rev_ttm_steps) if c <= key_ts and v), None)
             if rev_ttm:
                 evs_series.append((mcap + net_debt) / rev_ttm)
@@ -697,8 +816,11 @@ def _valuation_history(symbol: str, fund: dict, issues: list) -> dict:
         if pe_series:
             out["pe_hist_pctile"] = perfection.pct_rank(pe_series[-1], pe_series, min_n=120)
         out["evs_hist_years"] = 3
-        out["note"] = ("trailing multiples rebuilt from daily unadjusted price × actual share count "
-                       "(get_shares_full) and quarterly filings; net debt held at latest value")
+        out["note"] = ("trailing multiples rebuilt from daily split-adjusted price × actual share count "
+                       "(get_shares_full, restated onto the same split basis) and quarterly filings; "
+                       "net debt held at latest value")
+        if split_notes:
+            out["note"] += "; " + "; ".join(split_notes)
     except Exception as exc:  # noqa: BLE001
         issues.append(f"valuation history: {exc}")
     _cache_set(key, out, TTL["shares"])
