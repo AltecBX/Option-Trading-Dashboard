@@ -566,8 +566,19 @@ def get(symbol: str, wait: float = 3.0) -> dict:
                 res = build(sym)
             except Exception as exc:  # noqa: BLE001
                 res = {"ok": False, "symbol": sym, "status": "error", "reason": str(exc)[:200]}
-            if res.get("status") != "building" or not (hit and hit[1].get("status") == "ok"):
-                _store(sym, res)
+            if res.get("status") not in ("ok", "unsupported"):
+                # A refresh that could not be done is tried again soon, and
+                # does not take the last good history away (Codex, #430).
+                res["partial"] = True
+                if hit and hit[1].get("status") == "ok":
+                    prev = dict(hit[1])
+                    note = (f"A refresh just failed ({res.get('reason') or res.get('status')}); this is the "
+                            f"history built {prev.get('built_at', 'earlier')}, refreshed again in a few minutes.")
+                    prev["warnings"] = [w for w in prev.get("warnings") or []
+                                        if not w.startswith("A refresh just failed")] + [note]
+                    prev["partial"] = True
+                    res = prev
+            _store(sym, res)
             with _LOCK:
                 _BUILDING.pop(sym, None)
             ev.set()

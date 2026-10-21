@@ -628,3 +628,45 @@ class Codex430d(Base):
         fn = src[src.index("def _shist_facts"):]
         fn = fn[:fn.index("\n\n\n")]
         self.assertIn('_stale=True', fn)
+
+
+class Codex430e(Base):
+    """Codex, #430 (sixth review): a failed refresh keeps the last good history."""
+
+    def setUp(self):
+        super().setUp()
+        self.facts = facts(dei=[("2026-07-17", 14.6e9, acc(1), "10-Q", "2026-08-01")],
+                           filings=[(acc(1), "10-Q", "2026-08-01")])
+        self.web.docs = {acc(1): instance([(None, "2026-07-17", int(14.6e9))])}
+
+    def expire(self):
+        ts, res = SH._RESULTS["AAPL"]
+        SH._RESULTS["AAPL"] = (ts - SH.RESULT_TTL_S - 1, res)
+
+    def test_sec_down_on_refresh(self):
+        self.assertEqual("ok", SH.get("AAPL", wait=5)["status"])
+        self.expire()
+
+        def down(sym):
+            raise OSError("SEC timed out")
+        SH._FACTS_FN = down
+        r = SH.get("AAPL", wait=5)
+        self.assertEqual("ok", r["status"], "the last good history is still served")
+        self.assertEqual(14.6e9, r["latest"]["shares"])
+        self.assertTrue(r["partial"], "and retried soon")
+        self.assertTrue(any("refresh just failed" in w for w in r["warnings"]))
+        self.expire()
+        r = SH.get("AAPL", wait=5)
+        self.assertEqual(1, sum("refresh just failed" in w for w in r["warnings"]), "said once")
+
+    def test_an_error_while_building_is_retried_soon(self):
+        def broken(sym):
+            raise RuntimeError("bug")
+        saved = SH.build
+        SH.build = broken
+        try:
+            r = SH.get("AAPL", wait=5)
+        finally:
+            SH.build = saved
+        self.assertEqual("error", r["status"])
+        self.assertTrue(r["partial"])

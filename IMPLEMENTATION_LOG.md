@@ -6302,3 +6302,12 @@ missing long after SEC was back. `_shist_facts` marks those facts
 `_stale`, and the history uses them but is partial (retried in ten
 minutes) and says which day's copy it is from. Test:
 `test_share_history.Codex430d`.
+
+Codex on #430, sixth review, right and fixed (the tests fail on the old
+code): **a failed refresh keeps the last good history.** When a 12-hour
+refresh hit SEC or Yahoo down, the "unavailable" answer (or an "error"
+from a crash) was stored over the good series. Now a refresh that cannot
+be done keeps serving the last good history, marked partial (retried in
+ten minutes) with one line saying the refresh failed; an "error" is
+partial too, so it is retried in minutes, not hours. Test:
+`test_share_history.Codex430e`.
