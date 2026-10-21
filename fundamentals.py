@@ -158,6 +158,17 @@ def company_facts(symbol: str, max_age: float = _FACTS_TTL) -> dict | None:
         return disk
     cik = _sec.cik_for(sym)
     if not cik:
+        # No CIK because SEC's ticker map could not be fetched is "could not
+        # ask", not "no such company" (Codex, #430).
+        try:
+            ready = _sec.ticker_map_ready()
+        except Exception:  # noqa: BLE001
+            ready = True
+        with _LOCK:
+            if ready:
+                _FETCH_ERRORS.pop(sym, None)      # asked, and there is no such ticker
+            else:
+                _FETCH_ERRORS[sym] = LookupError("SEC ticker map unavailable")
         return disk
     try:
         facts = _fetch_facts(int(cik))

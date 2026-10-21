@@ -475,3 +475,53 @@ class LastFetchFailed(unittest.TestCase):
         F._fetch_facts = lambda cik: {"cik": cik, "facts": {"dei": {}}}
         self.assertIsNotNone(F.company_facts("ZZZZ", max_age=0))
         self.assertFalse(F.last_fetch_failed("ZZZZ"), "a good fetch clears it")
+
+
+class Codex430b(Base):
+    """Codex, #430 (second review)."""
+
+    def test_berkshire_before_the_2010_b_split(self):
+        # Class B split 50-for-1 on 2010-01-21 and Class A did not: before
+        # it one A share converted into 30 B, after it into 1,500.
+        self.facts = facts(filings=[(acc(1), "10-Q", "2009-11-06"), (acc(2), "10-Q", "2011-05-06")],
+                           name="BERKSHIRE HATHAWAY INC")
+        self.web.docs = {
+            acc(1): instance([("us-gaap:CommonClassAMember", "2009-10-29", 1050000),
+                              ("us-gaap:CommonClassBMember", "2009-10-29", 13800000)]),
+            acc(2): instance([("us-gaap:CommonClassAMember", "2011-04-29", 940000),
+                              ("us-gaap:CommonClassBMember", "2011-04-29", 1100000000)]),
+        }
+        self.splits = [("2010-01-21", 50.0)]
+        b = {p["as_of"]: p["shares"] for p in SH.build("BRK-B")["points"]}
+        self.assertEqual(1050000 * 1500 + 13800000 * 50, b["2009-10-29"], "in today's B shares")
+        self.assertEqual(940000 * 1500 + 1100000000, b["2011-04-29"])
+        self.splits = []                              # BRK-A never split
+        a = {p["as_of"]: p["shares"] for p in SH.build("BRK-A")["points"]}
+        self.assertAlmostEqual(1050000 + 13800000 / 30, a["2009-10-29"], places=2)
+        self.assertAlmostEqual(940000 + 1100000000 / 1500, a["2011-04-29"], places=2)
+
+
+class TickerMapDown(unittest.TestCase):
+    """Codex, #430: a CIK lookup that could not be made is not "no CIK"."""
+
+    def setUp(self):
+        import fundamentals as F
+        self.F = F
+        self.saved = (F._sec.cik_for, F._sec.ticker_map_ready, F.available)
+        F.available = lambda: True
+        F._MEM.clear()
+
+    def tearDown(self):
+        self.F._sec.cik_for, self.F._sec.ticker_map_ready, self.F.available = self.saved
+        self.F._FETCH_ERRORS.clear()
+        self.F._MEM.clear()
+
+    def test_no_ticker_map_is_could_not_ask(self):
+        F = self.F
+        F._sec.cik_for = lambda s: None
+        F._sec.ticker_map_ready = lambda: False
+        self.assertIsNone(F.company_facts("QQQQ", max_age=0))
+        self.assertTrue(F.last_fetch_failed("QQQQ"))
+        F._sec.ticker_map_ready = lambda: True        # the map is there and has no such ticker
+        self.assertIsNone(F.company_facts("QQQQ", max_age=0))
+        self.assertFalse(F.last_fetch_failed("QQQQ"))

@@ -51,16 +51,15 @@ FOREIGN_FORMS = {"20-F", "20-F/A", "40-F", "40-F/A"}
 CLASS_AXIS = "StatementClassOfStockAxis"
 
 # Share classes that do not trade one-for-one with the ticker's own class,
-# as how many of the ticker's shares one share of the other class is worth.
-# Only economics fixed in the charter belong here: one Berkshire Class A
-# share converts into 1,500 Class B shares (and B carries 1/1,500 of A's
-# economic rights), so B-ticker market cap = (A x 1,500 + B) x B price.
-CLASS_WEIGHTS: dict[str, dict[str, float]] = {
-    "BRK-B": {"CommonClassA": 1500.0},
-    "BRK.B": {"CommonClassA": 1500.0},
-    "BRK-A": {"CommonClassB": 1.0 / 1500.0},
-    "BRK.A": {"CommonClassB": 1.0 / 1500.0},
-}
+# as how many of the ticker's shares one share of the other class is worth,
+# from the date each ratio took effect (newest first). Only economics fixed
+# in the charter belong here. Berkshire: one Class A share converts into
+# 1,500 Class B shares since Class B alone split 50-for-1 on 2010-01-21, and
+# into 30 before it, in the B shares of the day; the split itself then
+# carries the old B count onto today's basis (Codex, #430).
+_BRK_B = [("2010-01-21", {"CommonClassA": 1500.0}), ("0000-01-01", {"CommonClassA": 30.0})]
+_BRK_A = [("2010-01-21", {"CommonClassB": 1.0 / 1500.0}), ("0000-01-01", {"CommonClassB": 1.0 / 30.0})]
+CLASS_WEIGHTS: dict[str, list] = {"BRK-B": _BRK_B, "BRK.B": _BRK_B, "BRK-A": _BRK_A, "BRK.A": _BRK_A}
 
 _LOCK = threading.RLock()
 _DATA_DIR: Optional[Path] = None
@@ -257,8 +256,12 @@ def _companyfacts_counts(facts: Mapping) -> dict:
     return out
 
 
-def _weights(symbol: str) -> dict:
-    return CLASS_WEIGHTS.get(str(symbol).upper(), {})
+def _weights(symbol: str, as_of: str = "9999-12-31") -> dict:
+    """The class conversion ratios in force on `as_of`; {} for an ordinary company."""
+    for since, w in CLASS_WEIGHTS.get(str(symbol).upper(), []):
+        if as_of >= since:
+            return w
+    return {}
 
 
 def _weighted(cover: Mapping, weights: Mapping) -> float:
@@ -373,7 +376,7 @@ def build(symbol: str) -> dict:
     points, unread = [], 0
 
     def add(acc, meta, cover, source):
-        points.append({"as_of": cover["as_of"], "reported": _weighted(cover, weights),
+        points.append({"as_of": cover["as_of"], "reported": _weighted(cover, _weights(sym, cover["as_of"])),
                        "classes": cover.get("classes"), "form": meta["form"], "filed": meta["filed"],
                        "accession": acc, "source": source})
 

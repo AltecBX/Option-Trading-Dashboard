@@ -164,6 +164,12 @@ def cik_for(symbol: str) -> int | None:
     return _TICKERS[1].get(sym) or None
 
 
+def ticker_map_ready() -> bool:
+    """Whether SEC's ticker -> CIK map is in hand, so a None from cik_for
+    means "no such ticker" rather than "could not ask"."""
+    return bool(_TICKERS[1])
+
+
 # ── filings ─────────────────────────────────────────────────────────────────
 
 def _accepted_et(raw: str) -> str | None:

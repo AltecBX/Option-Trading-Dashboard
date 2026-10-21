@@ -6232,3 +6232,22 @@ Codex on #430:
   splits used exactly these closes.
 
 Tests: `test_share_history.Codex430` (2) and `LastFetchFailed`, red first.
+
+Codex on #430, second review, both right and fixed (the tests fail on the
+old code):
+
+- **Berkshire before 2010.** Class B alone split 50-for-1 on 2010-01-21,
+  and the A-to-B conversion went from 30 to 1,500 with it. The fixed 1,500
+  weight plus the split factor over-counted Class A 50x for any earlier
+  cover (2009: 79.4B B-equivalent shares instead of 2.27B). The class
+  ratios are now dated (`CLASS_WEIGHTS` per effective date): 30 before the
+  split, in the B shares of the day, which the split then carries onto
+  today's basis; BRK-A takes 1/30 and 1/1,500 likewise. The live history
+  starts in 2011, so today's numbers are unchanged.
+- **A CIK lookup that could not be made.** With SEC's ticker map
+  unreachable, `cik_for` returned None and Company Facts reported nothing
+  failed, so the ticker was cached "unsupported" for 12 hours. The map's
+  state (`sec_filings.ticker_map_ready`) now decides: no map is "could not
+  ask" (`last_fetch_failed`), a map without the ticker is "nothing there".
+
+Tests: `test_share_history.Codex430b` and `TickerMapDown`.
