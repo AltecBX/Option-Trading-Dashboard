@@ -69,6 +69,7 @@ _SPLITS_FN: Optional[Callable[[str], Iterable]] = None
 _QUOTE_FN: Optional[Callable[[str], Optional[Mapping]]] = None
 _TODAY_FN: Optional[Callable[[], date]] = None
 _RESULTS: dict = {}          # SYMBOL -> (built_ts, result)
+_clock = time.time           # every cache stamp and age; the tests pin it
 _BUILDING: dict = {}         # SYMBOL -> threading.Event
 
 
@@ -516,7 +517,7 @@ def _cached(sym: str) -> Optional[tuple]:
 
 
 def _store(sym: str, res: dict) -> None:
-    ts = time.time()
+    ts = _clock()
     with _LOCK:
         _RESULTS[sym] = (ts, res)
         if len(_RESULTS) > 500:
@@ -541,7 +542,7 @@ def get(symbol: str, wait: float = 3.0) -> dict:
         return build(sym)
     hit = _cached(sym)
     ttl = PARTIAL_TTL_S if (hit and hit[1].get("partial")) else RESULT_TTL_S
-    if hit and time.time() - hit[0] < ttl and hit[1].get("status") != "building":
+    if hit and _clock() - hit[0] < ttl and hit[1].get("status") != "building":
         return hit[1]
     with _LOCK:
         ev = _BUILDING.get(sym)

@@ -74,7 +74,13 @@ class Base(unittest.TestCase):
         self.today = date(2026, 10, 21)
         self.config()
 
+    def tearDown(self):
+        SH._clock = time.time
+
     def config(self):
+        # One clock for this thread and the background build: a shifted
+        # clock reaches only the calling thread (test_time_travel).
+        SH._clock = lambda: 1_800_000_000.0
         SH.configure(data_dir=self.tmp, facts_fn=lambda s: self.facts, fetch_fn=self.web,
                      splits_fn=lambda s: self.splits, quote_fn=lambda s: self.quote,
                      today_fn=lambda: self.today)
@@ -427,7 +433,7 @@ class Codex430(Base):
                            filings=[(acc(1), "10-Q", "2026-08-01")])
         self.web.docs = {acc(1): instance([(None, "2026-07-17", int(14.6e9))])}
         self.config()
-        SH._RESULTS["AAPL"] = (time.time() - SH.PARTIAL_TTL_S - 1, r)
+        SH._RESULTS["AAPL"] = (SH._clock() - SH.PARTIAL_TTL_S - 1, r)
         self.assertEqual("ok", SH.get("AAPL", wait=5)["status"], "SEC back: the answer comes back")
 
     def test_a_failed_class_probe_is_not_proof_of_one_class(self):
@@ -451,11 +457,16 @@ class LastFetchFailed(unittest.TestCase):
         F._sec.cik_for = lambda s: 884394
         F.available = lambda: True
         F._MEM.clear()
+        # Never the app's own cache: a test's fake facts must not be read
+        # back by the next run, or by the app.
+        self.saved_dir = F._DATA_DIR
+        F._DATA_DIR = Path(tempfile.mkdtemp())
 
     def tearDown(self):
         self.F._fetch_facts, self.F._sec.cik_for, self.F.available = self.saved
         self.F._FETCH_ERRORS.clear()
         self.F._MEM.clear()
+        self.F._DATA_DIR = self.saved_dir
 
     def test_a_404_is_nothing_there_and_a_timeout_is_could_not_ask(self):
         import urllib.error
@@ -510,11 +521,16 @@ class TickerMapDown(unittest.TestCase):
         self.saved = (F._sec.cik_for, F._sec.ticker_map_ready, F.available)
         F.available = lambda: True
         F._MEM.clear()
+        # Never the app's own cache: a test's fake facts must not be read
+        # back by the next run, or by the app.
+        self.saved_dir = F._DATA_DIR
+        F._DATA_DIR = Path(tempfile.mkdtemp())
 
     def tearDown(self):
         self.F._sec.cik_for, self.F._sec.ticker_map_ready, self.F.available = self.saved
         self.F._FETCH_ERRORS.clear()
         self.F._MEM.clear()
+        self.F._DATA_DIR = self.saved_dir
 
     def test_no_ticker_map_is_could_not_ask(self):
         F = self.F
@@ -525,3 +541,36 @@ class TickerMapDown(unittest.TestCase):
         F._sec.ticker_map_ready = lambda: True        # the map is there and has no such ticker
         self.assertIsNone(F.company_facts("QQQQ", max_age=0))
         self.assertFalse(F.last_fetch_failed("QQQQ"))
+
+
+class StaleTickerMap(unittest.TestCase):
+    """Codex, #430: SEC's ticker map is a week old and its refresh fails."""
+
+    def setUp(self):
+        import sec_filings as SF
+        self.SF = SF
+        self.saved = (list(SF._TICKERS), SF._CIK_FN, SF.available, SF._fetch_json,
+                      list(getattr(SF, "_TICKERS_FAILED", [False])))
+        SF._CIK_FN = None
+        SF.available = lambda: True
+        SF._TICKERS[:] = [time.time() - SF._TICKER_TTL - 60, {"AAPL": 320193}]
+
+    def tearDown(self):
+        SF = self.SF
+        SF._TICKERS[:], SF._CIK_FN, SF.available, SF._fetch_json, failed = self.saved
+        if hasattr(SF, "_TICKERS_FAILED"):
+            SF._TICKERS_FAILED[:] = failed
+
+    def test_the_old_map_still_answers_and_is_not_proof_of_absence(self):
+        SF = self.SF
+
+        def down(url):
+            raise TimeoutError("SEC timed out")
+        SF._fetch_json = down
+        self.assertEqual(320193, SF.cik_for("AAPL"), "a stale map still knows Apple")
+        self.assertFalse(SF.ticker_map_ready(), "the refresh failed: absence proves nothing")
+        self.assertIsNone(SF.cik_for("NEWCO"))
+        self.assertFalse(SF.ticker_map_ready())
+        SF._fetch_json = lambda url: {"0": {"ticker": "NEWCO", "cik_str": 99}}
+        self.assertEqual(99, SF.cik_for("NEWCO"))
+        self.assertTrue(SF.ticker_map_ready())

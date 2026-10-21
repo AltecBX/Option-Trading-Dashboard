@@ -6251,3 +6251,27 @@ old code):
   ask" (`last_fetch_failed`), a map without the ticker is "nothing there".
 
 Tests: `test_share_history.Codex430b` and `TickerMapDown`.
+
+Codex on #430, third review, right and fixed (the test fails on the old
+code): **a week-old ticker map whose refresh fails.** `cik_for` returned
+None for every ticker when the refresh timed out, though last week's map
+still had them, and `ticker_map_ready` read the stale map as proof of
+absence. A failed refresh now keeps the old map answering for the tickers
+it has, and marks the map not ready (`_TICKERS_FAILED`), so a ticker it
+lacks is "could not ask", retried soon. Test:
+`test_share_history.StaleTickerMap`.
+
+Found by the full runs, fixed:
+
+- **The Trade card was 11px too wide on a 375px phone.** Seven range
+  buttons at the phone's 44px tap size are wider than the screen and the
+  button group never wrapped; it wraps now (`.seg.chart-range`).
+  `test_every_destination_is_usable_on_a_phone` caught it.
+- **Two share-history tests under the 400-days-ahead clock.** The shifted
+  clock reaches only the calling thread, so the background build stamped
+  its cache with the real time and the next read found it 400 days old.
+  share_history's cache stamps go through one `_clock()`, which the tests
+  pin; `test_time_travel.py 400` is green.
+- The fetch-error tests now use a throwaway cache directory: the suite
+  imports the dashboard, which points fundamentals at the app's own cache,
+  and one test's fake facts were being read back by the next run.

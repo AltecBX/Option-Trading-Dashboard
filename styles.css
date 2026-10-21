@@ -2320,6 +2320,9 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
     padding: 6px 10px !important; font-size: 12px !important;
   }
   .zoom-reset { min-height: 36px; }
+  /* v5.44: seven ranges (30D to 10Y) at phone tap size are wider than a
+     375px screen: the group wraps rather than widening the card. */
+  .seg.chart-range { flex-wrap: wrap; max-width: 100%; }
 
   /* Strike pair (suggested call/put) becomes single column */
   .strike-pair { grid-template-columns: 1fr !important; gap: 10px; }

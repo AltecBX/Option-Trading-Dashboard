@@ -92,6 +92,7 @@ _DOC_CACHE: dict = {}     # accession -> parsed cover-page facts
 _FDA_CACHE: dict = {}     # SYMBOL -> {accession: verdict | None}
 _FDA_LOADED: set = set()
 _TICKERS: list = [0.0, {}]
+_TICKERS_FAILED: list = [False]   # the last refresh of _TICKERS failed
 _CIK_FN = None
 _DATA_DIR = None
 
@@ -159,15 +160,19 @@ def cik_for(symbol: str) -> int | None:
             _TICKERS[1] = {(v.get("ticker") or "").upper(): int(v.get("cik_str") or 0)
                            for v in data.values()}
             _TICKERS[0] = time.time()
+            _TICKERS_FAILED[0] = False
         except Exception:
-            return None
+            # A failed refresh keeps last week's map answering for the
+            # tickers it has; what it lacks proves nothing (Codex, #430).
+            _TICKERS_FAILED[0] = True
+            return _TICKERS[1].get(sym) or None
     return _TICKERS[1].get(sym) or None
 
 
 def ticker_map_ready() -> bool:
-    """Whether SEC's ticker -> CIK map is in hand, so a None from cik_for
-    means "no such ticker" rather than "could not ask"."""
-    return bool(_TICKERS[1])
+    """Whether SEC's ticker -> CIK map is in hand and current, so a None
+    from cik_for means "no such ticker" rather than "could not ask"."""
+    return bool(_TICKERS[1]) and not _TICKERS_FAILED[0]
 
 
 # ── filings ─────────────────────────────────────────────────────────────────
