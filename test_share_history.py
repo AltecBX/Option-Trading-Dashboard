@@ -5,7 +5,7 @@ import tempfile
 import threading
 import time
 import unittest
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import share_history as SH
@@ -606,3 +606,25 @@ class Codex430c(Base):
         facts = src[src.index("def _shist_facts"):]
         facts = facts[:facts.index("\n\n\n")]
         self.assertIn("available()", facts, "SEC switched off is could-not-ask too")
+
+
+class Codex430d(Base):
+    """Codex, #430 (fifth review): last good facts after a failed refresh."""
+
+    def test_stale_facts_are_used_and_retried_soon(self):
+        f = facts(dei=[("2026-07-17", 14.6e9, acc(1), "10-Q", "2026-08-01")],
+                  filings=[(acc(1), "10-Q", "2026-08-01")])
+        f["_fetched_ts"] = datetime(2026, 10, 19, 15, 0).timestamp()
+        f["_stale"] = True
+        self.facts = f
+        self.web.docs = {acc(1): instance([(None, "2026-07-17", int(14.6e9))])}
+        r = SH.build("AAPL")
+        self.assertEqual("ok", r["status"], "the last good facts are still good")
+        self.assertTrue(r["partial"], "and refreshed again soon")
+        self.assertTrue(any("could not be refreshed" in w and "Oct 19, 2026" in w for w in r["warnings"]))
+
+    def test_the_server_marks_them(self):
+        src = (Path(__file__).resolve().parent / "options_dashboard.py").read_text()
+        fn = src[src.index("def _shist_facts"):]
+        fn = fn[:fn.index("\n\n\n")]
+        self.assertIn('_stale=True', fn)

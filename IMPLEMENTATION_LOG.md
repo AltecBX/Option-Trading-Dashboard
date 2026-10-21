@@ -6293,3 +6293,12 @@ old code):
 
 Tests: `test_share_history.Codex430c` (2), `test_daily_history.GapActions`
 (2).
+
+Codex on #430, fifth review, right and fixed (the test fails on the old
+code): **last good facts after a failed refresh.** Company Facts returns
+its expired disk copy when a refresh fails; the history was built from it
+as good and kept 12 hours, so a filing that came out meanwhile stayed
+missing long after SEC was back. `_shist_facts` marks those facts
+`_stale`, and the history uses them but is partial (retried in ten
+minutes) and says which day's copy it is from. Test:
+`test_share_history.Codex430d`.

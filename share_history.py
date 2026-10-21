@@ -484,9 +484,16 @@ def build(symbol: str) -> dict:
     if unread:
         warnings.append(f"{unread} filing{'s' if unread != 1 else ''} could not be read from SEC just now; "
                         "the history is retried in a few minutes.")
+    stale = bool(facts.get("_stale"))
+    if stale:
+        when = facts.get("_fetched_ts")
+        since = (f" from {_day_label(datetime.fromtimestamp(float(when)).date().isoformat())}"
+                 if when else "")
+        warnings.append(f"SEC's data could not be refreshed just now, so this uses its last copy{since}; "
+                        "the history is retried in a few minutes.")
     for p in points:
         p["shares"] = round(p["shares"], 2)
-    return dict(base, status="ok", entity=facts.get("entityName"), cik=cik, partial=bool(unread),
+    return dict(base, status="ok", entity=facts.get("entityName"), cik=cik, partial=bool(unread) or stale,
                 points=points, splits=[{"date": d, "ratio": r} for d, r in splits],
                 coverage={"from": points[0]["as_of"], "to": last["as_of"]},
                 latest=latest, checks={"yahoo": yahoo, "big_moves": moves, "unread_filings": unread},

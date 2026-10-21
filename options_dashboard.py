@@ -5220,8 +5220,13 @@ def _shist_facts(symbol: str):
     (tried again soon)."""
     import fundamentals as _fnd_sh
     facts = _fnd_sh.company_facts(symbol)
-    if facts is None and (not _fnd_sh.available() or _fnd_sh.last_fetch_failed(symbol)):
+    could_not_ask = not _fnd_sh.available() or _fnd_sh.last_fetch_failed(symbol)
+    if facts is None and could_not_ask:
         raise OSError("SEC Company Facts could not be fetched")
+    if facts is not None and could_not_ask:
+        # The last good facts after a failed refresh: used, and the history
+        # built from them is retried soon rather than kept 12 hours.
+        facts = dict(facts, _stale=True)
     return facts
 
 
