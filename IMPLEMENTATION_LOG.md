@@ -6493,3 +6493,12 @@ Codex on #432, both right and fixed (the test fails on the old code):
   listed them. It now lists only the unfinished swing's caption then.
 
 Test: `test_the_swing_legend_says_what_the_lines_say`.
+
+Codex on #432, second review: **"reset the hovered OHLC when changing
+units"**, checked and not a bug. A readout kept from a hovered bar would read
+its prices as market caps after the switch, but the switch redraws the
+candles, and the chart clears its crosshair when its data is set: the
+readout falls back to the newest bar, in the new units. Checked both ways
+a switch can follow a hover: a phone tap on a bar then a tap on Mkt cap,
+and a mouse resting on a bar while the switch is pressed from the
+keyboard. Test (a guard, not a fix): `test_the_swing_readout_is_redone_when_the_units_change`.

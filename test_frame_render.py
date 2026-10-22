@@ -3491,6 +3491,40 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         finally:
             self._close(handles)
 
+    def test_the_swing_readout_is_redone_when_the_units_change(self):
+        # Codex, #432: tap a candle on a phone (the crosshair stays where the
+        # finger was), then switch to market cap: the readout must not read
+        # the tapped bar's prices as market caps ("$0.13K").
+        rows = swing_rows()
+        geo, errs, handles = self._measure(390, 844, tab="patterns", swings=swings_answer(rows),
+                                           share_history=share_history_answer(first_after_days=30, bars=rows))
+        page = handles[2]
+        try:
+            page.wait_for_selector(".swing-chart-toggle", timeout=30000)
+            page.click(".swing-chart-toggle")
+            page.wait_for_function("() => { const e = document.querySelector('.swing-chart'); return e && e.__parts; }",
+                                   timeout=30000)
+            last = page.inner_text(".swing-chart-ohlc")
+            page.locator(".swing-chart").scroll_into_view_if_needed()
+            box = page.locator(".swing-chart").bounding_box()
+            page.touchscreen.tap(box["x"] + box["width"] * 0.4, box["y"] + box["height"] * 0.4)
+            page.wait_for_timeout(300)
+            tapped = page.inner_text(".swing-chart-ohlc")
+            self.assertNotEqual(last, tapped, "the tap put the crosshair on a bar")
+            page.click(".swing-chart-mode button:text-is('Mkt cap')")
+            page.wait_for_function("() => document.querySelector('.swing-chart').__parts().main.options().priceFormat.type === 'custom'",
+                                   timeout=15000)
+            page.wait_for_timeout(300)
+            ro = page.inner_text(".swing-chart-ohlc")
+            self.assertNotRegex(ro, r"\$[\d.]+K", f"a price read as a market cap: {ro!r}")
+            self.assertRegex(ro, r"C\s+\$[\d.]+[TB]")
+            # Redrawing the candles clears the chart's crosshair, so the
+            # readout falls back to the newest bar, in the new units.
+            self.assertEqual(last.split()[0], ro.split()[0], "the newest bar")
+            self.assertEqual(errs, [], f"the page threw: {errs[:2]}")
+        finally:
+            self._close(handles)
+
     def test_the_one_minute_chart_draws_market_cap(self):
         daily = json.loads(_default_payload("AAPL"))["daily"]
         hist = share_history_answer(first_after_days=30, bars=daily)
