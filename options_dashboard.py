@@ -4366,8 +4366,12 @@ def build_credit_risk(symbol: str) -> dict:
                                        "missing price history" if not bars else
                                        "shares outstanding unavailable" if count is None else
                                        "balance-sheet debt unavailable" if dp is None else
-                                       # Codex, #433: the counts ran out, not the debt.
-                                       "no filed share count covers these days"),
+                                       # Codex, #433: say which is short, the prices or the counts.
+                                       "not enough price history yet: the model needs 60 trading days "
+                                       "of volatility" if len(bars) <= 60 else
+                                       "no filed share count covers these days"
+                                       if not any(count(str(b["date"])[:10]) for b in bars) else
+                                       "the model could not be solved for these days"),
                 "history_note": history_note,
             },
         })

@@ -6617,3 +6617,12 @@ headline, the stats and "Model 5Y spread ≈ …". Now the newest point is the
 current spread only if it is the newest bar's. Otherwise there is no
 headline, and the line says "No current model spread: the newest, N bps,
 is from <date>." Test: `test_a_series_that_stops_early_has_no_current_spread`.
+
+Codex on #433, seventh review, right and fixed (the test fails on the old
+code): **a recent listing was told its share counts were missing.** With
+counts and debt but under 61 days of prices, the 60-day volatility never
+warms up and the series is empty; the card blamed the share counts. The
+reason now says which is short: "not enough price history yet: the model
+needs 60 trading days of volatility", "no filed share count covers these
+days" (checked day by day), or "the model could not be solved for these
+days". Test: `test_a_recent_listing_is_short_of_prices_not_counts`.

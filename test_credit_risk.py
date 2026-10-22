@@ -343,6 +343,27 @@ class TestBuildUsesFiledCounts(unittest.TestCase):
         self.assertIn("No current model spread", m["interpretation"])
         self.assertIn(m["series"][-1]["date"], m["interpretation"])
 
+    # Codex, #433 (seventh review): a recent listing with counts and debt
+    # but under sixty days of prices is short of price history, not of
+    # share counts.
+    def test_a_recent_listing_is_short_of_prices_not_counts(self):
+        bars = self.bars[-40:]
+
+        class Schwab:
+            def get_price_history(self, symbol, days=420):
+                return list(bars)
+
+            def get_option_chain(self, *a, **k):
+                return {}
+        self.od._schwab = lambda: Schwab()
+        one = {"as_of": bars[0]["date"][:10], "shares": 1.0, "form": "10-Q"}
+        self.hist = dict(self.ok, points=[one], latest=one, coverage={"from": one["as_of"], "to": one["as_of"]},
+                         price_check={"closes": []})
+        m = self.od.build_credit_risk("TEST")["merton"]
+        self.assertEqual([], m["series"])
+        self.assertNotIn("share count", m["unavailable_reason"])
+        self.assertIn("60 trading days", m["unavailable_reason"])
+
 
 if __name__ == "__main__":
     unittest.main()
