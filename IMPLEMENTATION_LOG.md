@@ -6443,3 +6443,42 @@ on the old code):
   window's part. Test: `test_averages_are_worked_out_before_the_window_is_cut`
   (MA200 on a 120-day price chart, and the market cap's MA50 warm at the
   10-year window's first bar).
+
+## v5.47 — Mkt cap on the 1-minute chart and the Patterns swing chart (market cap, step 3)
+
+Jerry: "Merge it when it's green, then start step 3."
+
+- **One setting.** Price | Mkt cap is now one choice for every stock chart:
+  the Trade chart's Daily and 1-Min views share the switch, and the
+  Patterns tab's swing chart has the same two buttons and follows it.
+  Flip it on either and both change; it is remembered with the other chart
+  settings. The share counts load once market cap is picked, on any tab.
+- **1-minute chart.** Every price on it (the bars, VWAP and its ±1σ/±2σ
+  bands, the level lines) is times the count that applies today (the one
+  the daily bars' newest day uses, after the same price check against
+  Yahoo's unadjusted closes, so a split the counts aren't on yet still
+  stops it). One count stands for the whole session, so the shape is the
+  price's; the axis (a decimal more: a session moves a percent or two,
+  $4.255T), the level labels ("PDH $223.25") and a line above ("11:29 AM ET
+  · Market cap $4.24T = $220.60 × 19.22B shares · shares as of …") say
+  what the company was worth. No current count: it says so and shows price.
+- **Patterns swing chart** (the Lightweight Charts one; the licensed
+  TradingView library is not in the repo). Candles are each day's price ×
+  that day's count, with the same gaps, check and notes as the Trade
+  chart. A swing's two ends are each at their own day's count, so a leg
+  from a 2019 low to a 2020 high is the company's value at both; the level
+  lines (now, median/aggressive targets, invalidation, reversal zones,
+  running extreme, next target) are at today's count. The legend gives
+  both ("now $125.14 · $1.87T"), the OHLC readout reads in $T/$B, a line
+  above gives the sum for the bar under the cursor, and the shares strip
+  runs under the candles. Switching keeps the zoom.
+- Shared in `charts.jsx`: `capPriceFormat`, `addShareStrip`, `CapNotes`
+  (what a chart says above itself), used by all three charts.
+  `MarketCap.capAt(hist, day, price)` for a single price on a day.
+
+Tests: `test_market_cap.js` (+4: `capAt`, the extra decimal), and two
+browser tests in `test_frame_render`: the swing chart's candles, a leg's
+two ends at their own counts, the "now" line at today's, the legend, the
+strip, the readout, the shared setting, and back to price; and the
+1-minute chart's bars, VWAP and level lines times today's count, the label
+keeping the price, the readout and kicker, and back to price.

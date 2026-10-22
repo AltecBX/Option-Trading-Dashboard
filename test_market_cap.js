@@ -32,6 +32,7 @@ ok("trillions", M.fmtCap(2.954e12) === "$2.95T");
 ok("hundreds of billions keep one decimal", M.fmtCap(820.44e9) === "$820.4B");
 ok("tens of billions keep two", M.fmtCap(95.123e9) === "$95.12B");
 ok("millions", M.fmtCap(950.2e6) === "$950.2M");
+ok("a narrow axis gets a decimal more", M.fmtCap(4.2456e12, 1) === "$4.246T" && M.fmtCap(820.44e9, 1) === "$820.44B");
 ok("no value is a dash", M.fmtCap(null) === "—" && M.fmtCap(NaN) === "—");
 ok("shares in billions", M.fmtShares(24.534e9) === "24.53B");
 ok("shares in millions", M.fmtShares(950.24e6) === "950.2M");
@@ -127,6 +128,11 @@ ok("no current count hides the lines and says so", s.draw && s.levelShares === n
    && s.notes.some(n => /lines are hidden/.test(n)));
 s = M.capState(HIST, [bar("2023-05-01", 170), bar("2023-06-01", 180)], "AAPL");
 ok("a range with no counts at all draws the price", !s.draw && /share counts start Jan 19, 2024/.test(s.note));
+
+// ── a single price on a given day (v5.47: swing ends, levels) ───────────
+ok("a price on a day is that price times that day's count", near(M.capAt(HIST, "2024-04-22", 165), 165 * 15.33e9));
+ok("no count that day, no market cap", M.capAt(HIST, "2024-01-02", 165) === null);
+ok("no price, no market cap", M.capAt(HIST, "2024-04-22", null) === null);
 
 // ── the readout ────────────────────────────────────────────────────────
 ok("the readout shows the sum", M.readout(cap[2], HIST)

@@ -222,6 +222,101 @@ function attachTouchZoom(el, chart, {
   };
 }
 
+// ── Market cap, shared by the Trade, 1-minute and swing charts (v5.47) ──
+// The axis in $T/$B. The strip and the volume sit under the candles, where
+// the market-cap scale runs down to zero and below: those labels are left
+// blank, not "$0.00K" or "-$10.00T".
+function capPriceFormat(more = 0) {
+  const MC = window.MarketCap;
+  return {
+    type: "custom",
+    formatter: v => v <= 0 ? "" : MC.fmtCap(v, more),
+    minMove: 1
+  };
+}
+// The shares outstanding as a step line in a strip of its own under the
+// candles, with a dot on the bar each count begins on (`cap.starts`, worked
+// out on the whole series, Codex #431). `rows` carry `cap` (capBars);
+// `timeOf(row)` is the chart's time for it. Returns the series.
+function addShareStrip(chart, rows, timeOf) {
+  const LC = window.LightweightCharts,
+    MC = window.MarketCap;
+  const strip = chart.addLineSeries({
+    color: "rgba(56,189,248,0.9)",
+    lineWidth: 2,
+    lineType: LC.LineType && LC.LineType.WithSteps || 1,
+    priceScaleId: "shares",
+    priceLineVisible: false,
+    lastValueVisible: false,
+    crosshairMarkerVisible: false,
+    priceFormat: {
+      type: "custom",
+      formatter: MC.fmtShares,
+      minMove: 1
+    }
+  });
+  chart.priceScale("shares").applyOptions({
+    scaleMargins: {
+      top: 0.72,
+      bottom: 0.17
+    }
+  });
+  const live = (rows || []).filter(r => r && timeOf(r) != null);
+  strip.setData(ascendingByTime(live.map(r => r.cap ? {
+    time: timeOf(r),
+    value: r.cap.shares
+  } : {
+    time: timeOf(r)
+  })));
+  const marks = live.filter(r => r.cap && r.cap.starts).map(r => ({
+    time: timeOf(r),
+    position: "inBar",
+    color: "rgba(56,189,248,1)",
+    shape: "circle",
+    size: 0.2
+  }));
+  try {
+    strip.setMarkers(ascendingByTime(marks));
+  } catch (e) {}
+  return strip;
+}
+// The candles' own scale makes room for the strip in market cap.
+const CAP_MARGINS = {
+    top: 0.08,
+    bottom: 0.32
+  },
+  PRICE_MARGINS = {
+    top: 0.2,
+    bottom: 0.1
+  };
+// What a chart says above itself in market cap (capState's answer): why it
+// shows the price instead, or where market cap starts, and the history's
+// own warnings, folded.
+function CapNotes({
+  view
+}) {
+  if (!view) return null;
+  if (!view.draw) return /*#__PURE__*/React.createElement("div", {
+    className: "chart-range-note cap-note",
+    role: "status"
+  }, view.note);
+  if (!window.LightweightCharts) return /*#__PURE__*/React.createElement("div", {
+    className: "chart-range-note cap-note",
+    role: "status"
+  }, "Market cap needs the chart library, which didn't load. Showing price.");
+  return /*#__PURE__*/React.createElement(React.Fragment, null, view.notes.map((n, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    className: "chart-range-note cap-note",
+    role: "status"
+  }, n)), view.warnings.length > 0 && /*#__PURE__*/React.createElement("details", {
+    className: "cap-about"
+  }, /*#__PURE__*/React.createElement("summary", null, "About these share counts (", view.warnings.length, " ", view.warnings.length === 1 ? "note" : "notes", ")"), /*#__PURE__*/React.createElement("ul", null, view.warnings.map((w, i) => /*#__PURE__*/React.createElement("li", {
+    key: i
+  }, w))), view.source && /*#__PURE__*/React.createElement("div", {
+    className: "cap-source"
+  }, view.source, ".")));
+}
+
 // Market cap (v5.46): with `cap` (window.MarketCap.capState's answer) the
 // bars are market caps, the axis reads $2.95T, the moving averages are
 // worked out on the market cap, every price line is moved to what the
@@ -254,10 +349,6 @@ function TVPriceChart({
   const LC = window.LightweightCharts;
   const MC = window.MarketCap;
   const capMode = !!(cap && MC);
-  // The strip and the volume sit under the candles, where the market-cap
-  // scale runs down to zero and below: those labels are left blank, not
-  // "$0.00K" or "-$10.00T".
-  const capAxis = v => v <= 0 ? "" : MC.fmtCap(v);
   const wrapRef = React.useRef(null);
   const chartRef = React.useRef(null);
   const mainRef = React.useRef(null);
@@ -427,24 +518,14 @@ function TVPriceChart({
       close: d.close
     };
     mainRef.current.applyOptions({
-      priceFormat: capMode ? {
-        type: "custom",
-        formatter: capAxis,
-        minMove: 1
-      } : {
+      priceFormat: capMode ? capPriceFormat() : {
         type: "price",
         precision: 2,
         minMove: 0.01
       }
     });
     if (chartRef.current) chartRef.current.priceScale("right").applyOptions({
-      scaleMargins: capMode ? {
-        top: 0.08,
-        bottom: 0.32
-      } : {
-        top: 0.2,
-        bottom: 0.1
-      }
+      scaleMargins: capMode ? CAP_MARGINS : PRICE_MARGINS
     });
     mainRef.current.setData(ascendingByTime(axis.map(point)));
     const up = d => {
@@ -538,11 +619,7 @@ function TVPriceChart({
       return inWindow(out);
     };
     const fmtOpt = capMode ? {
-      priceFormat: {
-        type: "custom",
-        formatter: capAxis,
-        minMove: 1
-      }
+      priceFormat: capPriceFormat()
     } : {};
     const addLine = (data, color) => {
       if (!data.length) return;
@@ -602,50 +679,8 @@ function TVPriceChart({
       if (!lv || lv.price == null) return;
       pl(lv.price, RCV_COLOR[lv.kind] || "rgba(148,163,184,0.7)", lv.kind === "invalidation" ? LC.LineStyle.Dashed : LC.LineStyle.Dotted, lv.label);
     });
-    // The shares outstanding, as a step line in a strip of its own under the
-    // candles, with a dot on the day each filing's count begins.
-    if (capMode) {
-      const strip = chart.addLineSeries({
-        color: "rgba(56,189,248,0.9)",
-        lineWidth: 2,
-        lineType: LC.LineType && LC.LineType.WithSteps || 1,
-        priceScaleId: "shares",
-        priceLineVisible: false,
-        lastValueVisible: false,
-        crosshairMarkerVisible: false,
-        priceFormat: {
-          type: "custom",
-          formatter: MC.fmtShares,
-          minMove: 1
-        }
-      });
-      chart.priceScale("shares").applyOptions({
-        scaleMargins: {
-          top: 0.72,
-          bottom: 0.17
-        }
-      });
-      const pts = ascendingByTime(daily.filter(d => d && d.date != null).map(d => d.cap ? {
-        time: norm(d.date),
-        value: d.cap.shares
-      } : {
-        time: norm(d.date)
-      }));
-      strip.setData(pts);
-      // `starts` comes from the whole series: the first bar of this slice
-      // is not where its count began unless it is (Codex, #431).
-      const marks = daily.filter(d => d && d.cap && d.cap.starts).map(d => ({
-        time: norm(d.date),
-        position: "inBar",
-        color: "rgba(56,189,248,1)",
-        shape: "circle",
-        size: 0.2
-      }));
-      try {
-        strip.setMarkers(ascendingByTime(marks));
-      } catch (e) {}
-      extraRef.current.series.push(strip);
-    }
+    // The shares outstanding, in a strip of its own under the candles.
+    if (capMode) extraRef.current.series.push(addShareStrip(chart, daily, d => d.date != null ? norm(d.date) : null));
     if (earnings) {
       const m = [];
       (earnings.past || []).forEach(d => {
@@ -3441,13 +3476,23 @@ function ThetaPanel({
 // Today's 1-minute candles with session VWAP + σ bands, the day-level map
 // (prev day H/L/C, premarket, opening range, EM band, rounds) as labeled
 // price lines, and Reversal-Radar signal markers. Data = /api/intraday.
+// Market cap (v5.47): with `cap` ({shares, as_of, form}, the count that
+// applies today) every price on the chart (the bars, VWAP and its bands,
+// the level lines) is times it. One count stands for the whole session, so
+// the shape is the price's; the axis and the line above say what the
+// company was worth, and the level labels keep their price.
 function IntradayChart({
-  data
+  data,
+  cap = null
 }) {
   const LC = window.LightweightCharts;
+  const MC = window.MarketCap;
+  const capMode = !!(cap && MC && cap.shares);
+  const k = capMode ? cap.shares : 1;
   const wrapRef = React.useRef(null);
   const chartRef = React.useRef(null);
   const refs = React.useRef({});
+  const [hoverT, setHoverT] = React.useState(null);
   React.useEffect(() => {
     if (!LC || !wrapRef.current) return;
     const el = wrapRef.current;
@@ -3522,6 +3567,15 @@ function IntradayChart({
       priceLines: []
     };
     chartRef.current = chart;
+    el.__chart = chart; // the render tests read the series
+    el.__parts = () => ({
+      main: refs.current.candles,
+      vol: refs.current.vol,
+      vwap: refs.current.vwap,
+      lines: refs.current.priceLines || [],
+      series: []
+    });
+    chart.subscribeCrosshairMove(p => setHoverT(p && typeof p.time === "number" ? p.time : null));
     const ro = new window.ResizeObserver(() => {
       if (wrapRef.current) chart.applyOptions({
         width: wrapRef.current.clientWidth
@@ -3530,6 +3584,8 @@ function IntradayChart({
     ro.observe(el);
     return () => {
       ro.disconnect();
+      el.__chart = null;
+      el.__parts = null;
       try {
         chart.remove();
       } catch (e) {}
@@ -3543,12 +3599,20 @@ function IntradayChart({
     if (!chart || !r.candles || !data || !data.bars || !data.bars.length) return;
     const t = ms => Math.floor(ms / 1000);
     const bars = data.bars.filter(b => b && isCompleteBar(b.open, b.high, b.low, b.close));
+    // A session moves a percent or two: the axis needs a decimal more.
+    r.candles.applyOptions({
+      priceFormat: capMode ? capPriceFormat(1) : {
+        type: "price",
+        precision: 2,
+        minMove: 0.01
+      }
+    });
     r.candles.setData(ascendingByTime(bars.map(b => ({
       time: t(b.ts),
-      open: b.open,
-      high: b.high,
-      low: b.low,
-      close: b.close,
+      open: b.open * k,
+      high: b.high * k,
+      low: b.low * k,
+      close: b.close * k,
       // Premarket prints dimmed so the regular session pops.
       ...(b.pm ? {
         color: "rgba(148,163,184,0.45)",
@@ -3564,7 +3628,7 @@ function IntradayChart({
     const vw = data.vwap;
     const set = (series, arr) => series.setData(vw && arr ? vw.ts.map((ts, i) => ({
       time: t(ts),
-      value: arr[i]
+      value: arr[i] == null ? null : arr[i] * k
     })).filter(p => p.value != null) : []);
     set(r.vwap, vw && vw.vwap);
     set(r.u1, vw && vw.upper1);
@@ -3582,12 +3646,12 @@ function IntradayChart({
     (data.levels || []).forEach(lv => {
       try {
         r.priceLines.push(r.candles.createPriceLine({
-          price: lv.price,
+          price: lv.price * k,
           color: lvColor(lv.kind),
           lineWidth: 1,
           lineStyle: lv.kind === "round" ? LC.LineStyle.SparseDotted : LC.LineStyle.Dashed,
           axisLabelVisible: true,
-          title: lv.label
+          title: capMode ? `${lv.label} ${fmt$(+lv.price)}` : lv.label
         }));
       } catch (e) {}
     });
@@ -3603,16 +3667,38 @@ function IntradayChart({
       r.candles.setMarkers(marks);
     } catch (e) {}
     chart.timeScale().fitContent();
-  }, [data]);
+  }, [data, k]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (!LC) return /*#__PURE__*/React.createElement("div", {
     className: "ic-nolc"
   }, "Intraday chart needs the chart library (offline?) \u2014 falling back unavailable.");
-  return /*#__PURE__*/React.createElement("div", {
+  let readout = null;
+  if (capMode) {
+    const bs = (data && data.bars || []).filter(b => b && isDrawable(b.close));
+    const b = hoverT != null && bs.find(x => Math.floor(x.ts / 1000) === hoverT) || bs[bs.length - 1];
+    if (b) {
+      const when = new Date(b.ts).toLocaleTimeString("en-US", {
+        timeZone: "America/New_York",
+        hour: "numeric",
+        minute: "2-digit"
+      });
+      readout = `${when} ET · Market cap ${MC.fmtCap(b.close * k)} = ${MC.fmtPrice(b.close)} × ${MC.fmtShares(k)} shares` + ` · shares as of ${MC.fmtDay(cap.as_of)}${cap.form ? ` (${cap.form})` : ""}`;
+    }
+  }
+  // One shape in both modes, as in TVPriceChart: the chart is the second child.
+  return /*#__PURE__*/React.createElement(React.Fragment, null, capMode && /*#__PURE__*/React.createElement("div", {
+    className: "cap-readout"
+  }, readout), /*#__PURE__*/React.createElement("div", {
     className: "tv-price-chart",
     ref: wrapRef
-  });
+  }));
 }
 Object.assign(window, {
+  capPriceFormat,
+  addShareStrip,
+  CAP_MARGINS,
+  PRICE_MARGINS,
+  CapNotes,
   PriceChart,
   TVPriceChart,
   IntradayChart,
