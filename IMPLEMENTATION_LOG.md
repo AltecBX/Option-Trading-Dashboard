@@ -6626,3 +6626,255 @@ reason now says which is short: "not enough price history yet: the model
 needs 60 trading days of volatility", "no filed share count covers these
 days" (checked day by day), or "the model could not be solved for these
 days". Test: `test_a_recent_listing_is_short_of_prices_not_counts`.
+
+
+## v5.49 — Each day's debt, one split basis, RSI and CONE on the Trade chart, the back door, the phone band
+
+Jerry: "Then fix the debt shortcut too. Do everything else suggested as
+well and give me the end result."
+
+Everything left from the market-cap work, in one release:
+- the credit monitor's debt from each day's balance sheet;
+- its prices from Yahoo when Schwab is down;
+- Priced for Perfection's split bug and its net debt;
+- RSI and CONE on the TradingView Trade chart;
+- the Railway back door;
+- the phone's bottom band.
+
+### Each day's debt from the balance sheet it had
+
+The credit monitor's default point (short-term debt plus half the
+long-term, the KMV convention) was one number for every day: Yahoo's
+latest balance sheet. That was its *annual* balance sheet
+(`Ticker.balance_sheet`), not the latest quarter as the card's note said.
+Nvidia's long-term debt read $7.5B against $32.4B on its July 10-Q, and a
+year ago it was measured against today's debt.
+
+- **fundamentals.py:**
+  - `balance_history(facts, names)`: each metric's dated series, through
+    `instant_pick` (the concept every other reader uses).
+  - `balance_on(history, day)`: the last value dated on or before a day.
+    None before the first one, or when it is over 200 days old (the reach
+    of a filed share count).
+  - `stale_metrics(history, day)`: metrics reported in the last two years
+    whose last value is now too old to stand for the day.
+- **credit_risk.merton_series** takes the default point as a function of
+  the day, the way it takes the share count. A day with neither is left out.
+- **`_credit_debt`** (options_dashboard.py): the SEC history when it is
+  current. Otherwise Yahoo's latest, for every day, with a note on the card
+  saying so. Two companies measured this way: Plug Power's borrowings tags
+  stop in 2024 while its filings go on, and Ford tags none in the standard
+  fields. The card's tooltip says which source and which balance sheet.
+- **Measured** (SEC, latest vs a year ago):
+  - AT&T long-term $150.1B vs $128.1B.
+  - Nvidia $32.4B vs $8.5B.
+  - Apple $71.3B vs $78.3B.
+  - Plug Power and Ford fall back to Yahoo.
+
+### The credit monitor's prices when Schwab is down
+
+`build_credit_risk` read Schwab's price history and nothing else. With
+Schwab down the model had no history at all ("missing price history"). It
+now uses `load_daily` (Schwab, then Yahoo), as the charts do.
+
+### Priced for Perfection: one split basis, and each day's net debt
+
+`_valuation_history` multiplied Yahoo's split-adjusted closes
+(`auto_adjust=False`) by `get_shares_full`, whose counts are as reported.
+Before a ten-for-one split they read a tenth of today's, so Nvidia's
+market cap, and its EV/sales, read ten times low before June 2024. Its
+3-year percentile and 180-day expansion were built on that cliff.
+
+- **Share counts:**
+  - First choice is the share count filed for each day (`share_history`,
+    after its price check).
+  - Otherwise Yahoo's counts, put on today's split basis by
+    `_split_adjusted`. The counts up to each split's step are multiplied
+    by its ratio.
+  - The step is looked for in the month before the split, not only at it:
+    Yahoo dates Nvidia's first 24.6B count June 8, two days before the
+    June 10 split.
+  - With no step, the counts are already adjusted and left alone.
+  - Measured on Nvidia: 24.9B in July 2021 and 24.6B in May 2024 (both
+    splits); before, 0.62B and 2.46B.
+- **Caching:** a share history still being read is asked again in ten
+  minutes, not kept a day.
+- **Net debt:** taken per day from the SEC balance sheets when current.
+  Otherwise Yahoo's latest is held, as before. The note says which.
+
+Tests:
+- `test_fundamentals.TestBalanceHistory` (4).
+- `test_credit_risk`:
+  - `TestFiledDebt` (4);
+  - `test_each_day_takes_its_own_debt`;
+  - `test_without_schwab_the_prices_come_from_yahoo`.
+- `test_valuation_history.py` (new, 8), covering:
+  - the split step;
+  - a new-basis count just before the split;
+  - counts already adjusted;
+  - filed counts first;
+  - a history still being read;
+  - net debt per day and the stale fallback.
+
+All red on the old code, except the guard for counts already adjusted.
+
+### RSI and CONE on the Trade chart (TradingView), price and market cap
+
+The RSI and CONE toggles only ever reached the SVG `PriceChart`, the
+fallback for when the chart library does not load. On the chart Jerry
+actually sees (`TVPriceChart`) they did nothing.
+
+- **One copy of the math.** `rsiWilder(closes)` (RSI14, Wilder's
+  smoothing), `rsiColor(last)` (red over 70, green under 30) and
+  `coneBand(spot, iv, tDays, k)` (spot × e^(±k·IV/√252·√t)) are now shared
+  helpers in charts.jsx; the SVG chart uses them too, so the two charts
+  cannot drift.
+- **RSI.** RSI14 on a scale of its own (`"rsi"`, fixed 0–100), in a band
+  under the volume, with dashed 70 and 30 guides and a "RSI 14 58.4" label
+  on the axis. The chart grows from 460 to 575px (340 to 425 on a phone)
+  and every other scale (candles, volume, share strip) keeps to the top 80%
+  (`withRsiRoom`), so the candles keep their height, as the SVG chart grows
+  its RSI pane. Worked out like the averages: on the whole series, in
+  unbroken stretches, then cut to the window, so it is warm at the window's
+  first bar. In market cap it is the market cap's RSI (a day with no share
+  count ends a stretch), and the legend says so.
+- **Cone.** ±1σ (solid) and ±2σ (dashed) from the current price over the
+  weekdays to the expiry, counted from today in New York (on a weekend
+  the last bar is Friday's; the first cut counted from it), with the
+  suggested strikes' average IV and `FRONT_DTE`, the same inputs the SVG
+  cone used. Axis labels "+1σ $101.91" at each end. In market cap the cone
+  is × today's share count (`cap.levelShares`), and hidden without one,
+  like the strike lines. Turning it on fits the chart so the cone's end is
+  in view; turning it off fits back. The cone has its own colour
+  (`CONE_COLOR`, teal): the theme accent is an `oklch()` colour the chart
+  library cannot parse (it threw "Cannot parse color").
+- `el.__parts()` now has `rsi`, `rsiLines` and `cone` for the tests; the
+  averages stay in `series`.
+
+Tests (browser, test_frame_render.py), each failing on the old code:
+- `test_the_trade_chart_draws_rsi_and_the_cone`: RSI 0–100, warm at the
+  window's first bar on 120D, 70/30 guides, the chart grows, the RSI band
+  sits under the volume; four cone lines from the last bar into the future,
+  in view, log-symmetric, 2σ = 2 × 1σ, widening with √t; both off puts the
+  chart back.
+- `test_rsi_and_the_cone_in_market_cap`: the RSI equals Wilder over each
+  unbroken stretch of market caps, and differs from the price's RSI; the
+  cone is the price cone × the latest share count, point for point.
+- `test_no_cone_in_market_cap_without_a_current_count`: no current count,
+  no cone; the RSI stays.
+
+### The Railway back door is shut (when ORIGIN_SECRET is set)
+
+Cloudflare Access guards `dashboard.jerrytrade.com`, but the
+`*.up.railway.app` address served the page, and `config.js` with the API
+key in it, to anyone who asked it directly (OPERATIONS.md's open item,
+measured against the live deployment).
+
+- **Origin check.** With the Railway variable `ORIGIN_SECRET` set, the app
+  answers only requests carrying that value in `X-Origin-Secret`, which a
+  Cloudflare Transform Rule adds to the traffic it forwards (after Access
+  has let it in). Anything else gets a bare `403 forbidden: origin check
+  failed`: no page, no `config.js`, no API, for every method. It's checked
+  in `DashboardHandler.parse_request`, before any route. The compare is
+  constant-time (`hmac.compare_digest`). Comma-separated values are all
+  accepted, so the secret can be rotated without a gap. There is no
+  exemption by client address: behind Railway's proxy every request comes
+  from the proxy, and a forwarded-for header is whatever the sender wrote.
+  Unset, nothing changes.
+- **`/healthz`.** `GET`/`HEAD` on exactly this path answers `ok` and nothing
+  else, for a Railway health check, which cannot carry the secret. None is
+  configured today.
+- **The key out of the repo.** `config.js` had the API key committed in a
+  public repo. The committed file now holds `apiKey: ""`. When `API_KEY` is
+  set, the server appends it as it serves `config.js` (`json.dumps`, so it
+  is a JS string whatever it contains). Rotating the key is now one change
+  on Railway (SECURITY_NOTES.md, "Rotating `API_KEY`").
+- **The watchman names it.** A 403 carrying the app's own refusal is
+  reported as `ORIGIN SECRET` (the rule and the variable don't match), not
+  as Access rejecting the service token.
+- **The start says so.** Railway's log shows `Origin check: ON,
+  X-Origin-Secret required` or `off (ORIGIN_SECRET not set)`. The secret is
+  never printed.
+- **Runbook.** OPERATIONS.md, "Closing the Railway back door": the steps in
+  order (Cloudflare rule first, Railway variable second), how to check, how
+  to back out, and rotating without a gap. The 526 runbook's step 6 now
+  accepts the app's 403 as proof the certificate works. Access's own
+  signed token (`Cf-Access-Jwt-Assertion`) is not checked: that needs RSA
+  verification against keys downloaded from Cloudflare. Left for later,
+  and said so.
+
+Tests (red on the old code):
+- `test_security.TestOriginSecret` (9): unset changes nothing; without the
+  header every path, including `config.js`, gets a bare 403; a wrong or
+  partial secret is refused; the right one is served; every method is
+  checked; the API key still applies behind it; two values while rotating;
+  `/healthz` answers `ok` and only on that exact path, for GET and HEAD.
+- `test_security.TestConfigKeyFromTheEnvironment` (4): the repo holds no
+  key; unset serves the file; set puts the key in, as node reads it back;
+  a key with quotes stays one string.
+- `test_monitor_uptime` (+1): the app's 403 is named `ORIGIN SECRET`.
+
+The browser, smoke and failure-mode harnesses drop `ORIGIN_SECRET` from
+the server's environment, as they already do `API_KEY`.
+
+### The phone's bottom band, fixed for both readings
+
+Jerry's iPhone 16 Pro Max, from the home screen, kept 105px of empty
+background under the frame (v5.21 to v5.23). Two causes fit his screenshot
+and the sandbox cannot tell them apart, so the fix is right under either:
+
+* **The phone reports a bottom inset near 105, not 34**, and the frame kept
+  all of it clear: 956 - 105 = 851, where his content stopped, to the pixel.
+  The room kept clear at the bottom is now capped at 34px, the home
+  indicator on a Face ID iPhone, which is all a bottom inset is for.
+* **The window is ~894 tall on a 956 screen** and starts at the top of it,
+  so the home indicator is already below the window and the 34px kept for
+  it inside the window is an empty band. When the app runs from the home
+  screen, the island's top inset is reported (so the window starts at the
+  top), and the window falls short of the screen by more than 40px, that
+  34px is given back and the frame runs to the bottom of the window.
+
+Every rule that reserved `env(safe-area-inset-bottom)` (the frame's footer
+in all three phone shapes, the bottom sheets, the old fixed action bar) now
+reads one variable, `--sab` in styles.css:
+`max(0px, min(env(safe-area-inset-bottom), 34px) - var(--vp-short))`.
+`--vp-short` is set by app.jsx, in the same effect as the footer's screen
+check, on load, resize and orientation change only. It stays 0 in Safari
+(the window is short because of the browser's own bars), when no top inset
+is reported (the window may start lower and end at the bottom edge, where
+the home indicator is), and on the desktop.
+
+If it is the second reading, the frame now ends at the bottom of the
+window, but the ~62px of screen below the window is still outside it, and
+nothing can be laid out there safely: drawing past the window risks putting
+the action bar where it cannot be seen or tapped, the v5.18 complaint. That
+part would be the next step, and only once the footer numbers confirm it.
+
+The screen check stays in the footer, with two new marks: `sa` when the
+app runs from the home screen, and `−N` when the window is N px short and
+the reserve has been given back.
+
+**What to look at on the phone:** open the app from the home screen and
+read the small numbers beside the version at the bottom.
+* `956·956·956·62/105·sa`: it was the inset. The band should be gone,
+  leaving only the home indicator's strip.
+* `956·894·894·62/34·sa·−62`: it was the short window. The band should be
+  about 62px instead of 105, with the action bar at the bottom of the
+  window.
+* Anything else: send a screenshot of those numbers.
+
+Tests (the first two fail on the old code):
+- `test_a_reported_bottom_inset_past_the_home_indicator_is_capped`: 440x956
+  with insets 62/105: at most 34px kept clear, the frame ends within 4px of
+  956 - 34, nothing under the home indicator, and the footer still shows 105.
+- `test_a_short_home_screen_window_takes_back_the_reserve`: a home-screen
+  app (`navigator.standalone`), a 440x956 screen, an 894 window, insets
+  62/34: no reserve, the frame ends within 4px of the window's bottom, and
+  the footer says `sa`.
+- `test_the_reserve_stays_where_the_home_indicator_may_be_inside_the_window`
+  (guards, green before and after): Safari with a short window, a home-screen
+  window with no top inset, and a full-height home-screen window all keep
+  34px; the desktop keeps none.
+- `test_ui_frame.js`: the v5.18 static guard now reads `var(--sab)`, and a
+  new one pins the variable's formula and that no padding reads the raw
+  inset any more.
