@@ -253,6 +253,33 @@ class TestBuildUsesFiledCounts(unittest.TestCase):
         self.assertEqual("filed", again["merton"]["inputs"]["shares_basis"], "asked again within minutes, not an hour")
 
 
+    # Codex, #433: a partial history is said, and asked again when the share
+    # history itself retries it.
+    def test_a_partial_history_is_said(self):
+        self.hist = dict(self.ok, partial=True,
+                         warnings=["1 filing could not be read from SEC just now; the history is retried in a few minutes.",
+                                   "Share classes counted together: Class A 1.00B."])
+        out = self.od.build_credit_risk("TEST")
+        m = out["merton"]
+        self.assertEqual("filed", m["inputs"]["shares_basis"], "the counts it has are still the filed ones")
+        self.assertIn("could not be read", m["history_note"] or "")
+        self.assertNotIn("Share classes", m["history_note"] or "", "only what makes it incomplete")
+
+    def test_retried_when_the_share_history_is(self):
+        od = self.od
+        self.hist = dict(self.ok, partial=True, warnings=["1 filing could not be read from SEC just now."])
+        od.build_credit_risk("TEST")
+        self.assertEqual(od._shist.PARTIAL_TTL_S, od._CREDIT_CACHE["TEST"][2],
+                         "a partial history is retried when the share history is, not every two minutes")
+        od._CREDIT_CACHE.clear()
+        self.hist = {"ok": True, "status": "building", "symbol": "TEST", "refreshing": True, "reason": "Reading."}
+        od.build_credit_risk("TEST")
+        self.assertEqual(od._CREDIT_RETRY_TTL, od._CREDIT_CACHE["TEST"][2], "still being read: minutes")
+        od._CREDIT_CACHE.clear()
+        self.hist = self.ok
+        od.build_credit_risk("TEST")
+        self.assertEqual(od._CREDIT_TTL, od._CREDIT_CACHE["TEST"][2], "whole: an hour")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -6550,3 +6550,20 @@ Tests: `test_credit_risk.TestFiledShareCounts` (2) and
 `TestBuildUsesFiledCounts` (4: the history on filed counts, today only
 without them, prices on another basis, asked again soon while being read),
 `test_share_history.PriceBasis` (5); all red first.
+
+Codex on #433, both right and fixed (the tests fail on the old code):
+
+- **A partial share history was shown as whole.** When a filing could not
+  be read (or the filing list or price check could not be had), the
+  counts it had were used without a word, though the unread filing may
+  hold a count that changed. The card now says the history is incomplete
+  and why, in the share history's own words; the counts it has are still
+  the filed ones.
+- **Retried every two minutes for nothing.** A partial or failed share
+  history is itself retried in ten minutes (`PARTIAL_TTL_S`), so the
+  credit monitor rebuilt from Schwab, Yahoo and FRED every two minutes
+  and got the same answer. It now waits as long as the share history
+  does; two minutes is kept for a company whose filings are still being
+  read, which finishes in about a minute.
+
+Tests: `TestBuildUsesFiledCounts` (+2).

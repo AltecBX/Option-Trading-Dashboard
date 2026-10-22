@@ -4205,7 +4205,7 @@ def _credit_shares(symbol: str, bars: list, yahoo_shares):
     The share count the company filed for that day (share_history), after
     the same price check the charts make; with no filed history to use,
     today's count for today alone. A past day is never given today's count.
-    -> (count(day) or None, inputs, history_note or None, retry_soon)"""
+    -> (count(day) or None, inputs, history_note or None, retry seconds or None)"""
     hist = None
     if _SHIST_AVAILABLE and _shist is not None:
         try:
@@ -4214,7 +4214,15 @@ def _credit_shares(symbol: str, bars: list, yahoo_shares):
             hist = None
     hist = hist or {}
     status = hist.get("status")
-    retry = (status not in ("ok", "unsupported")) or bool(hist.get("partial") or hist.get("refreshing"))
+    # Asked again when the share history will have something new (Codex,
+    # #433): in a minute or two while filings are being read; when it
+    # retries a partial or failed history itself (ten minutes) otherwise.
+    if status == "building" or hist.get("refreshing"):
+        retry = _CREDIT_RETRY_TTL
+    elif status not in ("ok", "unsupported") or hist.get("partial"):
+        retry = getattr(_shist, "PARTIAL_TTL_S", 600)
+    else:
+        retry = None
     last_day = str(bars[-1]["date"])[:10] if bars else None
     today = (lambda day: float(yahoo_shares) if day == last_day else None) if (yahoo_shares and last_day) else None
     inputs = {"shares_basis": "today_only" if today else None, "shares_outstanding": yahoo_shares,
@@ -4229,11 +4237,19 @@ def _credit_shares(symbol: str, bars: list, yahoo_shares):
                 if c:
                     return c["shares"]
                 return today(day) if today else None
-            note = None
+            notes = []
             if not now:
                 latest = (hist.get("latest") or {}).get("as_of")
-                note = (f"The newest SEC share count is from {latest}, too old to stand for recent days, so "
-                        "they have no model spread" + ("; today's uses Yahoo's current count." if today else "."))
+                notes.append(f"The newest SEC share count is from {latest}, too old to stand for recent days, so "
+                             "they have no model spread" + ("; today's uses Yahoo's current count." if today else "."))
+            # A partial history is said, with what made it so (Codex, #433):
+            # an unread filing may hold a count that changed.
+            if hist.get("partial"):
+                gaps = [w for w in hist.get("warnings") or []
+                        if re.search(r"could(?: not|n't)|refresh just failed", w)]
+                notes.append("The share-count history is incomplete just now: " + " ".join(gaps) if gaps else
+                             "The share-count history is incomplete just now; it is retried in a few minutes.")
+            note = " ".join(notes) or None
             return filed, {"shares_basis": "filed",
                            "shares_outstanding": now["shares"] if now else yahoo_shares,
                            "shares_as_of": now["as_of"] if now else None,
@@ -4374,7 +4390,7 @@ def build_credit_risk(symbol: str) -> dict:
             "The IG/BBB/HY spreads ARE real traded index data (ICE BofA via FRED).",
         ]
         with _CREDIT_LOCK:
-            _CREDIT_CACHE[symbol] = (now, base, _CREDIT_RETRY_TTL if retry else _CREDIT_TTL)
+            _CREDIT_CACHE[symbol] = (now, base, retry or _CREDIT_TTL)
             if len(_CREDIT_CACHE) > 40:
                 oldest = min(_CREDIT_CACHE, key=lambda k: _CREDIT_CACHE[k][0])
                 _CREDIT_CACHE.pop(oldest, None)
