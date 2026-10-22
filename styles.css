@@ -8892,7 +8892,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
   .mobile-bottombar {
     display: flex; align-items: center; gap: 8px;
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 240;
-    padding: 6px 12px calc(6px + env(safe-area-inset-bottom));
+    padding: 6px 12px calc(6px + var(--sab));
     background: color-mix(in oklch, var(--bg) 92%, transparent);
     backdrop-filter: blur(10px) saturate(1.1);
     border-top: 1px solid var(--line);
@@ -9133,7 +9133,10 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 
 /* TradingView (Lightweight) price chart on the Trade tab */
 .tv-price-chart { width: 100%; height: 460px; }
-@media (max-width: 900px) { .tv-price-chart { height: 340px; } }
+/* v5.49: RSI takes a band of its own under the volume; the chart grows by a
+   quarter so the candles keep their height (charts.jsx RSI_SHARE). */
+.tv-price-chart.with-rsi { height: 575px; }
+@media (max-width: 900px) { .tv-price-chart { height: 340px; } .tv-price-chart.with-rsi { height: 425px; } }
 
 /* ── Watchlist metrics table ───────────────────────────────────────────── */
 .wl-table { font-size: 12.5px; }
@@ -10469,7 +10472,7 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 @media (max-width: 900px) {
   .cp-backdrop { align-items: flex-end; padding: 0; }
   .cp-modal { width: 100%; border-radius: 18px 18px 0 0; border-bottom: 0;
-    padding-bottom: env(safe-area-inset-bottom);
+    padding-bottom: var(--sab);
     animation: cp-rise 200ms var(--ease); }
   @keyframes cp-rise { from { transform: translateY(30%); opacity: 0.4; } }
   .cp-list { max-height: 46vh; }
@@ -11012,7 +11015,7 @@ body.jt-embed .sb-version-pill, body.jt-embed .sb-weather-pill { display: none !
     max-height: 78dvh; overflow-y: auto;
     background: var(--bg); border: 1px solid var(--line);
     border-radius: 18px 18px 0 0;
-    padding: 12px 14px calc(14px + env(safe-area-inset-bottom));
+    padding: 12px 14px calc(14px + var(--sab));
     box-shadow: 0 -12px 40px rgba(0,0,0,0.55);
   }
   .tabsheet-head {
@@ -13963,6 +13966,25 @@ a.tabsheet-btn.site { text-decoration: none; }
    base rule declared further down.
    ══════════════════════════════════════════════════════════════════════════ */
 
+/* v5.49: THE ROOM KEPT CLEAR AT THE BOTTOM, in one place. Every rule that
+   used to reserve env(safe-area-inset-bottom) reads --sab instead.
+
+   Jerry's iPhone 16 Pro Max on the home screen kept a 105px empty band
+   under the frame, and two readings fit his screenshot:
+   * the phone reports a bottom inset near 105 rather than 34, and the
+     frame reserved all of it (956 - 105 = 851, where his content stopped);
+     so the reserve is capped at 34px, the home indicator of a Face ID
+     iPhone, which is all a bottom inset is ever for;
+   * the window is ~894 tall on a 956 screen and starts at its top, so the
+     home indicator is already below the window and the 34px kept for it
+     inside the window is waste; app.jsx then sets --vp-short to how far
+     the window falls short, and the reserve shrinks by that much, to 0.
+   app.jsx only sets --vp-short for a home-screen app whose window starts at
+   the top of the screen (the island's inset is reported) and falls short
+   of it by more than 40px, so Safari, where the browser's own bars make
+   the window short, keeps its reserve. */
+:root { --sab: max(0px, min(env(safe-area-inset-bottom, 0px), 34px) - var(--vp-short, 0px)); }
+
 /* The page itself no longer scrolls; the workspace does. */
 html, body { height: 100%; }
 body { overflow: hidden; overscroll-behavior: none; }
@@ -14179,7 +14201,7 @@ body { overflow: hidden; overscroll-behavior: none; }
   background: var(--bg);
   border-top: 1px solid var(--line);
   padding: 4px 16px 0;
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-bottom: var(--sab);
   display: flex; flex-direction: column;
   flex: 0 0 auto;
 }
@@ -14334,7 +14356,7 @@ body { overflow: hidden; overscroll-behavior: none; }
 
   .frame-body { max-width: none; padding: 8px 10px 0; grid-template-columns: 1fr; column-gap: 0; }
   .main { padding: 0 0 12px; }
-  .frame-bottom { padding: 3px 10px 0; padding-bottom: env(safe-area-inset-bottom, 0px); }
+  .frame-bottom { padding: 3px 10px 0; padding-bottom: var(--sab); }
 
   /* One coordinated footer: news row, ticker row, then the action bar. The
      bar used to be position:fixed over a document whose last element was the
@@ -14850,7 +14872,7 @@ body { overflow: hidden; overscroll-behavior: none; }
   .mko-chg, .mko-pts { font-size: 9px; }
   .frame-top { padding: 4px 12px 3px; }
   .frame-body { padding: 6px 12px 0; }
-  .frame-bottom { padding: 2px 12px env(safe-area-inset-bottom, 0px); }  /* v5.18: keeps the home-indicator inset a phone on its side reports */
+  .frame-bottom { padding: 2px 12px var(--sab); }  /* v5.18: keeps the home-indicator inset a phone on its side reports */
   /* Kept, not hidden (v4.94). It used to go here to buy back thirteen pixels,
      which made the version present in three of the app's four shapes — and
      "which build am I on" is a question you ask in whatever shape you happen
@@ -14897,7 +14919,7 @@ body { overflow: hidden; overscroll-behavior: none; }
     display: flex; flex-direction: column; min-height: 0;
     max-height: none; overflow: hidden;
     border-radius: 14px;
-    padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+    padding: 10px 12px calc(10px + var(--sab));
     box-shadow: 0 10px 40px rgba(0,0,0,0.55);
   }
 }
@@ -15047,7 +15069,7 @@ body { overflow: hidden; overscroll-behavior: none; }
      rule lives under max-width:900px, which this width is past, so the
      insets are carried here too — sides on the shell, bottom on the footer. */
   .shell { padding: 0 env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px) !important; }
-  .frame-bottom { padding-bottom: env(safe-area-inset-bottom, 0px); }
+  .frame-bottom { padding-bottom: var(--sab); }
   .ab-menu { display: inline-flex !important; }
 
   .mobile-overlay {

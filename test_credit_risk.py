@@ -121,8 +121,12 @@ def _bars(n=200, start="2026-01-02", wiggle=0.012):
     """Daily bars, flat with a day-to-day wiggle so HV is not zero."""
     from datetime import date, timedelta
     d0 = date.fromisoformat(start)
-    return [{"date": (d0 + timedelta(days=i)).isoformat() + "T12:00:00-04:00",
-             "close": 100.0 * (1 + wiggle * ((-1) ** i))} for i in range(n)]
+    out = []
+    for i in range(n):
+        c = 100.0 * (1 + wiggle * ((-1) ** i))
+        out.append({"date": (d0 + timedelta(days=i)).isoformat() + "T12:00:00-04:00",
+                    "open": c, "high": c, "low": c, "close": c, "volume": 1000})
+    return out
 
 
 class TestFiledShareCounts(unittest.TestCase):
@@ -146,14 +150,28 @@ class TestFiledShareCounts(unittest.TestCase):
         self.assertEqual(const[after["date"]], after, "the same as a constant count where they agree")
         self.assertNotEqual(const[before["date"]], before, "and not where today's count was wrong")
 
+    def test_each_day_takes_its_own_debt(self):
+        # v5.49: the default point a past day is measured against is the
+        # balance sheet the company had then, not the latest.
+        bars = _bars()
+        mid = bars[140]["date"][:10]
+        debt = lambda day: 30.0 if day < mid else 90.0
+        s = cr.merton_series(bars, 1.0, debt, 0.04)
+        before = [p for p in s if p["date"] < mid][-1]
+        after = [p for p in s if p["date"] >= mid][0]
+        self.assertGreater(after["leverage_pct"], before["leverage_pct"] * 2, "three times the debt after")
+        none_before = cr.merton_series(bars, 1.0, lambda day: None if day < mid else 90.0, 0.04)
+        self.assertTrue(none_before and all(p["date"] >= mid for p in none_before),
+                        "a day with no balance sheet is left out")
+
     def test_a_constant_count_still_works(self):
         s = cr.merton_series(_bars(), 1.0, 60.0, 0.04)
         self.assertGreater(len(s), 100)
 
 
-class TestBuildUsesFiledCounts(unittest.TestCase):
-    """The endpoint: the history uses the filed counts (share_history);
-    without them only today's spread is shown, from today's count, and said."""
+class _CreditBuild(unittest.TestCase):
+    """build_credit_risk on stubbed sources: Schwab bars, Yahoo's profile,
+    the share history and FRED."""
 
     def setUp(self):
         import options_dashboard as od
@@ -185,6 +203,12 @@ class TestBuildUsesFiledCounts(unittest.TestCase):
         od._treasury._fred_series = lambda *a, **k: []
         od._SHIST_AVAILABLE = True
         od._CREDIT_CACHE.clear()
+        # SEC balance sheets (v5.49): none unless a test gives some.
+        import fundamentals
+        self.fnd = fundamentals
+        self.saved_facts = fundamentals.company_facts
+        self.facts = None
+        fundamentals.company_facts = lambda sym, *a, **k: self.facts
         self.first = bars[100]["date"][:10]
         self.mid = bars[200]["date"][:10]
         self.hist = {"ok": True, "status": "ok", "symbol": "TEST", "max_age_days": 200,
@@ -205,6 +229,12 @@ class TestBuildUsesFiledCounts(unittest.TestCase):
         od._shist.get = self.saved_get
         od._treasury._fred_series = self.saved_fred
         od._CREDIT_CACHE.clear()
+        self.fnd.company_facts = self.saved_facts
+
+
+class TestBuildUsesFiledCounts(_CreditBuild):
+    """The endpoint: the history uses the filed counts (share_history);
+    without them only today's spread is shown, from today's count, and said."""
 
     def test_the_history_uses_the_filed_counts(self):
         out = self.od.build_credit_risk("TEST")
@@ -363,6 +393,84 @@ class TestBuildUsesFiledCounts(unittest.TestCase):
         self.assertEqual([], m["series"])
         self.assertNotIn("share count", m["unavailable_reason"])
         self.assertIn("60 trading days", m["unavailable_reason"])
+
+    # v5.49: with Schwab down the model had no price history at all; it
+    # now falls back to Yahoo, as the charts do.
+    def test_without_schwab_the_prices_come_from_yahoo(self):
+        import pandas as pd
+        bars = self.bars
+
+        class T:
+            def __init__(self, s):
+                self.info = {"sharesOutstanding": 3.0, "totalDebt": 100.0}
+                self.balance_sheet = None
+
+            def history(self, **k):
+                idx = pd.to_datetime([b["date"][:10] for b in bars])
+                c = [b["close"] for b in bars]
+                return pd.DataFrame({"Open": c, "High": c, "Low": c, "Close": c, "Volume": [1000] * len(c)}, index=idx)
+        self.od.yf = type("YF", (), {"Ticker": T})
+        self.od._schwab = lambda: None
+        m = self.od.build_credit_risk("TEST")["merton"]
+        self.assertIsNone(m["unavailable_reason"])
+        self.assertTrue(m["series"], "drawn from Yahoo's prices")
+        self.assertEqual(bars[-1]["date"][:10], m["series"][-1]["date"])
+
+
+def _instant(end, val, form="10-Q"):
+    return {"end": end, "val": val, "filed": end, "form": form}
+
+
+class TestFiledDebt(_CreditBuild):
+    """v5.49: the default point each day is from the balance sheet the
+    company filed for it (SEC), not the latest one held for every day."""
+
+    def setUp(self):
+        super().setUp()
+        one = {"as_of": self.bars[0]["date"][:10], "shares": 1.0, "form": "10-K"}
+        self.hist = dict(self.ok, points=[one], latest=one,
+                         coverage={"from": one["as_of"], "to": one["as_of"]})
+        self.d1 = self.bars[30]["date"][:10]
+        self.d2 = self.bars[200]["date"][:10]
+
+    def _sec(self, short, long, last=None):
+        return {"facts": {"us-gaap": {
+            "LongTermDebtCurrent": {"units": {"USD": [_instant(d, v) for d, v in short]}},
+            "LongTermDebtNoncurrent": {"units": {"USD": [_instant(d, v) for d, v in long]}}}}}
+
+    def test_each_day_takes_the_balance_sheet_dated_before_it(self):
+        self.facts = self._sec([(self.d1, 2.0), (self.d2, 8.0)], [(self.d1, 8.0), (self.d2, 32.0)])
+        m = self.od.build_credit_risk("TEST")["merton"]
+        i = m["inputs"]
+        self.assertEqual("sec", i["default_point_source"])
+        self.assertAlmostEqual(8.0 + 16.0, i["default_point"], msg="the newest balance sheet: short + half long")
+        self.assertEqual(self.d2, i["default_point_as_of"])
+        before = [p for p in m["series"] if p["date"] < self.d2][-1]
+        after = [p for p in m["series"] if p["date"] >= self.d2][0]
+        self.assertGreater(after["leverage_pct"], before["leverage_pct"] * 2.5,
+                           "a quarter of the debt before the new balance sheet, not today's")
+
+    def test_a_filer_that_stopped_tagging_its_debt_falls_back_to_yahoo(self):
+        # Plug Power: its debt tags stop in 2024 while its filings go on.
+        old = self.bars[0]["date"][:10]
+        self.facts = self._sec([(old, 2.0)], [(old, 8.0)])
+        m = self.od.build_credit_risk("TEST")["merton"]
+        self.assertEqual("yahoo", m["inputs"]["default_point_source"])
+        self.assertAlmostEqual(75.0, m["inputs"]["default_point"], msg="75% of Yahoo's total debt")
+        self.assertIn("Yahoo", m["debt_note"])
+        self.assertTrue(m["series"], "still drawn, from Yahoo's latest balance sheet")
+
+    def test_no_sec_facts_says_where_the_debt_came_from(self):
+        out = self.od.build_credit_risk("TEST")
+        self.assertEqual("yahoo", out["merton"]["inputs"]["default_point_source"])
+        self.assertTrue(any("Yahoo" in n and "default point" in n for n in out["notes"]))
+        self.assertFalse(any("most recent quarterly balance sheet" in n for n in out["notes"]))
+
+    def test_sec_debt_is_said_in_the_notes(self):
+        self.facts = self._sec([(self.d1, 2.0), (self.d2, 8.0)], [(self.d1, 8.0), (self.d2, 32.0)])
+        out = self.od.build_credit_risk("TEST")
+        self.assertTrue(any("balance sheet" in n and "dated on or before" in n for n in out["notes"]))
+        self.assertIsNone(out["merton"].get("debt_note"))
 
 
 if __name__ == "__main__":

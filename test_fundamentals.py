@@ -534,6 +534,45 @@ class TestNetDebt(unittest.TestCase):
         self.assertIn("cannot be told apart", nd["reason"])
 
 
+class TestBalanceHistory(unittest.TestCase):
+    """v5.49: a past day gets the balance sheet the company had then."""
+
+    def _f(self):
+        return facts(us_gaap={
+            "LongTermDebtNoncurrent": concept("USD", [instant_fact("2025-06-30", 100.0),
+                                                      instant_fact("2025-09-30", 140.0),
+                                                      instant_fact("2025-12-31", 150.0)]),
+            "LongTermDebtCurrent": concept("USD", [instant_fact("2025-06-30", 10.0),
+                                                   instant_fact("2025-12-31", 30.0)]),
+            "CashAndCashEquivalentsAtCarryingValue": concept("USD", [instant_fact("2025-12-31", 60.0)])})
+
+    def test_each_metric_through_the_concept_every_reader_uses(self):
+        h = F.balance_history(self._f(), ("long_term_debt", "short_term_debt", "short_investments"))
+        self.assertEqual([r["end"] for r in h["long_term_debt"]], ["2025-06-30", "2025-09-30", "2025-12-31"])
+        self.assertEqual(h["short_investments"], [], "not tagged: an empty series, not an error")
+
+    def test_a_day_takes_the_last_value_dated_on_or_before_it(self):
+        h = F.balance_history(self._f(), ("long_term_debt", "short_term_debt"))
+        on = F.balance_on(h, "2025-11-15")
+        self.assertEqual(140.0, on["long_term_debt"]["val"])
+        self.assertEqual(10.0, on["short_term_debt"]["val"], "the last one reported, from June")
+        self.assertEqual(150.0, F.balance_on(h, "2025-12-31")["long_term_debt"]["val"], "on its own day")
+        self.assertIsNone(F.balance_on(h, "2025-06-29")["long_term_debt"], "nothing before the first")
+
+    def test_a_value_too_old_stands_for_nothing(self):
+        h = F.balance_history(self._f(), ("long_term_debt",))
+        self.assertIsNotNone(F.balance_on(h, "2026-07-19")["long_term_debt"])
+        self.assertIsNone(F.balance_on(h, "2026-07-20")["long_term_debt"],
+                          f"over {F.HISTORY_MAX_AGE_DAYS} days old: a missed filing is a gap, not a guess")
+
+    def test_a_concept_the_filer_stopped_tagging_is_stale(self):
+        # Plug Power: its debt tags stop in 2024 while its balance sheets go on.
+        h = F.balance_history(self._f(), ("long_term_debt", "short_term_debt", "cash"))
+        self.assertEqual([], F.stale_metrics(h, "2026-03-31"))
+        self.assertEqual(["long_term_debt", "short_term_debt", "cash"], F.stale_metrics(h, "2026-09-30"))
+        self.assertEqual([], F.stale_metrics(h, "2028-06-30"), "nothing reported for two years: absent, not stale")
+
+
 class TestPointInTimeSeries(unittest.TestCase):
     def test_a_missing_fourth_quarter_does_not_empty_the_series(self):
         # Apple reports no separate fourth-quarter share count — it exists

@@ -55,6 +55,19 @@ class TheLessonFromTheOutage(unittest.TestCase):
             self.assertEqual("ORIGIN DOWN", code)
             self.assertIn("credit", msg)
 
+    def test_the_apps_own_origin_refusal_is_named(self):
+        # v5.49: with ORIGIN_SECRET set on Railway, a request that reaches
+        # the app without Cloudflare's X-Origin-Secret header is refused by
+        # the app itself. That is a broken Transform Rule or a mismatched
+        # variable, not Access rejecting the service token.
+        ok, code, msg = M.classify_health(403, "forbidden: origin check failed\n", None)
+        self.assertFalse(ok)
+        self.assertEqual("ORIGIN SECRET", code)
+        self.assertIn("X-Origin-Secret", msg)
+        self.assertIn("ORIGIN_SECRET", msg)
+        ok, code, _ = M.classify_health(403, "<html>Access denied</html>", None)
+        self.assertEqual("FORBIDDEN", code, "Access's own 403 is still Access's")
+
 
 class TheFrontDoorStaysShut(unittest.TestCase):
     """Step 7 of the runbook puts the orange cloud back. Steps get skipped."""

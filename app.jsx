@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "5.48";
+const APP_VERSION = "5.49";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -2085,11 +2085,33 @@ function App() {
         return h;
       } catch (_) { return "?"; }
     };
+    // v5.49: how far a home-screen app's window falls short of the screen,
+    // in px, or 0. Only when the window starts at the top of the screen
+    // (the island's inset is reported): then the bottom of the screen, and
+    // the home indicator with it, is below the window, and the room the
+    // frame keeps clear for it (--sab in styles.css) is an empty band.
+    // Safari's window is short because of its own bars, and a window with
+    // no top inset may start lower and end at the bottom edge: both keep it.
+    const isStandalone = () => window.navigator.standalone === true
+      || !!(window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
+    const shortfall = (top) => {
+      if (!isStandalone() || !(top > 0)) return 0;
+      const sw = (window.screen || {}).width || 0, sh = (window.screen || {}).height || 0;
+      // iOS keeps screen.height the long side whichever way the phone is held.
+      const full = window.innerWidth <= window.innerHeight ? Math.max(sw, sh) : Math.min(sw, sh);
+      const gap = Math.round(full - window.innerHeight);
+      return gap > 40 ? gap : 0;
+    };
     const read = () => {
       try {
         const vv = window.visualViewport;
+        const top = probe("top"), bottom = probe("bottom"), short = shortfall(top);
+        document.documentElement.style.setProperty("--vp-short", `${short}px`);
+        // ·sa: running from the home screen; ·−62: the window is 62px short
+        // and the bottom reserve has been given back.
         setScreenNote(`${(window.screen || {}).height || "?"}·${window.innerHeight}`
-          + `·${vv ? Math.round(vv.height) : "-"}·${probe("top")}/${probe("bottom")}`);
+          + `·${vv ? Math.round(vv.height) : "-"}·${top}/${bottom}`
+          + (isStandalone() ? "·sa" : "") + (short ? `·−${short}` : ""));
       } catch (_) { setScreenNote(""); }
     };
     read();
@@ -4741,6 +4763,8 @@ function App() {
                     : `Loading ${longYears} years of history… showing the last year meanwhile.`)
                 : (longReady && longHist.bars.length && (Date.now() - longHist.bars[0].date.getTime()) / 31557600000 < longYears - 0.25
                     ? `History for ${ticker} starts ${fmtUSDate(longHist.first)}.` : null);
+              // The probability cone's IV: the suggested strikes' average.
+              const coneIV = (callAtSug.iv && putAtSug.iv) ? (callAtSug.iv + putAtSug.iv) / 2 : (callAtSug.iv || putAtSug.iv || null);
               return (
                 <CardErrorBoundary label="Price chart">
                 {longNote && <div className="chart-range-note" role="status">{longNote}</div>}
@@ -4753,6 +4777,8 @@ function App() {
                                 chartStyle={chartStyle} earnings={liveEarnings}
                                 levels={rcvLevels && rcvLevels.symbol === ticker ? rcvLevels.levels : null}
                                 showMA50={showMA50} showMA200={showMA200} showEMA21={showEMA21}
+                                showRSI={showRSI} showProbCone={showProbCone}
+                                ivAnnualized={coneIV} dteToExp={FRONT_DTE}
                                 resetKey={`${ticker}|${chartDays}`} cap={capOn ? capView : null}
                                 full={capOn ? capView.bars : chartDaily} />
                 ) : (
@@ -4766,7 +4792,7 @@ function App() {
                             showEMA21={showEMA21}
                             showRSI={showRSI}
                             showProbCone={showProbCone}
-                            ivAnnualized={(callAtSug.iv && putAtSug.iv) ? (callAtSug.iv + putAtSug.iv) / 2 : (callAtSug.iv || putAtSug.iv || null)}
+                            ivAnnualized={coneIV}
                             dteToExp={FRONT_DTE}
                             fullDailyLength={len}
                             visibleStart={start}
@@ -4810,7 +4836,11 @@ function App() {
               {showEMA21 && <span className="item"><span className="swatch" style={{background: "rgb(80, 160, 255)", height: 2}}></span>EMA 21</span>}
               {showMA50 && <span className="item"><span className="swatch" style={{background: chartColors.warn, height: 2}}></span>MA 50</span>}
               {showMA200 && <span className="item"><span className="swatch" style={{background: chartColors.accent, height: 2}}></span>MA 200</span>}
-              {showProbCone && <span className="item"><span className="swatch" style={{background: chartColors.accent, opacity: 0.22, height: 10}}></span>Prob cone ±1σ/±2σ</span>}
+              {showProbCone && <span className="item"><span className="swatch" style={window.LightweightCharts
+                ? {background: CONE_COLOR, height: 2} : {background: chartColors.accent, opacity: 0.22, height: 10}}></span>Prob cone ±1σ/±2σ</span>}
+              {showRSI && <span className="item" title={"RSI 14 (Wilder) in the band under the volume: above 70 overbought, below 30 oversold."
+                + (capOn ? " In market cap it is the market cap's RSI: a change in the share count moves it." : "")}>
+                <span className="swatch" style={{background: "rgb(150, 130, 220)", height: 2}}></span>RSI 14 · 70/30</span>}
               {showMA50 && showMA200 && (() => {
                 const last = daily[daily.length - 1];
                 if (!last || last.ma50 == null || last.ma200 == null) return null;
@@ -9198,7 +9228,7 @@ function App() {
         </a>
         {screenNote && (
           <span className="sl-screen"
-                title="Temporary screen check: screen height · window height · visible height · top/bottom insets. It comes out once the empty band at the bottom is fixed.">
+                title="Temporary screen check: screen height · window height · visible height · top/bottom insets, then sa when running from the home screen and −N when the window is N px short of the screen (the bottom reserve is given back). It comes out once the empty band at the bottom is confirmed gone.">
             {screenNote}
           </span>
         )}

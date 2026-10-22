@@ -170,6 +170,7 @@ class TheHedgeTabDraws(unittest.TestCase):
         env = dict(os.environ, JERRY_NO_NET="1", JERRY_DATA_DIR=cls.tmp.name,
                    PORT=str(port))
         env.pop("API_KEY", None)
+        env.pop("ORIGIN_SECRET", None)     # v5.49: the harness talks to it directly
         cls.log = tempfile.NamedTemporaryFile(suffix=".log", delete=False)
         cls.server = subprocess.Popen(
             [sys.executable, "options_dashboard.py", "--serve", "--port", str(port)],

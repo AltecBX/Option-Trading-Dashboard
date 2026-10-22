@@ -50,6 +50,7 @@ Nothing here ever returns 0 to mean "unknown".
 
 from __future__ import annotations
 
+import bisect
 import json
 import math
 import re
@@ -1478,6 +1479,60 @@ def net_debt(facts: dict, as_of: str | None = None) -> dict:
                      "short-term investments, at the latest balance-sheet date",
             "source": "SEC EDGAR Company Facts (XBRL)", "reason": ""}
 
+
+# ── Balance-sheet history (v5.49) ───────────────────────────────────────────
+#
+# A past day gets the balance sheet the company had then. The credit
+# monitor's default point and the valuation history's net debt used to hold
+# the latest one for every day, so a company that tripled its borrowings
+# last quarter looked just as levered a year ago. Each metric is read
+# through instant_pick, the concept every other reader uses, and a day takes
+# the last value dated on or before it: never a later one, and not one so
+# old that a missed filing is papered over.
+
+HISTORY_MAX_AGE_DAYS = 200     # the reach of a filed share count (share_history)
+_STALE_REACH_DAYS = 730
+
+
+def balance_history(facts: dict, names) -> dict:
+    """{name: dated series, oldest first} for balance-sheet metrics; [] for
+    one this company does not tag."""
+    out = {}
+    for name in names:
+        best = instant_pick(facts, name) if facts else None
+        out[name] = best[1] if best else []
+    return out
+
+
+def _days(a: str, b: str) -> int:
+    return (date.fromisoformat(b[:10]) - date.fromisoformat(a[:10])).days
+
+
+def balance_on(history: dict, day: str,
+               max_age_days: int = HISTORY_MAX_AGE_DAYS) -> dict:
+    """{name: row or None}: each metric's last value dated on or before
+    `day`; None before the first, or when that one is over max_age_days old."""
+    out = {}
+    for name, rows in history.items():
+        i = bisect.bisect_right(rows, day[:10], key=lambda r: r["end"])
+        r = rows[i - 1] if i else None
+        out[name] = r if r is not None and _days(r["end"], day) <= max_age_days else None
+    return out
+
+
+def stale_metrics(history: dict, day: str,
+                  max_age_days: int = HISTORY_MAX_AGE_DAYS) -> list[str]:
+    """Metrics reported in the two years before `day` whose last value is
+    now too old to stand for it: a concept the filer stopped tagging (Plug
+    Power's borrowings stop in 2024 while its balance sheets go on). A
+    history built on one would hold a stale figure, or none, for recent days.
+    One not reported for two years is absent, not stale."""
+    out = []
+    for name, rows in history.items():
+        past = [r for r in rows if r["end"] <= day[:10]]
+        if past and max_age_days < _days(past[-1]["end"], day) <= _STALE_REACH_DAYS:
+            out.append(name)
+    return out
 
 # ── SEC company metadata (SIC industry, fiscal year, exchange) ──────────────
 #

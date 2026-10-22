@@ -23,6 +23,7 @@ from types import SimpleNamespace
 _TMP = tempfile.mkdtemp(prefix="jerry_smoke_")
 os.environ["JERRY_DATA_DIR"] = _TMP
 os.environ.pop("API_KEY", None)  # no auth in the harness
+os.environ.pop("ORIGIN_SECRET", None)  # nor the origin check (v5.49)
 
 import numpy as np
 import pandas as pd

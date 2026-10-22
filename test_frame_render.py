@@ -640,6 +640,7 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         env = dict(os.environ, JERRY_NO_NET="1", JERRY_DATA_DIR=cls.tmp.name,
                    PORT=str(port))
         env.pop("API_KEY", None)
+        env.pop("ORIGIN_SECRET", None)     # v5.49: the harness talks to it directly
         cls.log = tempfile.NamedTemporaryFile(suffix=".log", delete=False)
         cls.server = subprocess.Popen(
             [sys.executable, "options_dashboard.py", "--serve", "--port", str(port)],
@@ -1895,6 +1896,93 @@ class TheFrameStaysOnScreen(unittest.TestCase):
             main = geo["main"]
             self.assertGreaterEqual(main["h"], 300,
                                     f"the workspace is only {main['h']}px tall")
+        finally:
+            self._close(handles)
+
+    # v5.49: the phone's bottom band, fixed for both readings of Jerry's
+    # screenshot. These run the page as an iPhone 16 Pro Max home-screen app
+    # would report itself: `navigator.standalone`, a 440x956 screen, and the
+    # window the test asks for.
+    _STANDALONE = ("(() => { const def = (o, k, v) => Object.defineProperty(o, k, {get: () => v, configurable: true});"
+                   " def(Navigator.prototype, 'standalone', true); })()")
+    _SCREEN_956 = ("(() => { const def = (o, k, v) => Object.defineProperty(o, k, {get: () => v, configurable: true});"
+                   " def(Screen.prototype, 'height', 956); def(Screen.prototype, 'width', 440); })()")
+    _BOTTOM = """() => {
+        const fb = document.querySelector('.frame-bottom');
+        let low = 0;
+        for (const e of fb.querySelectorAll('*')) {
+          const r = e.getBoundingClientRect();
+          if (r.height > 0 && r.width > 0 && getComputedStyle(e).visibility !== 'hidden') low = Math.max(low, r.bottom);
+        }
+        const sl = document.querySelector('.sl-screen');
+        return {reserve: parseFloat(getComputedStyle(fb).paddingBottom), low: Math.round(low),
+                vh: window.innerHeight, note: sl ? sl.textContent.trim() : null};
+    }"""
+
+    def test_a_reported_bottom_inset_past_the_home_indicator_is_capped(self):
+        """v5.49. One reading of Jerry's band: the phone reports a bottom
+        inset near 105 rather than the home indicator's 34, and the frame
+        reserved all of it: 956 - 105 = 851 is where his content stopped,
+        to the pixel. The reserve is capped at 34px, the real home
+        indicator on a Face ID iPhone."""
+        geo, errors, handles = self._measure(440, 956, safe_area=(62, 105))
+        try:
+            self.assertFalse(errors, f"page errors: {errors[:3]}")
+            m = handles[2].evaluate(self._BOTTOM)
+            self.assertLessEqual(m["reserve"], 34, f"{m['reserve']}px kept clear at the bottom, past the home indicator")
+            self.assertGreaterEqual(m["low"], m["vh"] - 34 - 4,
+                                    f"the frame ends at {m['low']}px on a {m['vh']}px screen: an empty band below it")
+            self.assertLessEqual(m["low"], m["vh"] - 34, "and nothing is under the home indicator")
+            self.assertRegex(m["note"] or "", r"/105\b", "the footer still shows what the phone reports")
+        finally:
+            self._close(handles)
+
+    def test_a_short_home_screen_window_takes_back_the_reserve(self):
+        """v5.49. The other reading: on the home screen, iOS gives the page a
+        window ~894 tall on a 956 screen while painting from the top, so the
+        home indicator is already below the window and the 34px kept clear
+        for it inside the window is an empty band. With the island's inset
+        reported (the window starts at the top of the screen), a window that
+        falls short of the screen by more than 40px gives that reserve back,
+        and the frame runs to the bottom of the window."""
+        geo, errors, handles = self._measure(440, 894, safe_area=(62, 34),
+                                             init=self._STANDALONE + ";" + self._SCREEN_956)
+        try:
+            self.assertFalse(errors, f"page errors: {errors[:3]}")
+            m = handles[2].evaluate(self._BOTTOM)
+            self.assertEqual(0, m["reserve"], f"{m['reserve']}px kept clear for a home indicator below the window")
+            self.assertGreaterEqual(m["low"], m["vh"] - 4,
+                                    f"the frame ends at {m['low']}px in an {m['vh']}px window: an empty band below it")
+            self.assertLessEqual(m["low"], m["vh"], "and nothing hangs below the window")
+            self.assertIn("sa", (m["note"] or "").split("·"), f"the footer says it is a home-screen app: {m['note']!r}")
+        finally:
+            self._close(handles)
+
+    def test_the_reserve_stays_where_the_home_indicator_may_be_inside_the_window(self):
+        """v5.49, the guards. The reserve is given back only when the window
+        is a home-screen app's, falls short of the screen, and starts at its
+        top (the island's inset is reported). In Safari the window is short
+        because of the browser's own bars; with no top inset the window may
+        start lower and end at the screen's bottom edge, where the home
+        indicator is. Both keep the 34px."""
+        cases = [("Safari", (62, 34), self._SCREEN_956),
+                 ("no top inset", (0, 34), self._STANDALONE + ";" + self._SCREEN_956),
+                 ("full-height window", (62, 34), self._STANDALONE)]
+        for name, insets, init in cases:
+            h = 956 if name == "full-height window" else 894
+            geo, errors, handles = self._measure(440, h, safe_area=insets, init=init)
+            try:
+                self.assertFalse(errors, f"{name}: page errors: {errors[:3]}")
+                m = handles[2].evaluate(self._BOTTOM)
+                self.assertEqual(34, m["reserve"], f"{name}: the home indicator's 34px is no longer kept clear")
+                self.assertLessEqual(m["low"], m["vh"] - 34, f"{name}: the frame runs under the home indicator")
+            finally:
+                self._close(handles)
+        geo, errors, handles = self._measure(1440, 900, init=self._STANDALONE)
+        try:
+            m = handles[2].evaluate(self._BOTTOM)
+            self.assertEqual(0, m["reserve"], "the desktop frame keeps nothing at the bottom")
+            self.assertGreaterEqual(m["low"], m["vh"] - 4, "and runs to the bottom of the window")
         finally:
             self._close(handles)
 
@@ -3361,6 +3449,192 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         finally:
             self._close(handles)
 
+    # v5.49 — RSI and the probability cone on the TradingView chart. The
+    # toggles only ever reached the SVG fallback; on the chart Jerry sees
+    # they did nothing.
+    _STUDIES = """() => { const el = document.querySelector('.tv-price-chart');
+        const p = el && el.__parts && el.__parts(); if (!p || !p.main) return null;
+        const day = (t) => typeof t === 'string' ? t : typeof t === 'number' ? new Date(t * 1000).toISOString().slice(0, 10)
+                           : `${t.year}-${String(t.month).padStart(2, '0')}-${String(t.day).padStart(2, '0')}`;
+        const pts = (s) => s.data().filter(d => d.value !== undefined).map(d => [day(d.time), d.value]);
+        const c = el.__chart, vis = c.timeScale().getVisibleRange();
+        const volDays = p.vol.data().map(d => day(d.time));
+        return {
+          height: el.clientHeight, fmt: p.main.options().priceFormat.type,
+          rsi: p.rsi ? pts(p.rsi) : null,
+          rsiLines: p.rsi ? p.rsiLines.map(l => l.options().price) : [],
+          rsiBand: p.rsi ? c.priceScale('rsi').options().scaleMargins : null,
+          volBand: c.priceScale('vol').options().scaleMargins,
+          cone: (p.cone || []).map(s => ({title: s.options().title, pts: pts(s)})),
+          visTo: vis ? day(vis.to) : null,
+          volDays, firstBar: volDays[0], lastBar: volDays[volDays.length - 1],
+          closes: p.main.data().map(d => [day(d.time), d.close === undefined ? d.value : d.close]),
+        }; }"""
+
+    @staticmethod
+    def _wilder(closes, n=14):
+        """RSI14, Wilder's smoothing: what the chart is meant to draw."""
+        out = [None] * len(closes)
+        if len(closes) < n + 1:
+            return out
+        g = l = 0.0
+        for i in range(1, n + 1):
+            ch = closes[i] - closes[i - 1]
+            if ch >= 0:
+                g += ch
+            else:
+                l -= ch
+        ag, al = g / n, l / n
+        out[n] = 100.0 if al == 0 else 100 - 100 / (1 + ag / al)
+        for i in range(n + 1, len(closes)):
+            ch = closes[i] - closes[i - 1]
+            ag = (ag * (n - 1) + (ch if ch > 0 else 0)) / n
+            al = (al * (n - 1) + (-ch if ch < 0 else 0)) / n
+            out[i] = 100.0 if al == 0 else 100 - 100 / (1 + ag / al)
+        return out
+
+    def _studies_ready(self, page, rsi, cone):
+        page.wait_for_function(
+            "([rsi, cone]) => { const e = document.querySelector('.tv-price-chart'); const p = e && e.__parts && e.__parts();"
+            " return p && !!p.rsi === rsi && (p.cone || []).length === cone; }", arg=[rsi, cone], timeout=15000)
+        page.wait_for_timeout(300)
+        return page.evaluate(f"({self._STUDIES})()")
+
+    def test_the_trade_chart_draws_rsi_and_the_cone(self):
+        import math
+        geo, errs, handles = self._measure(1440, 900, tab="trade", daily_history=True)
+        page = handles[2]
+        try:
+            page.wait_for_function("() => { const e = document.querySelector('.tv-price-chart'); return e && e.__parts; }",
+                                   timeout=20000)
+            page.click(".chart-range button:text-is('120D')")
+            off = self._studies_ready(page, False, 0)
+
+            page.click("button.rsi")
+            got = self._studies_ready(page, True, 0)
+            vals = [v for _, v in got["rsi"]]
+            self.assertTrue(vals and all(0 <= v <= 100 for v in vals), f"RSI runs 0 to 100: {vals[:5]}")
+            self.assertEqual(got["firstBar"], got["rsi"][0][0],
+                             "warm at the window's first bar: worked out on the whole series, then cut")
+            self.assertEqual(got["lastBar"], got["rsi"][-1][0])
+            self.assertEqual([70, 30], sorted(got["rsiLines"], reverse=True), "the 70 and 30 guides")
+            self.assertGreater(got["height"], off["height"] + 80, "the chart grows to make room, as the SVG one does")
+            self.assertLessEqual(1 - got["volBand"]["bottom"], got["rsiBand"]["top"],
+                                 "the RSI has a band of its own, under the volume")
+
+            page.click("button.cone")
+            got = self._studies_ready(page, True, 4)
+            cone = {c["title"]: c["pts"] for c in got["cone"]}
+            self.assertEqual({"+2σ", "+1σ", "-1σ", "-2σ"}, set(cone))
+            spot = cone["+1σ"][0][1]
+            for title, pts in cone.items():
+                self.assertEqual(got["lastBar"], pts[0][0], f"{title} starts at the last bar")
+                self.assertAlmostEqual(spot, pts[0][1], places=6)
+                self.assertGreater(pts[-1][0], got["lastBar"], f"{title} runs into the future")
+                self.assertLessEqual(pts[-1][0], got["visTo"], f"and the chart shows where it ends")
+            up1, up2, dn1, dn2 = (cone[t][-1][1] for t in ("+1σ", "+2σ", "-1σ", "-2σ"))
+            self.assertTrue(up2 > up1 > spot > dn1 > dn2)
+            self.assertAlmostEqual(math.log(up2 / spot), 2 * math.log(up1 / spot), places=9)
+            self.assertAlmostEqual(math.log(dn1 / spot), -math.log(up1 / spot), places=9)
+            self.assertAlmostEqual(math.log(dn2 / spot), -2 * math.log(up1 / spot), places=9)
+            # It widens with the square root of time, counted in days from
+            # today in New York (on a weekend the last bar is Friday's).
+            d0 = date.fromisoformat(page.evaluate(
+                "new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })"))
+            d0 = max(d0, date.fromisoformat(got["lastBar"]))
+            mid, end = cone["+1σ"][len(cone["+1σ"]) // 2], cone["+1σ"][-1]
+            t_mid, t_end = ((date.fromisoformat(p[0]) - d0).days for p in (mid, end))
+            self.assertAlmostEqual(math.log(mid[1] / spot) / math.log(end[1] / spot),
+                                   math.sqrt(t_mid / t_end), places=9)
+
+            page.click("button.rsi")
+            page.click("button.cone")
+            back = self._studies_ready(page, False, 0)
+            self.assertEqual(off["height"], back["height"])
+            self.assertEqual(errs, [], f"the page threw: {errs[:2]}")
+        finally:
+            self._close(handles)
+
+    def test_rsi_and_the_cone_in_market_cap(self):
+        hist = share_history_answer()
+        geo, errs, handles = self._measure(1440, 900, tab="trade", daily_history=True, share_history=hist)
+        page = handles[2]
+        try:
+            page.wait_for_function("() => { const e = document.querySelector('.tv-price-chart'); return e && e.__parts; }",
+                                   timeout=20000)
+            page.click(".chart-range button:text-is('10Y')")
+            page.wait_for_function(f"() => ({self._VISIBLE_YEARS})() > 9.5", timeout=15000)
+            page.click("button.rsi")
+            page.click("button.cone")
+            price = self._studies_ready(page, True, 4)
+            page.click(".chart-mode button:text-is('Mkt cap')")
+            page.wait_for_function("() => /10-year market cap/i.test(document.body.innerText)", timeout=10000)
+            page.wait_for_function("() => document.querySelector('.tv-price-chart').__parts().main.options().priceFormat.type === 'custom'",
+                                   timeout=10000)
+            cap = self._studies_ready(page, True, 4)
+
+            # The RSI of the market cap: Wilder over each unbroken stretch of
+            # market caps, a day with no count ending one.
+            caps, runs, run = dict(cap["closes"]), [], []
+            for d in cap["volDays"]:
+                if d in caps:
+                    run.append(d)
+                elif run:
+                    runs.append(run)
+                    run = []
+            if run:
+                runs.append(run)
+            self.assertGreater(len(runs), 0)
+            self.assertNotIn(cap["firstBar"], caps, "the window opens before the first count")
+            want = []
+            for r in runs:
+                want += [(d, v) for d, v in zip(r, self._wilder([caps[d] for d in r])) if v is not None]
+            self.assertEqual([d for d, _ in want], [d for d, _ in cap["rsi"]])
+            for (d, a), (_, b) in zip(want, cap["rsi"]):
+                self.assertAlmostEqual(a, b, delta=1e-6, msg=d)
+            by_day = dict(price["rsi"])
+            self.assertTrue(any(abs(by_day[d] - v) > 1e-6 for d, v in cap["rsi"] if d in by_day),
+                            "a change in the share count moves the market cap's RSI, not the price's")
+
+            # The cone is the price cone at today's share count.
+            shares = hist["points"][-1]["shares"]
+            pc = {c["title"]: c["pts"] for c in price["cone"]}
+            for c in cap["cone"]:
+                self.assertEqual([d for d, _ in pc[c["title"]]], [d for d, _ in c["pts"]])
+                for (d, a), (_, b) in zip(pc[c["title"]], c["pts"]):
+                    self.assertAlmostEqual(a * shares / b, 1.0, places=9, msg=f"{c['title']} {d}")
+            self.assertEqual(errs, [], f"the page threw: {errs[:2]}")
+        finally:
+            self._close(handles)
+
+    def test_no_cone_in_market_cap_without_a_current_count(self):
+        # The newest count is too old to stand for today: the strike lines
+        # are hidden in market cap, and so is the cone. The RSI needs no
+        # count of today's and stays.
+        hist = share_history_answer()
+        cut = (date.today() - timedelta(days=260)).isoformat()
+        pts = [p for p in hist["points"] if p["as_of"] <= cut]
+        hist = dict(hist, points=pts, coverage={"from": pts[0]["as_of"], "to": pts[-1]["as_of"]},
+                    latest={"as_of": pts[-1]["as_of"], "shares": pts[-1]["shares"], "form": "10-Q"})
+        geo, errs, handles = self._measure(1440, 900, tab="trade", daily_history=True, share_history=hist)
+        page = handles[2]
+        try:
+            page.wait_for_function("() => { const e = document.querySelector('.tv-price-chart'); return e && e.__parts; }",
+                                   timeout=20000)
+            page.click(".chart-range button:text-is('10Y')")
+            page.wait_for_function(f"() => ({self._VISIBLE_YEARS})() > 9.5", timeout=15000)
+            page.click("button.rsi")
+            page.click("button.cone")
+            self._studies_ready(page, True, 4)
+            page.click(".chart-mode button:text-is('Mkt cap')")
+            page.wait_for_function("() => /lines are hidden/.test(document.body.innerText)", timeout=10000)
+            cap = self._studies_ready(page, True, 0)
+            self.assertEqual("custom", cap["fmt"])
+            self.assertTrue(cap["rsi"], "the RSI stays")
+            self.assertEqual(errs, [], f"the page threw: {errs[:2]}")
+        finally:
+            self._close(handles)
+
     def test_a_partial_share_history_is_asked_again(self):
         # The server says "partial, retried in ten minutes" (a filing list
         # or the price check could not be had). The page asks again then,
@@ -3624,6 +3898,33 @@ class TheFrameStaysOnScreen(unittest.TestCase):
             page.evaluate(pick, "AAPL")
             page.wait_for_function("() => !/incomplete just now/.test(document.body.innerText)", timeout=30000)
             self.assertEqual(4, self.credit_risk_calls, "asked again in seconds, not another ten minutes")
+            self.assertEqual(errs, [], f"the page threw: {errs[:2]}")
+        finally:
+            self._close(handles)
+
+    def test_the_credit_card_says_where_its_debt_came_from(self):
+        # v5.49: each day's debt is from the SEC balance sheet dated on or
+        # before it; when that history isn't current, Yahoo's latest stands
+        # for every day, and the card says so.
+        series = [{"date": f"2026-0{1 + i // 28}-{1 + i % 28:02d}", "spread_bps": 100.0 + i, "dd": 3.0,
+                   "pd_pct": 1.0, "leverage_pct": 30.0} for i in range(60)]
+        note = ("The default point uses Yahoo's latest balance sheet for every day: its SEC filings stopped "
+                "tagging its borrowings in the standard fields, so a past day is measured against today's debt.")
+        answer = {"symbol": "AAPL", "merton": {"series": series, "latest": series[-1],
+                                               "interpretation": "Model 5Y spread ≈ 100 bps.",
+                                               "inputs": {"shares_basis": "filed", "default_point": 5e9,
+                                                          "default_point_basis": "short + ½·long-term debt (KMV)",
+                                                          "default_point_source": "yahoo", "debt_total": 7e9},
+                                               "unavailable_reason": None, "history_note": None,
+                                               "debt_note": note},
+                  "market": None, "skew": None, "notes": []}
+        geo, errs, handles = self._measure(1440, 900, tab="analyze", credit_risk=[answer])
+        page = handles[2]
+        try:
+            page.wait_for_selector(".cr-debt-note", timeout=20000)
+            self.assertIn("Yahoo's latest balance sheet", page.inner_text(".cr-debt-note"))
+            tip = page.evaluate("[...document.querySelectorAll('.cr-stats span')].map(s => s.title).join(' ')")
+            self.assertIn("Yahoo's latest balance sheet, for every day", tip)
             self.assertEqual(errs, [], f"the page threw: {errs[:2]}")
         finally:
             self._close(handles)

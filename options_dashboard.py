@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import gzip as _gzip
+import hmac
 import json
 import math
 import os
@@ -4281,6 +4282,53 @@ def _credit_shares(symbol: str, bars: list, yahoo_shares):
     return today, inputs, note, retry
 
 
+def _credit_debt(symbol: str, bars: list, short, long, total):
+    """Each day's default point (v5.49): from the balance sheet the company
+    filed with the SEC dated on or before that day, not the latest one held
+    for every day. When the SEC history is not current (a filer that stopped
+    tagging its borrowings in the standard fields: Plug Power, Ford) or
+    cannot be read, Yahoo's latest balance sheet stands for every day, and
+    the card says so.
+    -> (point(day) or a number or None, inputs, note or None)"""
+    import credit_risk as _cr
+    import fundamentals as _fnd
+    names = ("short_term_debt", "long_term_debt")
+    last_day = str(bars[-1]["date"])[:10] if bars else date.today().isoformat()
+    try:
+        hist = _fnd.balance_history(_fnd.company_facts(symbol) or {}, names)
+    except Exception:  # noqa: BLE001
+        hist = {n: [] for n in names}
+    now = _fnd.balance_on(hist, last_day)
+    stale = _fnd.stale_metrics(hist, last_day)
+    if any(now.values()) and not stale:
+        def point(day):
+            on = _fnd.balance_on(hist, day)
+            if not any(on.values()):
+                return None
+            return _cr.default_point(*(on[n]["val"] if on[n] else None for n in names), None)
+        sheet = max((r for r in now.values() if r), key=lambda r: r["end"])
+        return point, {
+            "default_point": point(last_day),
+            "default_point_basis": "short + ½·long-term debt (KMV)",
+            "default_point_source": "sec",
+            "default_point_as_of": sheet["end"], "default_point_form": sheet.get("form"),
+            "debt_short": now["short_term_debt"]["val"] if now["short_term_debt"] else None,
+            "debt_long": now["long_term_debt"]["val"] if now["long_term_debt"] else None,
+        }, None
+    dp = _cr.default_point(short, long, total)
+    inputs = {"default_point": dp,
+              "default_point_basis": ("short + ½·long-term debt (KMV)" if (short is not None or long is not None)
+                                      else "75% of total debt (split unavailable)" if total is not None else None),
+              "default_point_source": "yahoo" if dp is not None else None,
+              "debt_short": short, "debt_long": long}
+    if dp is None:
+        return None, inputs, None
+    why = ("its SEC filings stopped tagging its borrowings in the standard fields"
+           if stale or any(hist.values()) else "its SEC balance sheets couldn't be read")
+    return dp, inputs, (f"The default point uses Yahoo's latest balance sheet for every day: {why}, "
+                        "so a past day is measured against today's debt.")
+
+
 def build_credit_risk(symbol: str) -> dict:
     """Per-symbol credit monitor: Merton model 5Y spread series (market cap
     + equity vol + balance-sheet debt), live crash-put skew gauge, and the
@@ -4295,13 +4343,13 @@ def build_credit_risk(symbol: str) -> dict:
 
     if base is None:
         base = {"symbol": symbol}
-        sc = _schwab()
-        bars = []
-        if sc is not None:
-            try:
-                bars = sc.get_price_history(symbol, days=420) or []
-            except Exception:
-                bars = []
+        # Schwab, then Yahoo (v5.49): with Schwab down the model had no
+        # price history at all. About fourteen months of trading days.
+        try:
+            bars = load_daily(symbol, days=290)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[credit] price history failed for {symbol}: {exc}", file=sys.stderr)
+            bars = []
         # Balance sheet + shares (yfinance, best-effort, labeled).
         shares = debt_short = debt_long = debt_total = None
         try:
@@ -4328,14 +4376,15 @@ def build_credit_risk(symbol: str) -> dict:
                 pass
         except Exception as exc:  # noqa: BLE001
             print(f"[credit] fundamentals failed for {symbol}: {exc}", file=sys.stderr)
-        dp = _cr.default_point(debt_short, debt_long, debt_total)
+        # v5.49: each past day's debt from the balance sheet filed for it.
+        dp, debt_inputs, debt_note = _credit_debt(symbol, bars, debt_short, debt_long, debt_total)
         r_rf, r_src = risk_free_rate()
         # v5.48: each past day's market cap from the share count filed for
         # it, not today's (credit monitor's old shortcut).
         count, share_inputs, history_note, retry = _credit_shares(symbol, bars, shares)
         series = []
         if bars and count is not None and dp is not None:
-            series = _cr.merton_series(bars, count, float(dp), r_rf)
+            series = _cr.merton_series(bars, count, dp, r_rf)
         # The newest point is the current spread only if it is the newest
         # bar's: a series that stops weeks ago (the last filed count too old,
         # no count from Yahoo) has none, and says so (Codex, #433).
@@ -4347,11 +4396,7 @@ def build_credit_risk(symbol: str) -> dict:
                 "latest": latest,
                 "inputs": {
                     **share_inputs,
-                    "default_point": dp,
-                    "default_point_basis": ("short + ½·long-term debt (KMV)"
-                                            if (debt_short is not None or debt_long is not None)
-                                            else "75% of total debt (split unavailable)"
-                                            if debt_total is not None else None),
+                    **debt_inputs,
                     "debt_total": debt_total,
                     "equity_vol": "rolling HV60 (annualized)",
                     "risk_free": {"rate": r_rf, "source": r_src},
@@ -4373,6 +4418,7 @@ def build_credit_risk(symbol: str) -> dict:
                                        if not any(count(str(b["date"])[:10]) for b in bars) else
                                        "the model could not be solved for these days"),
                 "history_note": history_note,
+                "debt_note": debt_note,
             },
         })
         # REAL credit-index backdrop (traded, free): ICE BofA OAS via FRED.
@@ -4405,7 +4451,10 @@ def build_credit_risk(symbol: str) -> dict:
              if share_inputs.get("shares_basis") == "filed" else
              "Only today's model spread is shown: a past day's market cap needs the share count filed for that "
              "day, never today's. ")
-            + "The default point uses the most recent quarterly balance sheet.",
+            + ("The default point (short-term debt plus half the long-term) is from the SEC balance sheet "
+               "dated on or before each day (10-Q/10-K), so a past day is measured against the debt it had then."
+               if debt_inputs.get("default_point_source") == "sec" else
+               "The default point uses Yahoo's latest balance sheet for every day."),
             "The IG/BBB/HY spreads ARE real traded index data (ICE BofA via FRED).",
         ]
         with _CREDIT_LOCK:
@@ -8871,15 +8920,75 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    # ── The Railway back door (v5.49) ──────────────────────────────────
+    # Cloudflare Access guards the dashboard's own domain, but the Railway
+    # address served the page, and config.js with the API key in it, to
+    # anyone who asked it directly. With ORIGIN_SECRET set, a request is
+    # served only if it carries that value in X-Origin-Secret, which a
+    # Cloudflare Transform Rule adds to the traffic it forwards (after
+    # Access has let it through). Unset, nothing changes: local use and the
+    # tests run without it. Checked in parse_request, so it comes before
+    # every method, static file and API route alike. No exemption by client
+    # address: behind Railway's proxy every request comes from the proxy,
+    # and a forwarded-for header is whatever the sender wrote.
+    # Comma-separated values are all accepted, so the secret can be rotated
+    # without a gap (OPERATIONS.md).
+    _ORIGIN_HEADER = "X-Origin-Secret"
+    # Railway's health check cannot carry the secret. It gets "ok", and
+    # nothing about the app, for GET or HEAD on exactly this path.
+    _HEALTH_PATH = "/healthz"
+
+    @staticmethod
+    def _origin_secrets() -> list[bytes]:
+        raw = os.environ.get("ORIGIN_SECRET", "")
+        return [v.strip().encode("utf-8") for v in raw.split(",") if v.strip()]
+
+    def _origin_ok(self) -> bool:
+        secrets = self._origin_secrets()
+        if not secrets:
+            return True
+        if (self.command in ("GET", "HEAD")
+                and urllib.parse.urlsplit(self.path).path == self._HEALTH_PATH):
+            return True
+        got = (self.headers.get(self._ORIGIN_HEADER) or "").strip().encode("utf-8", "replace")
+        # Every value is compared, so the time taken says nothing about
+        # which one, or how much of it, matched.
+        ok = False
+        for want in secrets:
+            ok = hmac.compare_digest(got, want) or ok
+        return ok
+
+    def parse_request(self):  # noqa: D401
+        if not super().parse_request():
+            return False
+        if self._origin_ok():
+            return True
+        body = b"forbidden: origin check failed\n"
+        self.close_connection = True      # any request body is left unread
+        self.send_response(403)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        if self.command != "HEAD":
+            try:
+                self.wfile.write(body)
+            except Exception:  # noqa: BLE001
+                pass
+        return False
+
     def _check_api_key(self) -> bool:
         # If API_KEY is unset (typical local dev) we don't enforce. In
-        # production Jerry sets API_KEY on Railway and the same value in
-        # the frontend config so the page can call the backend.
-        expected = os.environ.get("API_KEY", "")
+        # production Jerry sets API_KEY on Railway and the page gets it
+        # through config.js (v5.49). Both sides are trimmed, as config.js
+        # trims it: a stray space or newline in the Railway variable must
+        # not lock the page out of its own API (Codex, #434).
+        expected = os.environ.get("API_KEY", "").strip()
         if not expected:
             return True
-        provided = self.headers.get("X-API-Key", "")
-        return provided == expected
+        provided = self.headers.get("X-API-Key", "").strip()
+        return hmac.compare_digest(provided.encode("utf-8", "replace"), expected.encode("utf-8", "replace"))
 
     def _send_unauthorized(self):
         self._send_json({"error": "unauthorized"}, status=401)
@@ -14401,11 +14510,23 @@ whole screen and send it back.</p>
 
     def _serve_static(self, parsed):
         p = parsed.path
+        if p == self._HEALTH_PATH:
+            # Railway's health check (v5.49): alive, and nothing more.
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", "2")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(b"ok")
+            return
         # HTML shell — always revalidated so a new deploy applies at once.
         if p in self._HTML_ROUTES:
             baked = HERE / "options_dashboard.html"
             target = baked if baked.exists() else (HERE / "index.html")
             return self._send_file(target, "text/html; charset=utf-8", "no-cache")
+        if p == "/config.js" and os.environ.get("API_KEY", "").strip():
+            return self._send_config_js()
         if p in self._STATIC_EXACT:
             rel, ctype, cache = self._STATIC_EXACT[p]
             return self._send_file(HERE / rel, ctype, cache)
@@ -14438,6 +14559,30 @@ whole screen and send it back.</p>
                 self.wfile.write(b"not found")
         except Exception:
             pass
+
+    def _send_config_js(self):
+        """config.js with Railway's API_KEY put in as it is served (v5.49).
+        The committed file holds no key, so the key never goes into the
+        repo and rotating it is one change on Railway. A line is added
+        after the file rather than the file edited, so it holds whatever
+        the file looks like; json.dumps makes the key a JS string literal
+        whatever it contains."""
+        try:
+            text = (HERE / "config.js").read_text(encoding="utf-8")
+        except OSError:
+            text = "window.__APP_CONFIG = {};\n"
+        key = os.environ.get("API_KEY", "").strip()
+        text += ("\n// API_KEY from the server's environment (v5.49).\n"
+                 "(window.__APP_CONFIG = window.__APP_CONFIG || {}).apiKey = "
+                 + json.dumps(key) + ";\n")
+        body = text.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/javascript")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(body)
 
     def _send_file(self, path: Path, ctype: str, cache: str):
         try:
@@ -14519,7 +14664,7 @@ def check_deploy_security(host: str) -> list[str]:
         problems.append(
             f"Refusing to bind {host} without auth: the API (including broker/"
             "position endpoints) would be open to the network. Set API_KEY "
-            "(and the same value in config.js apiKey), or set "
+            "(the page gets it through config.js), or set "
             "DANGEROUSLY_DISABLE_AUTH=1 if you truly want an open server.")
     if os.environ.get("ALLOWED_ORIGIN", "").strip() == "*" and not loopback:
         problems.append(
@@ -14535,6 +14680,11 @@ def serve(host: str, port: int, weeks: int, friday_baseline: bool) -> None:
         for p in problems:
             print(f"🛑  SECURITY: {p}", file=sys.stderr)
         sys.exit(2)
+    # Said once at start, so Railway's log shows whether the back door is
+    # shut (v5.49). The secret itself is never printed.
+    n_secrets = len(DashboardHandler._origin_secrets())
+    print(f"Origin check: {'ON, X-Origin-Secret required' if n_secrets else 'off (ORIGIN_SECRET not set)'}"
+          + (f" ({n_secrets} values accepted)" if n_secrets > 1 else ""), file=sys.stderr)
     DashboardHandler.weeks = weeks
     DashboardHandler.friday_baseline = friday_baseline
     # Prewarm the ticker autocomplete index in the background. Doing this off

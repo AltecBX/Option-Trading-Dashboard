@@ -90,6 +90,14 @@ def classify_health(status, body, error):
                 "The health probe was sent to the Cloudflare Access login "
                 "instead of the app. The service token is missing, expired, "
                 "or no longer allowed by the Access policy.")
+    if status == 403 and "origin check failed" in (body or ""):
+        # The app's own refusal (v5.49): the request got through Access
+        # but arrived without the secret Cloudflare is meant to add.
+        return (False, "ORIGIN SECRET",
+                "The app refused the request: the X-Origin-Secret header "
+                "Cloudflare's Transform Rule adds is missing or does not "
+                "match ORIGIN_SECRET on Railway. Make the two values the "
+                "same (OPERATIONS.md, 'Closing the Railway back door').")
     if status == 403:
         return (False, "FORBIDDEN",
                 "Cloudflare Access rejected the service token.")

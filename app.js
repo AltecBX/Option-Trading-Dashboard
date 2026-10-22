@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "5.48";
+const APP_VERSION = "5.49";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -2581,10 +2581,33 @@ function App() {
         return "?";
       }
     };
+    // v5.49: how far a home-screen app's window falls short of the screen,
+    // in px, or 0. Only when the window starts at the top of the screen
+    // (the island's inset is reported): then the bottom of the screen, and
+    // the home indicator with it, is below the window, and the room the
+    // frame keeps clear for it (--sab in styles.css) is an empty band.
+    // Safari's window is short because of its own bars, and a window with
+    // no top inset may start lower and end at the bottom edge: both keep it.
+    const isStandalone = () => window.navigator.standalone === true || !!(window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
+    const shortfall = top => {
+      if (!isStandalone() || !(top > 0)) return 0;
+      const sw = (window.screen || {}).width || 0,
+        sh = (window.screen || {}).height || 0;
+      // iOS keeps screen.height the long side whichever way the phone is held.
+      const full = window.innerWidth <= window.innerHeight ? Math.max(sw, sh) : Math.min(sw, sh);
+      const gap = Math.round(full - window.innerHeight);
+      return gap > 40 ? gap : 0;
+    };
     const read = () => {
       try {
         const vv = window.visualViewport;
-        setScreenNote(`${(window.screen || {}).height || "?"}·${window.innerHeight}` + `·${vv ? Math.round(vv.height) : "-"}·${probe("top")}/${probe("bottom")}`);
+        const top = probe("top"),
+          bottom = probe("bottom"),
+          short = shortfall(top);
+        document.documentElement.style.setProperty("--vp-short", `${short}px`);
+        // ·sa: running from the home screen; ·−62: the window is 62px short
+        // and the bottom reserve has been given back.
+        setScreenNote(`${(window.screen || {}).height || "?"}·${window.innerHeight}` + `·${vv ? Math.round(vv.height) : "-"}·${top}/${bottom}` + (isStandalone() ? "·sa" : "") + (short ? `·−${short}` : ""));
       } catch (_) {
         setScreenNote("");
       }
@@ -5832,6 +5855,8 @@ function App() {
     // Market cap: the same bars, one for one, so the window is the same.
     const visibleDaily = (capOn ? capView.bars : chartDaily).slice(start, end);
     const longNote = longYears && !longReady ? longHist && longHist.error && longHist.ticker === ticker ? `Couldn't load ${longYears} years of history (${longHist.error}). Showing the last year.` : `Loading ${longYears} years of history… showing the last year meanwhile.` : longReady && longHist.bars.length && (Date.now() - longHist.bars[0].date.getTime()) / 31557600000 < longYears - 0.25 ? `History for ${ticker} starts ${fmtUSDate(longHist.first)}.` : null;
+    // The probability cone's IV: the suggested strikes' average.
+    const coneIV = callAtSug.iv && putAtSug.iv ? (callAtSug.iv + putAtSug.iv) / 2 : callAtSug.iv || putAtSug.iv || null;
     return /*#__PURE__*/React.createElement(CardErrorBoundary, {
       label: "Price chart"
     }, longNote && /*#__PURE__*/React.createElement("div", {
@@ -5854,6 +5879,10 @@ function App() {
       showMA50: showMA50,
       showMA200: showMA200,
       showEMA21: showEMA21,
+      showRSI: showRSI,
+      showProbCone: showProbCone,
+      ivAnnualized: coneIV,
+      dteToExp: FRONT_DTE,
       resetKey: `${ticker}|${chartDays}`,
       cap: capOn ? capView : null,
       full: capOn ? capView.bars : chartDaily
@@ -5874,7 +5903,7 @@ function App() {
       showEMA21: showEMA21,
       showRSI: showRSI,
       showProbCone: showProbCone,
-      ivAnnualized: callAtSug.iv && putAtSug.iv ? (callAtSug.iv + putAtSug.iv) / 2 : callAtSug.iv || putAtSug.iv || null,
+      ivAnnualized: coneIV,
       dteToExp: FRONT_DTE,
       fullDailyLength: len,
       visibleStart: start,
@@ -6013,12 +6042,24 @@ function App() {
     className: "item"
   }, /*#__PURE__*/React.createElement("span", {
     className: "swatch",
-    style: {
+    style: window.LightweightCharts ? {
+      background: CONE_COLOR,
+      height: 2
+    } : {
       background: chartColors.accent,
       opacity: 0.22,
       height: 10
     }
-  }), "Prob cone \xB11\u03C3/\xB12\u03C3"), showMA50 && showMA200 && (() => {
+  }), "Prob cone \xB11\u03C3/\xB12\u03C3"), showRSI && /*#__PURE__*/React.createElement("span", {
+    className: "item",
+    title: "RSI 14 (Wilder) in the band under the volume: above 70 overbought, below 30 oversold." + (capOn ? " In market cap it is the market cap's RSI: a change in the share count moves it." : "")
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "swatch",
+    style: {
+      background: "rgb(150, 130, 220)",
+      height: 2
+    }
+  }), "RSI 14 \xB7 70/30"), showMA50 && showMA200 && (() => {
     const last = daily[daily.length - 1];
     if (!last || last.ma50 == null || last.ma200 == null) return null;
     const isAbove = last.ma50 > last.ma200;
@@ -11275,7 +11316,7 @@ function App() {
     className: "sl-ver"
   }, "v", APP_VERSION)), screenNote && /*#__PURE__*/React.createElement("span", {
     className: "sl-screen",
-    title: "Temporary screen check: screen height \xB7 window height \xB7 visible height \xB7 top/bottom insets. It comes out once the empty band at the bottom is fixed."
+    title: "Temporary screen check: screen height \xB7 window height \xB7 visible height \xB7 top/bottom insets, then sa when running from the home screen and \u2212N when the window is N px short of the screen (the bottom reserve is given back). It comes out once the empty band at the bottom is confirmed gone."
   }, screenNote), /*#__PURE__*/React.createElement("span", {
     className: "sl-sep",
     "aria-hidden": "true"
