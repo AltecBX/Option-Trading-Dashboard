@@ -3452,6 +3452,45 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         finally:
             self._close(handles)
 
+    def test_the_swing_legend_says_what_the_lines_say(self):
+        # Codex, #432: a range in the legend gives both ends in market cap
+        # too; and with no current count, the level lines are hidden and so
+        # are their legend entries (the unfinished swing's caption stays).
+        rows = swing_rows()
+        sw = swings_answer(rows)
+        hist = share_history_answer(first_after_days=30, bars=rows)
+        geo, errs, handles = self._measure(1440, 900, tab="patterns", swings=sw, share_history=hist)
+        page = handles[2]
+        try:
+            page.wait_for_function("() => { const e = document.querySelector('.swing-chart'); return e && e.__parts; }",
+                                   timeout=30000)
+            page.click(".swing-chart-mode button:text-is('Mkt cap')")
+            page.wait_for_function("() => document.querySelector('.swing-chart').__parts().main.options().priceFormat.type === 'custom'",
+                                   timeout=15000)
+            legend = page.inner_text(".swing-chart-legend")
+            self.assertRegex(legend, r"zone\s+\$[\d.,]+–\$[\d.,]+ · \$[\d.]+[TBM]–\$[\d.]+[TBM]",
+                             "a range gives both ends in market cap")
+        finally:
+            self._close(handles)
+        stale = dict(hist, points=[p for p in hist["points"] if p["as_of"] < (date.today() - timedelta(days=400)).isoformat()])
+        stale["latest"] = dict(stale["points"][-1])
+        geo, errs, handles = self._measure(1440, 900, tab="patterns", swings=sw, share_history=stale)
+        page = handles[2]
+        try:
+            page.wait_for_function("() => { const e = document.querySelector('.swing-chart'); return e && e.__parts; }",
+                                   timeout=30000)
+            page.click(".swing-chart-mode button:text-is('Mkt cap')")
+            page.wait_for_function("() => /lines are hidden/.test(document.body.innerText)", timeout=15000)
+            got = page.evaluate(f"({self._SWING_PARTS})('.swing-chart')")
+            self.assertEqual("custom", got["fmt"], "the past is still drawn in market cap")
+            self.assertEqual([], got["levels"], "no level lines without a current count")
+            legend = page.inner_text(".swing-chart-legend") if page.locator(".swing-chart-legend").count() else ""
+            self.assertNotRegex(legend, r"\$", f"and no level prices in the legend: {legend!r}")
+            self.assertIn("CURRENT", legend, "the unfinished swing's caption stays")
+            self.assertEqual(errs, [], f"the page threw: {errs[:2]}")
+        finally:
+            self._close(handles)
+
     def test_the_one_minute_chart_draws_market_cap(self):
         daily = json.loads(_default_payload("AAPL"))["daily"]
         hist = share_history_answer(first_after_days=30, bars=daily)

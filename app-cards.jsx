@@ -1792,6 +1792,8 @@ function SwingChart({ data, focusKey, onPickSwing, onClearFocus, capMode = "pric
     ? `${ro.time.year}-${String(ro.time.month).padStart(2, "0")}-${String(ro.time.day).padStart(2, "0")}` : null) : null;
   // A level's price, and in market cap what the company is worth there.
   const lvlText = (p) => fmtUsd(p, 2) + (capOn && capView.levelShares && p != null ? ` · ${MC.fmtCap(p * capView.levelShares)}` : "");
+  const lvlRange = (p1, p2) => `${fmtUsd(p1, 2)}–${fmtUsd(p2, 2)}`
+    + (capOn && capView.levelShares ? ` · ${MC.fmtCap(p1 * capView.levelShares)}–${MC.fmtCap(p2 * capView.levelShares)}` : "");
   const fmtVol = (v) => v == null ? "—" : v >= 1e9 ? (v / 1e9).toFixed(2) + "B" : v >= 1e6 ? (v / 1e6).toFixed(1) + "M" : v >= 1e3 ? (v / 1e3).toFixed(0) + "K" : String(Math.round(v));
   const fmtBarDate = (t) => typeof t === "string" ? fmtSwingDate(t) : (t && t.year ? `${t.month}-${t.day}-${t.year}` : String(t));
   const roChg = ro && ro.o ? (ro.c - ro.o) / ro.o * 100 : null;
@@ -1836,6 +1838,10 @@ function SwingChart({ data, focusKey, onPickSwing, onClearFocus, capMode = "pric
       legend.push({ name: rv.direction === "down" ? "bounce tgt" : "pullback tgt", price: rv.next.target_median_price, color: rv.direction === "down" ? UPC : DNC });
   }
 
+  // In market cap with no current count the level lines are hidden, and so
+  // are their entries here; a caption (the unfinished swing) stays (Codex, #432).
+  const shownLegend = capOn && !capView.levelShares ? legend.filter(l => l.text) : legend;
+
   return (
     <div className="swing-chart-block">
       <div className="swing-chart-head">
@@ -1867,15 +1873,15 @@ function SwingChart({ data, focusKey, onPickSwing, onClearFocus, capMode = "pric
           the pointer-events:none crosshair overlay, its tooltips could
           never be reached either. The crosshair OHLC readout stays floating:
           it is one line and belongs next to the cursor. */}
-      {!collapsed && LC && legend.length > 0 && (
+      {!collapsed && LC && shownLegend.length > 0 && (
         <div className="swing-chart-legend">
-          {legend.map(l => (
+          {shownLegend.map(l => (
             <span key={l.name} className="swing-legend-item" title={l.tip || ""}>
               {/* A text-only entry (the unfinished swing's own label)
                   carries no swatch and no price — it is a caption for the
                   candles at the right edge, not a level. */}
               {l.text ? <b>{l.text}</b> : (
-                <><i style={{ background: l.color }} />{l.name} <b>{l.price2 != null ? `${fmtUsd(l.price, 2)}–${fmtUsd(l.price2, 2)}` : lvlText(l.price)}</b></>
+                <><i style={{ background: l.color }} />{l.name} <b>{l.price2 != null ? lvlRange(l.price, l.price2) : lvlText(l.price)}</b></>
               )}
             </span>
           ))}

@@ -2557,6 +2557,7 @@ function SwingChart({
   const roDay = ro ? typeof ro.time === "string" ? ro.time : ro.time && ro.time.year ? `${ro.time.year}-${String(ro.time.month).padStart(2, "0")}-${String(ro.time.day).padStart(2, "0")}` : null : null;
   // A level's price, and in market cap what the company is worth there.
   const lvlText = p => fmtUsd(p, 2) + (capOn && capView.levelShares && p != null ? ` · ${MC.fmtCap(p * capView.levelShares)}` : "");
+  const lvlRange = (p1, p2) => `${fmtUsd(p1, 2)}–${fmtUsd(p2, 2)}` + (capOn && capView.levelShares ? ` · ${MC.fmtCap(p1 * capView.levelShares)}–${MC.fmtCap(p2 * capView.levelShares)}` : "");
   const fmtVol = v => v == null ? "—" : v >= 1e9 ? (v / 1e9).toFixed(2) + "B" : v >= 1e6 ? (v / 1e6).toFixed(1) + "M" : v >= 1e3 ? (v / 1e3).toFixed(0) + "K" : String(Math.round(v));
   const fmtBarDate = t => typeof t === "string" ? fmtSwingDate(t) : t && t.year ? `${t.month}-${t.day}-${t.year}` : String(t);
   const roChg = ro && ro.o ? (ro.c - ro.o) / ro.o * 100 : null;
@@ -2633,6 +2634,10 @@ function SwingChart({
       color: rv.direction === "down" ? UPC : DNC
     });
   }
+
+  // In market cap with no current count the level lines are hidden, and so
+  // are their entries here; a caption (the unfinished swing) stays (Codex, #432).
+  const shownLegend = capOn && !capView.levelShares ? legend.filter(l => l.text) : legend;
   return /*#__PURE__*/React.createElement("div", {
     className: "swing-chart-block"
   }, /*#__PURE__*/React.createElement("div", {
@@ -2668,9 +2673,9 @@ function SwingChart({
     view: capView
   }), !collapsed && capOn && /*#__PURE__*/React.createElement("div", {
     className: "cap-readout"
-  }, MC.readout(capByDay[roDay] || null, capView.hist)), !collapsed && LC && legend.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, MC.readout(capByDay[roDay] || null, capView.hist)), !collapsed && LC && shownLegend.length > 0 && /*#__PURE__*/React.createElement("div", {
     className: "swing-chart-legend"
-  }, legend.map(l => /*#__PURE__*/React.createElement("span", {
+  }, shownLegend.map(l => /*#__PURE__*/React.createElement("span", {
     key: l.name,
     className: "swing-legend-item",
     title: l.tip || ""
@@ -2678,7 +2683,7 @@ function SwingChart({
     style: {
       background: l.color
     }
-  }), l.name, " ", /*#__PURE__*/React.createElement("b", null, l.price2 != null ? `${fmtUsd(l.price, 2)}–${fmtUsd(l.price2, 2)}` : lvlText(l.price)))))), !collapsed && LC && /*#__PURE__*/React.createElement("div", {
+  }), l.name, " ", /*#__PURE__*/React.createElement("b", null, l.price2 != null ? lvlRange(l.price, l.price2) : lvlText(l.price)))))), !collapsed && LC && /*#__PURE__*/React.createElement("div", {
     className: "swing-chart-wrap"
   }, /*#__PURE__*/React.createElement("div", {
     className: "swing-chart-overlay"

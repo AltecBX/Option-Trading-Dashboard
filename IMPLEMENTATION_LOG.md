@@ -6482,3 +6482,14 @@ two ends at their own counts, the "now" line at today's, the legend, the
 strip, the readout, the shared setting, and back to price; and the
 1-minute chart's bars, VWAP and level lines times today's count, the label
 keeping the price, the readout and kicker, and back to price.
+
+Codex on #432, both right and fixed (the test fails on the old code):
+
+- **A range in the swing legend gave only prices.** The zones ("top zone",
+  "usual tops") were drawn in market cap but listed as "$139.11–$139.50";
+  they now read "$139.11–$139.50 · $2.08T–$2.08T", like the single levels.
+- **Level entries without level lines.** With no current share count the
+  chart hides the now/target/zone lines and says so, but the legend still
+  listed them. It now lists only the unfinished swing's caption then.
+
+Test: `test_the_swing_legend_says_what_the_lines_say`.
