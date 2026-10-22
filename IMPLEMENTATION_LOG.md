@@ -6424,3 +6424,22 @@ Codex on #431, both right and fixed (the tests fail on the old code):
   now asked whenever there are facts; no reports and no list is
   "unavailable", retried in minutes; a foreign filer is still unsupported.
   Tests: `test_share_history.Codex431` (3).
+
+Codex on #431, second review, both right and fixed (the browser tests fail
+on the old code):
+
+- **A partial share history was kept for good.** The server answers
+  "partial" (a filing list or the price check could not be had) and
+  retries in ten minutes, but the page took any "ok" as final, so a page
+  left open on one ticker never asked again. It now asks again in ten
+  minutes while the answer is partial (or unavailable), and stops once it
+  is whole. Test: `test_a_partial_share_history_is_asked_again`.
+- **Averages from the window, not the series.** The chart is handed the
+  visible window, and MA50/MA200/EMA21 were worked out on it: MA200 was
+  missing from the default 120-day chart, MA50 from 30 days, and every
+  average started late at the left edge. This was true in price mode
+  before v5.46 too. The chart now gets the whole series as well
+  (`full`), works the averages out on it (a running sum), and draws the
+  window's part. Test: `test_averages_are_worked_out_before_the_window_is_cut`
+  (MA200 on a 120-day price chart, and the market cap's MA50 warm at the
+  10-year window's first bar).

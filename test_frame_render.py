@@ -3258,6 +3258,75 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         finally:
             self._close(handles)
 
+    # Codex, #431 (second review).
+    _AVERAGES = """() => { const p = document.querySelector('.tv-price-chart').__parts();
+        const day = (t) => typeof t === 'string' ? t : `${t.year}-${String(t.month).padStart(2, '0')}-${String(t.day).padStart(2, '0')}`;
+        return {first: day(p.vol.data()[0].time),
+                lines: p.series.filter(s => s.options().priceScaleId !== 'shares')
+                               .map(s => ({color: s.options().color, n: s.data().length,
+                                           first: s.data().length ? day(s.data()[0].time) : null}))}; }"""
+
+    def test_averages_are_worked_out_before_the_window_is_cut(self):
+        # The chart is handed the visible window. Averages worked out on it
+        # lost MA200 at 120 days and MA50 at 30, and started late or wrong
+        # at the left edge: they are worked out on the whole series.
+        geo, errs, handles = self._measure(1440, 900, tab="trade", daily_history=True,
+                                           share_history=share_history_answer(first_after_days=30))
+        page = handles[2]
+        try:
+            page.wait_for_function("() => { const e = document.querySelector('.tv-price-chart'); return e && e.__parts; }",
+                                   timeout=20000)
+            page.click(".chart-range button:text-is('120D')")
+            page.click("button.ma200")
+            page.wait_for_timeout(800)
+            got = page.evaluate(f"({self._AVERAGES})()")
+            self.assertEqual(1, len(got["lines"]), f"MA200 is drawn on a 120-day price chart: {got}")
+            self.assertEqual(got["first"], got["lines"][0]["first"], "from the window's first bar")
+            page.click("button.ma200")
+            page.click(".chart-range button:text-is('10Y')")
+            page.wait_for_function(f"() => ({self._VISIBLE_YEARS})() > 9.5", timeout=15000)
+            page.click(".chart-mode button:text-is('Mkt cap')")
+            page.wait_for_function("() => /10-year market cap/i.test(document.body.innerText)", timeout=10000)
+            page.click("button.ma50")
+            page.wait_for_timeout(800)
+            got = page.evaluate(f"({self._AVERAGES})()")
+            self.assertEqual(1, len(got["lines"]))
+            self.assertEqual(got["first"], got["lines"][0]["first"],
+                             "the market cap's MA50 is warm at the window's first bar: its count began long before")
+            self.assertEqual(errs, [], f"the page threw: {errs[:2]}")
+        finally:
+            self._close(handles)
+
+    def test_a_partial_share_history_is_asked_again(self):
+        # The server says "partial, retried in ten minutes" (a filing list
+        # or the price check could not be had). The page asks again then,
+        # rather than keeping the partial answer for as long as it is open.
+        partial = dict(share_history_answer(), partial=True,
+                       warnings=["SEC's list of filings could not be read just now, so a report missing from its "
+                                 "summary data would be missed; retried in a few minutes."])
+        ten_minutes = ("(() => { const st = window.setTimeout; window.setTimeout = (fn, ms, ...a) =>"
+                       " st(fn, ms === 600000 ? 1500 : ms, ...a); })()")
+        geo, errs, handles = self._measure(1440, 900, tab="trade", daily_history=True, init=ten_minutes,
+                                           share_history=[partial, share_history_answer()])
+        page = handles[2]
+        try:
+            page.wait_for_selector(".chart-mode button", timeout=20000)
+            page.click(".chart-range button:text-is('10Y')")
+            page.click(".chart-mode button:text-is('Mkt cap')")
+            page.wait_for_function("() => /list of filings could not be read/.test(document.body.textContent)",
+                                   timeout=15000)
+            deadline = time.time() + 10
+            while time.time() < deadline and len(self.share_history_calls) < 2:
+                page.wait_for_timeout(250)
+            self.assertEqual(2, len(self.share_history_calls), "asked again when the server said to")
+            page.wait_for_function("() => !/list of filings could not be read/.test(document.body.textContent)",
+                                   timeout=10000)
+            page.wait_for_timeout(3000)
+            self.assertEqual(2, len(self.share_history_calls), "and not again once it is whole")
+            self.assertEqual(errs, [], f"the page threw: {errs[:2]}")
+        finally:
+            self._close(handles)
+
     def test_market_cap_fits_a_phone_and_says_when_there_is_none(self):
         building = {"ok": True, "symbol": "AAPL", "status": "building", "refreshing": True,
                     "reason": "Reading this company's SEC filings for its share counts; this takes up to a minute the first time."}

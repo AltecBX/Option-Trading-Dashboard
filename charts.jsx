@@ -176,7 +176,11 @@ function attachTouchZoom(el, chart, { getBarCount, onDoubleTap } = {}) {
 // company is worth at that price with today's share count, and a step line
 // of the shares outstanding runs under the candles with a dot at each
 // filing. A line above the chart shows the sum for the bar under the cursor.
-function TVPriceChart({ daily, expHigh, expLow, emHigh, emLow, callStrike, putStrike, currentPrice, chartStyle = "candles", earnings, showMA50 = false, showMA200 = false, showEMA21 = false, levels = null, resetKey = "", cap = null }) {
+//
+// `daily` is the window on show; `full` is the series it was cut from. The
+// averages are worked out on `full` and drawn for the window, so MA200 is
+// there on a 120-day chart and right at its left edge (Codex, #431).
+function TVPriceChart({ daily, full = null, expHigh, expLow, emHigh, emLow, callStrike, putStrike, currentPrice, chartStyle = "candles", earnings, showMA50 = false, showMA200 = false, showEMA21 = false, levels = null, resetKey = "", cap = null }) {
   const LC = window.LightweightCharts;
   const MC = window.MarketCap;
   const capMode = !!(cap && MC);
@@ -285,22 +289,25 @@ function TVPriceChart({ daily, expHigh, expLow, emHigh, emLow, callStrike, putSt
     extraRef.current.series.forEach(s => { try { chart.removeSeries(s); } catch (e) {} });
     extraRef.current.lines.forEach(pl => { try { main.removePriceLine(pl); } catch (e) {} });
     extraRef.current = { lines: [], series: [] };
-    // The averages run over unbroken stretches of bars: in market-cap mode
-    // a day with no share count ends one, rather than averaging across it.
+    // The averages run over the whole series, in unbroken stretches of
+    // bars: in market-cap mode a day with no share count ends one, rather
+    // than averaging across it. Only the window's part is drawn.
+    const series = full && full.length ? full : daily;
+    const from = norm(daily[0].date), to = norm(daily[daily.length - 1].date);
     const runs = [];
     if (capMode) {
       let run = [];
-      daily.forEach(d => { if (d && isDrawable(d.close)) run.push(d); else if (run.length) { runs.push(run); run = []; } });
+      series.forEach(d => { if (d && isDrawable(d.close)) run.push(d); else if (run.length) { runs.push(run); run = []; } });
       if (run.length) runs.push(run);
-    } else runs.push(daily.filter(d => d && isDrawable(d.close)));
-    const longest = Math.max(0, ...runs.map(r => r.length));
-    const sma = (n) => { const out = []; runs.forEach(rows => { const closes = rows.map(d => d.close); for (let i = n - 1; i < rows.length; i++) { let s = 0; for (let j = i - n + 1; j <= i; j++) s += closes[j]; out.push({ time: norm(rows[i].date), value: s / n }); } }); return out; };
-    const ema = (n) => { const k = 2 / (n + 1); const out = []; runs.forEach(rows => { let prev = null; rows.forEach((d, i) => { prev = prev == null ? d.close : d.close * k + prev * (1 - k); if (i >= n - 1) out.push({ time: norm(d.date), value: prev }); }); }); return out; };
+    } else runs.push(series.filter(d => d && isDrawable(d.close)));
+    const inWindow = (out) => out.filter(p => p.time >= from && p.time <= to);
+    const sma = (n) => { const out = []; runs.forEach(rows => { let s = 0; rows.forEach((d, i) => { s += d.close; if (i >= n) s -= rows[i - n].close; if (i >= n - 1) out.push({ time: norm(d.date), value: s / n }); }); }); return inWindow(out); };
+    const ema = (n) => { const k = 2 / (n + 1); const out = []; runs.forEach(rows => { let prev = null; rows.forEach((d, i) => { prev = prev == null ? d.close : d.close * k + prev * (1 - k); if (i >= n - 1) out.push({ time: norm(d.date), value: prev }); }); }); return inWindow(out); };
     const fmtOpt = capMode ? { priceFormat: { type: "custom", formatter: capAxis, minMove: 1 } } : {};
-    const addLine = (data, color) => { const s = chart.addLineSeries(Object.assign({ color, lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false }, fmtOpt)); s.setData(data); extraRef.current.series.push(s); };
-    if (showMA50 && longest >= 50) addLine(sma(50), "#eab308");
-    if (showMA200 && longest >= 200) addLine(sma(200), "#3b82f6");
-    if (showEMA21 && longest >= 21) addLine(ema(21), "#a855f7");
+    const addLine = (data, color) => { if (!data.length) return; const s = chart.addLineSeries(Object.assign({ color, lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false }, fmtOpt)); s.setData(data); extraRef.current.series.push(s); };
+    if (showMA50) addLine(sma(50), "#eab308");
+    if (showMA200) addLine(sma(200), "#3b82f6");
+    if (showEMA21) addLine(ema(21), "#a855f7");
     // In market-cap mode a price line is what the company is worth at that
     // price, with the share count that applies today, and its label keeps
     // the price: "call $150.00". No current count, no line (capState says).
@@ -360,7 +367,7 @@ function TVPriceChart({ daily, expHigh, expLow, emHigh, emLow, callStrike, putSt
       m.sort((x, y) => x.time < y.time ? -1 : x.time > y.time ? 1 : 0);
       try { main.setMarkers(m); } catch (e) {}
     }
-  }, [daily, currentPrice, callStrike, putStrike, expHigh, expLow, emHigh, emLow, showMA50, showMA200, showEMA21, earnings, chartStyle, levels, capMode, cap]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [daily, full, currentPrice, callStrike, putStrike, expHigh, expLow, emHigh, emLow, showMA50, showMA200, showEMA21, earnings, chartStyle, levels, capMode, cap]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // The day under the cursor, for the market-cap readout.
   const [hoverDay, setHoverDay] = React.useState(null);

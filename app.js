@@ -3256,10 +3256,12 @@ function App() {
   const [shareHist, setShareHist] = useState(null); // {ticker, data|null}
   useEffect(() => {
     if (chartMode !== "cap" || chartTF !== "daily" || !ticker) return undefined;
-    // An answer is kept for the ticker; one that could not be had (SEC
-    // unreachable, an error) is asked again when market cap is picked again.
+    // A whole answer is kept for the ticker. One that could not be had (SEC
+    // unreachable, an error) is asked again when market cap is picked again,
+    // and a partial one when the server retries it, in ten minutes (Codex,
+    // #431): a page left open on one ticker does not keep it for good.
     const have = shareHist && shareHist.ticker === ticker && shareHist.data;
-    if (have && !have.refreshing && (have.status === "ok" || have.status === "unsupported")) return undefined;
+    if (have && !have.refreshing && (have.status === "unsupported" || have.status === "ok" && !have.partial)) return undefined;
     let cancelled = false,
       timer = null,
       tries = 0;
@@ -3280,7 +3282,7 @@ function App() {
             reason: "No answer."
           }
         });
-        if (j && (j.status === "building" || j.refreshing) && ++tries < 30) timer = setTimeout(load, 4000);
+        if (j && (j.status === "building" || j.refreshing) && ++tries < 30) timer = setTimeout(load, 4000);else if (j && j.partial) timer = setTimeout(load, 600000);
       }).catch(e => {
         if (!cancelled) setShareHist({
           ticker,
@@ -5846,7 +5848,8 @@ function App() {
       showMA200: showMA200,
       showEMA21: showEMA21,
       resetKey: `${ticker}|${chartDays}`,
-      cap: capOn ? capView : null
+      cap: capOn ? capView : null,
+      full: capOn ? capView.bars : chartDaily
     }) : /*#__PURE__*/React.createElement(PriceChart, {
       daily: visibleDaily,
       expHigh: expHigh,
