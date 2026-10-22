@@ -18403,8 +18403,16 @@ function CreditRiskCard({
           // says when it will have more, and the card asks then rather
           // than at its next 10-minute poll (Codex, #433).
           const s = x.merton && x.merton.retry_after_s;
-          if (again) clearTimeout(again);
-          again = s ? setTimeout(() => load(true), (s + 5) * 1000) : null;
+          // A fresh answer decides; the poll's cached copy only starts a
+          // retry when none is pending, and never puts a due one off
+          // (Codex, #433).
+          if (fresh || !again) {
+            if (again) clearTimeout(again);
+            again = s ? setTimeout(() => {
+              again = null;
+              load(true);
+            }, (s + 5) * 1000) : null;
+          }
         } else setErr(x && x.error || "no data");
       }).catch(e => {
         if (!stop) setErr(String(e && e.message || e));

@@ -3563,6 +3563,33 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         finally:
             self._close(handles)
 
+    def test_the_credit_cards_poll_does_not_push_back_its_retry(self):
+        # Codex, #433: a partial answer says "ask again in 600s"; the card's
+        # 10-minute poll comes first and gets the cached copy. It must not
+        # put the due retry off by another 600s.
+        def answer(note, retry):
+            series = [{"date": f"2026-0{1 + i // 28}-{1 + i % 28:02d}", "spread_bps": 100.0 + i, "dd": 3.0,
+                       "pd_pct": 1.0, "leverage_pct": 30.0} for i in range(60)]
+            return {"symbol": "AAPL", "merton": {"series": series, "latest": series[-1],
+                                                 "interpretation": "Model 5Y spread ≈ 100 bps.",
+                                                 "inputs": {"shares_basis": "filed"}, "unavailable_reason": None,
+                                                 "history_note": note, "retry_after_s": retry},
+                    "market": None, "skew": None, "notes": []}
+        partial = answer("The share-count history is incomplete just now: 1 filing could not be read.", 600)
+        whole = answer(None, None)
+        clocks = ("(() => { const st = window.setTimeout, si = window.setInterval;"
+                  " window.setTimeout = (fn, ms, ...a) => st(fn, ms === 605000 ? 7000 : ms, ...a);"
+                  " window.setInterval = (fn, ms, ...a) => si(fn, ms === 600000 ? 3000 : ms, ...a); })()")
+        geo, errs, handles = self._measure(1440, 900, tab="analyze", init=clocks, credit_risk=[partial, whole])
+        page = handles[2]
+        try:
+            page.wait_for_function("() => /incomplete just now/.test(document.body.innerText)", timeout=20000)
+            page.wait_for_function("() => !/incomplete just now/.test(document.body.innerText)", timeout=20000)
+            self.assertEqual(2, self.credit_risk_calls, "the due retry happened despite the poll in between")
+            self.assertEqual(errs, [], f"the page threw: {errs[:2]}")
+        finally:
+            self._close(handles)
+
     def test_the_one_minute_chart_draws_market_cap(self):
         daily = json.loads(_default_payload("AAPL"))["daily"]
         hist = share_history_answer(first_after_days=30, bars=daily)

@@ -6586,3 +6586,11 @@ minutes on it. `share_history.expires_in(symbol)` says how long the kept
 history has left, and the credit monitor (and so the card's
 `retry_after_s`) waits that long, plus a few seconds, at least fifteen.
 Tests: `test_share_history.ExpiresIn` (3), `test_credit_risk` (+1).
+
+Codex on #433, fourth review, right and fixed (the test fails on the old
+code): **the card's poll put its own retry off.** With "ask again in
+600s", the card's 10-minute poll came first, got the cached copy (with
+the old `retry_after_s`), and rescheduled the retry another 600s on, so a
+partial history could stay up 20 minutes. Now a fresh answer decides; the
+poll's cached copy only starts a retry when none is pending, never moves a
+due one. Test: `test_the_credit_cards_poll_does_not_push_back_its_retry`.
