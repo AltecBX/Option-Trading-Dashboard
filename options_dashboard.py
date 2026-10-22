@@ -4281,6 +4281,53 @@ def _credit_shares(symbol: str, bars: list, yahoo_shares):
     return today, inputs, note, retry
 
 
+def _credit_debt(symbol: str, bars: list, short, long, total):
+    """Each day's default point (v5.49): from the balance sheet the company
+    filed with the SEC dated on or before that day, not the latest one held
+    for every day. When the SEC history is not current (a filer that stopped
+    tagging its borrowings in the standard fields: Plug Power, Ford) or
+    cannot be read, Yahoo's latest balance sheet stands for every day, and
+    the card says so.
+    -> (point(day) or a number or None, inputs, note or None)"""
+    import credit_risk as _cr
+    import fundamentals as _fnd
+    names = ("short_term_debt", "long_term_debt")
+    last_day = str(bars[-1]["date"])[:10] if bars else date.today().isoformat()
+    try:
+        hist = _fnd.balance_history(_fnd.company_facts(symbol) or {}, names)
+    except Exception:  # noqa: BLE001
+        hist = {n: [] for n in names}
+    now = _fnd.balance_on(hist, last_day)
+    stale = _fnd.stale_metrics(hist, last_day)
+    if any(now.values()) and not stale:
+        def point(day):
+            on = _fnd.balance_on(hist, day)
+            if not any(on.values()):
+                return None
+            return _cr.default_point(*(on[n]["val"] if on[n] else None for n in names), None)
+        sheet = max((r for r in now.values() if r), key=lambda r: r["end"])
+        return point, {
+            "default_point": point(last_day),
+            "default_point_basis": "short + ½·long-term debt (KMV)",
+            "default_point_source": "sec",
+            "default_point_as_of": sheet["end"], "default_point_form": sheet.get("form"),
+            "debt_short": now["short_term_debt"]["val"] if now["short_term_debt"] else None,
+            "debt_long": now["long_term_debt"]["val"] if now["long_term_debt"] else None,
+        }, None
+    dp = _cr.default_point(short, long, total)
+    inputs = {"default_point": dp,
+              "default_point_basis": ("short + ½·long-term debt (KMV)" if (short is not None or long is not None)
+                                      else "75% of total debt (split unavailable)" if total is not None else None),
+              "default_point_source": "yahoo" if dp is not None else None,
+              "debt_short": short, "debt_long": long}
+    if dp is None:
+        return None, inputs, None
+    why = ("its SEC filings stopped tagging its borrowings in the standard fields"
+           if stale or any(hist.values()) else "its SEC balance sheets couldn't be read")
+    return dp, inputs, (f"The default point uses Yahoo's latest balance sheet for every day: {why}, "
+                        "so a past day is measured against today's debt.")
+
+
 def build_credit_risk(symbol: str) -> dict:
     """Per-symbol credit monitor: Merton model 5Y spread series (market cap
     + equity vol + balance-sheet debt), live crash-put skew gauge, and the
@@ -4295,13 +4342,13 @@ def build_credit_risk(symbol: str) -> dict:
 
     if base is None:
         base = {"symbol": symbol}
-        sc = _schwab()
-        bars = []
-        if sc is not None:
-            try:
-                bars = sc.get_price_history(symbol, days=420) or []
-            except Exception:
-                bars = []
+        # Schwab, then Yahoo (v5.49): with Schwab down the model had no
+        # price history at all. About fourteen months of trading days.
+        try:
+            bars = load_daily(symbol, days=290)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[credit] price history failed for {symbol}: {exc}", file=sys.stderr)
+            bars = []
         # Balance sheet + shares (yfinance, best-effort, labeled).
         shares = debt_short = debt_long = debt_total = None
         try:
@@ -4328,14 +4375,15 @@ def build_credit_risk(symbol: str) -> dict:
                 pass
         except Exception as exc:  # noqa: BLE001
             print(f"[credit] fundamentals failed for {symbol}: {exc}", file=sys.stderr)
-        dp = _cr.default_point(debt_short, debt_long, debt_total)
+        # v5.49: each past day's debt from the balance sheet filed for it.
+        dp, debt_inputs, debt_note = _credit_debt(symbol, bars, debt_short, debt_long, debt_total)
         r_rf, r_src = risk_free_rate()
         # v5.48: each past day's market cap from the share count filed for
         # it, not today's (credit monitor's old shortcut).
         count, share_inputs, history_note, retry = _credit_shares(symbol, bars, shares)
         series = []
         if bars and count is not None and dp is not None:
-            series = _cr.merton_series(bars, count, float(dp), r_rf)
+            series = _cr.merton_series(bars, count, dp, r_rf)
         # The newest point is the current spread only if it is the newest
         # bar's: a series that stops weeks ago (the last filed count too old,
         # no count from Yahoo) has none, and says so (Codex, #433).
@@ -4347,11 +4395,7 @@ def build_credit_risk(symbol: str) -> dict:
                 "latest": latest,
                 "inputs": {
                     **share_inputs,
-                    "default_point": dp,
-                    "default_point_basis": ("short + ½·long-term debt (KMV)"
-                                            if (debt_short is not None or debt_long is not None)
-                                            else "75% of total debt (split unavailable)"
-                                            if debt_total is not None else None),
+                    **debt_inputs,
                     "debt_total": debt_total,
                     "equity_vol": "rolling HV60 (annualized)",
                     "risk_free": {"rate": r_rf, "source": r_src},
@@ -4373,6 +4417,7 @@ def build_credit_risk(symbol: str) -> dict:
                                        if not any(count(str(b["date"])[:10]) for b in bars) else
                                        "the model could not be solved for these days"),
                 "history_note": history_note,
+                "debt_note": debt_note,
             },
         })
         # REAL credit-index backdrop (traded, free): ICE BofA OAS via FRED.
@@ -4405,7 +4450,10 @@ def build_credit_risk(symbol: str) -> dict:
              if share_inputs.get("shares_basis") == "filed" else
              "Only today's model spread is shown: a past day's market cap needs the share count filed for that "
              "day, never today's. ")
-            + "The default point uses the most recent quarterly balance sheet.",
+            + ("The default point (short-term debt plus half the long-term) is from the SEC balance sheet "
+               "dated on or before each day (10-Q/10-K), so a past day is measured against the debt it had then."
+               if debt_inputs.get("default_point_source") == "sec" else
+               "The default point uses Yahoo's latest balance sheet for every day."),
             "The IG/BBB/HY spreads ARE real traded index data (ICE BofA via FRED).",
         ]
         with _CREDIT_LOCK:

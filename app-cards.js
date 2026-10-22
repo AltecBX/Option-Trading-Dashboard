@@ -18468,7 +18468,9 @@ function CreditRiskCard({
     series: m.series
   }), m.history_note && /*#__PURE__*/React.createElement("div", {
     className: "tsy-sigd cr-history-note"
-  }, m.history_note), latest && /*#__PURE__*/React.createElement("div", {
+  }, m.history_note), m.debt_note && /*#__PURE__*/React.createElement("div", {
+    className: "tsy-sigd cr-debt-note"
+  }, m.debt_note), latest && /*#__PURE__*/React.createElement("div", {
     className: "cr-stats"
   }, /*#__PURE__*/React.createElement("span", {
     title: "Distance to default: how many standard deviations of asset value sit between the firm and its default point over 5 years. Higher = safer."
@@ -18479,7 +18481,7 @@ function CreditRiskCard({
   }, "PD\u2085\u1D67 ", /*#__PURE__*/React.createElement("b", {
     className: "num"
   }, latest.pd_pct, "%")), /*#__PURE__*/React.createElement("span", {
-    title: m.inputs ? `Default point ${fmt$M(m.inputs.default_point)} (${m.inputs.default_point_basis || "—"}) vs total debt ${fmt$M(m.inputs.debt_total)}. Risk-free: ${m.inputs.risk_free ? m.inputs.risk_free.source : "—"}. Equity vol: ${m.inputs ? m.inputs.equity_vol : ""}.` + (m.inputs.shares_basis === "filed" ? ` Market cap each day: that day's close × the share count filed for it (SEC; today ${m.inputs.shares_outstanding ? (m.inputs.shares_outstanding / 1e9).toFixed(2) + "B" : "—"}${m.inputs.shares_as_of ? `, as of ${m.inputs.shares_as_of}${m.inputs.shares_form ? ` (${m.inputs.shares_form})` : ""}` : ""}).` : m.inputs.shares_basis === "today_only" ? " Today's market cap uses Yahoo's current share count; no past days are shown." : "") : ""
+    title: m.inputs ? `Default point ${fmt$M(m.inputs.default_point)} (${m.inputs.default_point_basis || "—"}${m.inputs.default_point_source === "sec" ? `; SEC balance sheet of ${m.inputs.default_point_as_of}${m.inputs.default_point_form ? ` (${m.inputs.default_point_form})` : ""}, each past day using the one dated on or before it` : m.inputs.default_point_source === "yahoo" ? "; Yahoo's latest balance sheet, for every day" : ""}) vs total debt ${fmt$M(m.inputs.debt_total)}. Risk-free: ${m.inputs.risk_free ? m.inputs.risk_free.source : "—"}. Equity vol: ${m.inputs ? m.inputs.equity_vol : ""}.` + (m.inputs.shares_basis === "filed" ? ` Market cap each day: that day's close × the share count filed for it (SEC; today ${m.inputs.shares_outstanding ? (m.inputs.shares_outstanding / 1e9).toFixed(2) + "B" : "—"}${m.inputs.shares_as_of ? `, as of ${m.inputs.shares_as_of}${m.inputs.shares_form ? ` (${m.inputs.shares_form})` : ""}` : ""}).` : m.inputs.shares_basis === "today_only" ? " Today's market cap uses Yahoo's current share count; no past days are shown." : "") : ""
   }, "leverage ", /*#__PURE__*/React.createElement("b", {
     className: "num"
   }, latest.leverage_pct, "%"))), skew && /*#__PURE__*/React.createElement("div", {

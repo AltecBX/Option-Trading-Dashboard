@@ -26,6 +26,7 @@ perfection.py stays pure; everything network-touching lives here.
 """
 from __future__ import annotations
 
+import bisect
 import json
 import math
 import os
@@ -49,6 +50,12 @@ try:
     _WHISPER_OK = True
 except Exception:  # pragma: no cover
     _WHISPER_OK = False
+
+try:
+    import share_history as _shist
+    _SHIST_OK = True
+except Exception:  # pragma: no cover
+    _SHIST_OK = False
 
 _SCHWAB_GETTER = None
 _PEERS_GETTER = None          # () -> watchlist_table board dict | None
@@ -631,37 +638,138 @@ def _prime_snapshot_index(symbol: str) -> None:
     _SNAP_INDEX["rows"] = rows
 
 
+def _split_adjusted(points: list, splits: list) -> list:
+    """Yahoo's share-count history on today's split basis (v5.49). Its
+    counts are as reported: before a ten-for-one split they read a tenth of
+    today's, and times Yahoo's split-adjusted closes they put Nvidia's market
+    cap ten times too low before June 2024. The counts up to the step a
+    split makes are multiplied by its ratio. The step is looked for in the
+    month before the split, as well as at it: Yahoo dates Nvidia's first
+    24.6B count 2024-06-08, two days before the split. No such step: the
+    counts are already adjusted, and are left alone.
+    points/splits: [(day, value)], oldest first."""
+    out = list(points)
+    for day, ratio in splits:
+        if not ratio or ratio <= 0 or ratio == 1:
+            continue
+        after = next((i for i, (d, _) in enumerate(out) if d >= day), len(out))
+        last = after - 1                          # the newest count still on the old basis
+        if after < len(out):
+            since = (date.fromisoformat(day) - timedelta(days=31)).isoformat()
+            last = None
+            j = after - 1
+            while j >= 0:
+                step = math.log(out[j + 1][1] / out[j][1])
+                if abs(step - math.log(ratio)) < abs(step):
+                    last = j
+                    break
+                if out[j][0] < since:
+                    break                         # a month back and no step
+                j -= 1
+            if last is None:
+                continue                          # already adjusted
+        out = [(d, v * ratio) if i <= last else (d, v) for i, (d, v) in enumerate(out)]
+    return out
+
+
+def _share_counts(symbol: str, t, days: list, closes: list, issues: list):
+    """What each day's close is multiplied by for its market cap (v5.49), on
+    the closes' split basis: the count the company filed for that day
+    (share_history, after its price check), else Yahoo's share-count history
+    put on today's split basis. -> (count(day) or None, basis, keep seconds)"""
+    hist = None
+    if _SHIST_OK:
+        try:
+            hist = _shist.get(symbol, wait=8.0)
+        except Exception as exc:  # noqa: BLE001
+            issues.append(f"share history: {exc}")
+    status = (hist or {}).get("status")
+    if status == "ok":
+        bars = [{"date": d, "close": c} for d, c in zip(days, closes)]
+        if _shist.price_basis(hist, bars)["status"] != "mismatch":
+            return (lambda day: (_shist.shares_on(hist, day) or {}).get("shares"),
+                    "the share count filed for each day (SEC 10-Q/10-K cover pages, on today's split basis)",
+                    TTL["shares"])
+    # Still being read, partial or failed: asked again soon, not in a day.
+    keep = TTL["shares"] if status in ("ok", "unsupported") and not (hist or {}).get("partial") else 600
+    try:
+        shares = t.get_shares_full(start=days[0])
+        splits = t.splits
+    except Exception as exc:  # noqa: BLE001
+        issues.append(f"yfinance shares: {exc}")
+        return None, None, keep
+    if shares is None or len(shares) == 0:
+        return None, None, keep
+    sh = shares[~shares.index.duplicated(keep="last")].sort_index()
+    pts = [(ts.strftime("%Y-%m-%d"), float(v)) for ts, v in sh.items() if _num(v) and v > 0]
+    spl = sorted((ts.strftime("%Y-%m-%d"), float(r)) for ts, r in (splits if splits is not None else {}).items())
+    pts = _split_adjusted(pts, spl)
+    ends = [d for d, _ in pts]
+
+    def count(day):
+        i = bisect.bisect_right(ends, day)
+        return pts[i - 1][1] if i else None
+    return count, "Yahoo's share-count history, put on today's split basis", keep
+
+
+def _net_debt_history(symbol: str, fund: dict, last_day: str):
+    """Each day's net debt for its EV (v5.49): borrowings less cash and
+    short-term investments on the SEC balance sheet dated on or before the
+    day. Yahoo's latest held for every day when that history isn't current
+    (a filer that stopped tagging its borrowings) or can't be read.
+    -> (net_debt(day) or None, basis)"""
+    names = ("short_term_debt", "long_term_debt", "cash", "short_investments")
+    try:
+        import fundamentals as _fnd
+        hist = _fnd.balance_history(_fnd.company_facts(symbol) or {}, names)
+        now = _fnd.balance_on(hist, last_day)
+        if (now["short_term_debt"] or now["long_term_debt"]) and not _fnd.stale_metrics(hist, last_day):
+            def net_debt(day):
+                on = _fnd.balance_on(hist, day)
+                debt = [on[n]["val"] for n in names[:2] if on[n]]
+                if not debt:
+                    return None
+                return sum(debt) - sum(on[n]["val"] for n in names[2:] if on[n])
+            return net_debt, "from the SEC balance sheet dated on or before each day"
+    except Exception:  # noqa: BLE001
+        pass
+    held = _num(fund.get("net_debt")) or 0.0
+    return (lambda day: held), "held at Yahoo's latest value"
+
+
 def _valuation_history(symbol: str, fund: dict, issues: list) -> dict:
-    """Trailing EV/S and P/E percentiles from daily price × real share count
-    and quarterly filings. Labeled approximation (see module docstring)."""
+    """Trailing EV/S and P/E percentiles from daily price × the share count
+    of the day and quarterly filings. Labeled approximation (see module
+    docstring)."""
     key = f"shares:{symbol}"
     out = _cache_get(key)
     if out is not None:
         return out
     out = {}
+    keep = TTL["shares"]
     t = _yft(symbol)
     try:
-        h = t.history(period="3y", auto_adjust=False)   # UNadjusted close ×
-        shares = t.get_shares_full(start=(date.today() - timedelta(days=3 * 365)).isoformat())
-        # actual share count of the day = true market cap (split-safe by identity)
+        h = t.history(period="3y", auto_adjust=False)   # split-adjusted, not for dividends
     except Exception as exc:  # noqa: BLE001
-        issues.append(f"yfinance shares/history: {exc}")
-        h, shares = None, None
-    if h is None or h.empty or shares is None or len(shares) == 0:
-        _cache_set(key, out, TTL["shares"])
+        issues.append(f"yfinance history: {exc}")
+        h = None
+    if h is None or h.empty:
+        _cache_set(key, out, keep)
         return out
     try:
-        sh = shares[~shares.index.duplicated(keep="last")]
-        # Normalize BOTH indexes to tz-naive before any alignment/compare.
-        if getattr(sh.index, "tz", None) is not None:
-            sh.index = sh.index.tz_localize(None)
+        # Normalize the index to tz-naive before any compare.
         px_idx = h.index.tz_localize(None) if getattr(h.index, "tz", None) is not None else h.index
-        sh = sh.reindex(px_idx, method="ffill")
+        days = [ts.strftime("%Y-%m-%d") for ts in px_idx]
+        closes = [_num(v) for v in h["Close"]]
+        count, shares_basis, keep = _share_counts(symbol, t, days, closes, issues)
+        if count is None:
+            _cache_set(key, out, keep)
+            return out
         qi = t.quarterly_income_stmt
         rev_row = _row(qi, ["Total Revenue", "Operating Revenue"])
         ni_row = _row(qi, ["Net Income", "Net Income Common Stockholders"])
         if rev_row is None:
-            _cache_set(key, out, TTL["shares"])
+            _cache_set(key, out, keep)
             return out
         cols = sorted(qi.columns)                        # oldest → newest
         rev_ttm_steps, ni_ttm_steps = [], []
@@ -671,18 +779,17 @@ def _valuation_history(symbol: str, fund: dict, issues: list) -> dict:
             nv = [_num(ni_row.get(c)) for c in window] if ni_row is not None else [None]
             rev_ttm_steps.append((cols[i], sum(v for v in rv if v is not None) if all(v is not None for v in rv) else None))
             ni_ttm_steps.append((cols[i], sum(v for v in nv if v is not None) if all(v is not None for v in nv) else None))
-        net_debt = _num(fund.get("net_debt")) or 0.0
+        net_debt, debt_basis = _net_debt_history(symbol, fund, days[-1])
         evs_series, pe_series = [], []
-        closes = h["Close"]
-        for ts, px in closes.items():
-            key_ts = ts.tz_localize(None) if ts.tz is not None else ts
-            n_sh = _num(sh.get(key_ts))
-            if not n_sh or not _num(px):
+        for key_ts, day, px in zip(px_idx, days, closes):
+            n_sh = count(day)
+            if not n_sh or not px:
                 continue
-            mcap = float(px) * n_sh
+            mcap = px * n_sh
             rev_ttm = next((v for c, v in reversed(rev_ttm_steps) if c <= key_ts and v), None)
-            if rev_ttm:
-                evs_series.append((mcap + net_debt) / rev_ttm)
+            nd = net_debt(day)
+            if rev_ttm and nd is not None:
+                evs_series.append((mcap + nd) / rev_ttm)
             ni_ttm = next((v for c, v in reversed(ni_ttm_steps) if c <= key_ts and v and v > 0), None)
             if ni_ttm:
                 pe_series.append(mcap / ni_ttm)
@@ -697,11 +804,11 @@ def _valuation_history(symbol: str, fund: dict, issues: list) -> dict:
         if pe_series:
             out["pe_hist_pctile"] = perfection.pct_rank(pe_series[-1], pe_series, min_n=120)
         out["evs_hist_years"] = 3
-        out["note"] = ("trailing multiples rebuilt from daily unadjusted price × actual share count "
-                       "(get_shares_full) and quarterly filings; net debt held at latest value")
+        out["note"] = (f"trailing multiples rebuilt from daily split-adjusted price × {shares_basis} "
+                       f"and quarterly filings; net debt {debt_basis}")
     except Exception as exc:  # noqa: BLE001
         issues.append(f"valuation history: {exc}")
-    _cache_set(key, out, TTL["shares"])
+    _cache_set(key, out, keep)
     return out
 
 
