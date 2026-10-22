@@ -295,6 +295,20 @@ class TestBuildUsesFiledCounts(unittest.TestCase):
         self.hist = self.ok
         self.assertIsNone(od.build_credit_risk("TEST")["merton"].get("retry_after_s"), "whole: nothing to wait for")
 
+    # Codex, #433 (third review): a partial history kept by another caller
+    # may be seconds from its rebuild; the card waits that long, not ten minutes.
+    def test_a_partial_history_is_retried_when_it_is_rebuilt(self):
+        od = self.od
+        saved = od._shist.expires_in
+        od._shist.expires_in = lambda sym: 10.0
+        try:
+            self.hist = dict(self.ok, partial=True, warnings=["1 filing could not be read from SEC just now."])
+            out = od.build_credit_risk("TEST")
+            self.assertLessEqual(od._CREDIT_CACHE["TEST"][2], 30, "rebuilt with the share history, in seconds")
+            self.assertLessEqual(out["merton"]["retry_after_s"], 31)
+        finally:
+            od._shist.expires_in = saved
+
 
 if __name__ == "__main__":
     unittest.main()

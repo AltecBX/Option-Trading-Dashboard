@@ -660,6 +660,18 @@ def get(symbol: str, wait: float = 3.0) -> dict:
     return out
 
 
+def expires_in(symbol: str) -> Optional[float]:
+    """Seconds until the history kept for `symbol` is rebuilt (v5.48): what
+    a caller holding a partial one should wait before asking again (Codex,
+    #433). None when nothing is kept; 0 when it is already due."""
+    sym = str(symbol or "").upper().strip()
+    hit = _cached(sym) if _SYMBOL.fullmatch(sym) else None
+    if not hit:
+        return None
+    ttl = PARTIAL_TTL_S if hit[1].get("partial") else RESULT_TTL_S
+    return max(0.0, ttl - (_clock() - hit[0]))
+
+
 def shares_on(history: Mapping, day: str) -> Optional[dict]:
     """The share count a chart multiplies `day`'s price by: the last count
     reported on or before it, with its age. None before the first count, or

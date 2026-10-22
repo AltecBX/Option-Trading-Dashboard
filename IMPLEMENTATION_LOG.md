@@ -6577,3 +6577,12 @@ while a history is being read or partial), and the card asks again then,
 past its cache. Tests: `test_credit_risk` (+1) and the browser test
 `test_the_credit_card_asks_again_when_told` (being read, then whole:
 exactly two asks).
+
+Codex on #433, third review, right and fixed (the tests fail on the old
+code): **a partial history near its rebuild waited ten more minutes.** A
+partial share history another caller has held for most of its ten
+minutes is about to be rebuilt, but the credit monitor started a fresh ten
+minutes on it. `share_history.expires_in(symbol)` says how long the kept
+history has left, and the credit monitor (and so the card's
+`retry_after_s`) waits that long, plus a few seconds, at least fifteen.
+Tests: `test_share_history.ExpiresIn` (3), `test_credit_risk` (+1).

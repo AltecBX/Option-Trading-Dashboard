@@ -4220,7 +4220,14 @@ def _credit_shares(symbol: str, bars: list, yahoo_shares):
     if status == "building" or hist.get("refreshing"):
         retry = _CREDIT_RETRY_TTL
     elif status not in ("ok", "unsupported") or hist.get("partial"):
-        retry = getattr(_shist, "PARTIAL_TTL_S", 600)
+        # When the kept history is rebuilt, which may be seconds away if
+        # another caller has held it a while (Codex, #433).
+        try:
+            left = _shist.expires_in(symbol)
+        except Exception:  # noqa: BLE001
+            left = None
+        full = getattr(_shist, "PARTIAL_TTL_S", 600)
+        retry = full if left is None else max(15, min(full, int(left) + 5))
     else:
         retry = None
     last_day = str(bars[-1]["date"])[:10] if bars else None

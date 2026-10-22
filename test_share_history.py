@@ -901,3 +901,29 @@ class PriceBasis(unittest.TestCase):
 
     def test_nothing_to_compare_is_unchecked(self):
         self.assertEqual("unchecked", SH.price_basis({}, self.bars())["status"])
+
+
+class ExpiresIn(Base):
+    """v5.48 (Codex, #433): how long until a kept history is rebuilt, for a
+    caller holding a partial one."""
+
+    def setUp(self):
+        super().setUp()
+        self.facts = facts(dei=[("2026-07-17", 14.6e9, acc(1), "10-Q", "2026-08-01")],
+                           filings=[(acc(1), "10-Q", "2026-08-01")])
+        self.web.docs = {acc(1): instance([(None, "2026-07-17", int(14.6e9))])}
+
+    def test_nothing_kept_is_none(self):
+        self.assertIsNone(SH.expires_in("AAPL"))
+
+    def test_a_whole_history_has_its_twelve_hours(self):
+        SH.get("AAPL", wait=5)
+        self.assertAlmostEqual(SH.RESULT_TTL_S, SH.expires_in("AAPL"), delta=1)
+
+    def test_a_partial_one_has_what_is_left_of_its_ten_minutes(self):
+        SH.get("AAPL", wait=5)
+        ts, res = SH._RESULTS["AAPL"]
+        SH._RESULTS["AAPL"] = (ts - 590, dict(res, partial=True))
+        self.assertAlmostEqual(10, SH.expires_in("AAPL"), delta=1)
+        SH._RESULTS["AAPL"] = (ts - 900, dict(res, partial=True))
+        self.assertEqual(0, SH.expires_in("AAPL"), "overdue is now, not negative")
