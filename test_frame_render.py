@@ -3629,6 +3629,33 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         finally:
             self._close(handles)
 
+    def test_the_credit_card_says_where_its_debt_came_from(self):
+        # v5.49: each day's debt is from the SEC balance sheet dated on or
+        # before it; when that history isn't current, Yahoo's latest stands
+        # for every day, and the card says so.
+        series = [{"date": f"2026-0{1 + i // 28}-{1 + i % 28:02d}", "spread_bps": 100.0 + i, "dd": 3.0,
+                   "pd_pct": 1.0, "leverage_pct": 30.0} for i in range(60)]
+        note = ("The default point uses Yahoo's latest balance sheet for every day: its SEC filings stopped "
+                "tagging its borrowings in the standard fields, so a past day is measured against today's debt.")
+        answer = {"symbol": "AAPL", "merton": {"series": series, "latest": series[-1],
+                                               "interpretation": "Model 5Y spread ≈ 100 bps.",
+                                               "inputs": {"shares_basis": "filed", "default_point": 5e9,
+                                                          "default_point_basis": "short + ½·long-term debt (KMV)",
+                                                          "default_point_source": "yahoo", "debt_total": 7e9},
+                                               "unavailable_reason": None, "history_note": None,
+                                               "debt_note": note},
+                  "market": None, "skew": None, "notes": []}
+        geo, errs, handles = self._measure(1440, 900, tab="analyze", credit_risk=[answer])
+        page = handles[2]
+        try:
+            page.wait_for_selector(".cr-debt-note", timeout=20000)
+            self.assertIn("Yahoo's latest balance sheet", page.inner_text(".cr-debt-note"))
+            tip = page.evaluate("[...document.querySelectorAll('.cr-stats span')].map(s => s.title).join(' ')")
+            self.assertIn("Yahoo's latest balance sheet, for every day", tip)
+            self.assertEqual(errs, [], f"the page threw: {errs[:2]}")
+        finally:
+            self._close(handles)
+
     def test_the_one_minute_chart_draws_market_cap(self):
         daily = json.loads(_default_payload("AAPL"))["daily"]
         hist = share_history_answer(first_after_days=30, bars=daily)
