@@ -6509,3 +6509,44 @@ the 400-day run two), and the market-cap browser tests add about a minute;
 on top of that, npm install took 7 minutes instead of 4 seconds that time.
 `timeout-minutes` is 30 now: it is there to stop a hung job, not to time a
 healthy one.
+
+## v5.48 — The credit monitor's past market caps from filed share counts
+
+Jerry: "Fix the credit monitor's today-share-count shortcut next."
+
+The Merton model spread (Credit Risk card) is worked out each day from the
+market cap. That was each day's close × TODAY's share count (Yahoo's
+`sharesOutstanding`), so a company that has issued shares since looked
+less levered a year ago than it was, and one that has bought back looked
+more levered.
+
+- **Each day's own count.** `merton_series` takes the share count as a
+  function of the day; the endpoint passes the count the company filed for
+  that day (`share_history.shares_on`, SEC 10-Q/10-K cover pages, on
+  today's split basis). A day with no filed count (before the first one, or
+  past a count over 200 days old) is left out, never given today's count.
+- **The same price check as the charts**, now on the server too
+  (`share_history.price_basis`, the rule `market_cap.js` applies): prices
+  that disagree with Yahoo's unadjusted monthly closes (dividend-adjusted,
+  or on a split basis the counts aren't on yet) are not multiplied.
+- **No filed history** (a foreign filer, an ETF, SEC unreachable, prices
+  that fail the check, filings still being read): only TODAY's spread is
+  shown, from Yahoo's current count, and the card says why in a line under
+  it (`history_note`). The history is asked again in two minutes while the
+  share counts are still being read or partial, not in an hour.
+- The notes and the leverage tooltip say which count was used ("today
+  14.59B, as of Jul 17, 2026 (10-Q)").
+
+What it changes, on real data (Yahoo prices, the newest filed count
+standing for today's, round debt figures): Plug Power a year ago, before
+the shares it has issued since, was 66.8% levered and 1,489 bps, not
+54.3% and 1,393 bps; AT&T, which has bought back shares, was 36.8% not
+38.5%; Apple barely moves; today's value is unchanged everywhere.
+
+Still an approximation, and still labeled: the default point (debt) is
+the most recent quarterly balance sheet for every day.
+
+Tests: `test_credit_risk.TestFiledShareCounts` (2) and
+`TestBuildUsesFiledCounts` (4: the history on filed counts, today only
+without them, prices on another basis, asked again soon while being read),
+`test_share_history.PriceBasis` (5); all red first.

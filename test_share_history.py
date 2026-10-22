@@ -864,3 +864,40 @@ class Codex431(Base):
         r = SH.build("TSM")
         self.assertEqual("unsupported", r["status"])
         self.assertIn("foreign filer", r["reason"])
+
+
+class PriceBasis(unittest.TestCase):
+    """v5.48: the server's own check of a price series against the history's
+    unadjusted closes, the same rule the chart applies (market_cap.js), for
+    the credit monitor's past market caps."""
+
+    def bars(self, fn=lambda px, i: px):
+        out = []
+        for m in range(1, 13):
+            out.append({"date": f"2025-{m:02d}-02T12:00:00-04:00", "close": fn(100.0 + m, m)})
+        out.append({"date": "2025-12-20T12:00:00-04:00", "close": 120.0})
+        return out
+
+    def hist(self):
+        return {"price_check": {"closes": [[f"2025-{m:02d}-02", 100.0 + m] for m in range(1, 13)]}}
+
+    def test_the_same_closes_agree(self):
+        r = SH.price_basis(self.hist(), self.bars())
+        self.assertEqual(("ok", 12, 0), (r["status"], r["checked"], r["bad"]))
+
+    def test_dividend_adjusted_closes_do_not(self):
+        r = SH.price_basis(self.hist(), self.bars(lambda px, m: px * (1 - 0.003 * (12 - m))))
+        self.assertEqual("mismatch", r["status"])
+        self.assertEqual("2025-01-02", r["worst"]["date"])
+
+    def test_one_bad_print_in_a_dozen_is_not_a_basis(self):
+        r = SH.price_basis(self.hist(), self.bars(lambda px, m: px * 1.5 if m == 5 else px))
+        self.assertEqual(("ok", 1), (r["status"], r["bad"]))
+
+    def test_the_newest_week_is_not_compared(self):
+        bars = [{"date": "2025-12-10", "close": 50.0}, {"date": "2025-12-16", "close": 60.0}]
+        r = SH.price_basis({"price_check": {"closes": [["2025-12-10", 100.0]]}}, bars)
+        self.assertEqual("unchecked", r["status"])
+
+    def test_nothing_to_compare_is_unchecked(self):
+        self.assertEqual("unchecked", SH.price_basis({}, self.bars())["status"])

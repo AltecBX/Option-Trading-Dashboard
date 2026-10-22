@@ -14032,12 +14032,18 @@ function CreditRiskCard({ apiFetch, ticker }) {
       {m.unavailable_reason
         ? <div className="tsy-sigd">Model series unavailable: {m.unavailable_reason}.</div>
         : <CRSeriesSvg series={m.series} />}
+      {/* v5.48: why the history is short or missing (no filed share counts
+          to use, still being read, prices on another basis). */}
+      {m.history_note && <div className="tsy-sigd cr-history-note">{m.history_note}</div>}
 
       {latest && (
         <div className="cr-stats">
           <span title="Distance to default: how many standard deviations of asset value sit between the firm and its default point over 5 years. Higher = safer.">DD <b className="num">{latest.dd ?? "—"}σ</b></span>
           <span title="Risk-neutral probability of hitting the default point within 5 years — the model's raw output; real-world PDs are lower.">PD₅ᵧ <b className="num">{latest.pd_pct}%</b></span>
-          <span title={m.inputs ? `Default point ${fmt$M(m.inputs.default_point)} (${m.inputs.default_point_basis || "—"}) vs total debt ${fmt$M(m.inputs.debt_total)}. Risk-free: ${m.inputs.risk_free ? m.inputs.risk_free.source : "—"}. Equity vol: ${m.inputs ? m.inputs.equity_vol : ""}.` : ""}>leverage <b className="num">{latest.leverage_pct}%</b></span>
+          <span title={m.inputs ? `Default point ${fmt$M(m.inputs.default_point)} (${m.inputs.default_point_basis || "—"}) vs total debt ${fmt$M(m.inputs.debt_total)}. Risk-free: ${m.inputs.risk_free ? m.inputs.risk_free.source : "—"}. Equity vol: ${m.inputs ? m.inputs.equity_vol : ""}.`
+            + (m.inputs.shares_basis === "filed"
+              ? ` Market cap each day: that day's close × the share count filed for it (SEC; today ${m.inputs.shares_outstanding ? (m.inputs.shares_outstanding / 1e9).toFixed(2) + "B" : "—"}${m.inputs.shares_as_of ? `, as of ${m.inputs.shares_as_of}${m.inputs.shares_form ? ` (${m.inputs.shares_form})` : ""}` : ""}).`
+              : m.inputs.shares_basis === "today_only" ? " Today's market cap uses Yahoo's current share count; no past days are shown." : "") : ""}>leverage <b className="num">{latest.leverage_pct}%</b></span>
         </div>
       )}
 

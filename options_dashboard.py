@@ -4197,6 +4197,65 @@ def build_payload(
 _CREDIT_CACHE: dict = {}
 _CREDIT_LOCK = threading.Lock()
 _CREDIT_TTL = 3600            # merton/debt/FRED refresh hourly; skew is live
+_CREDIT_RETRY_TTL = 120       # share counts still being read, or partial: asked again soon
+
+
+def _credit_shares(symbol: str, bars: list, yahoo_shares):
+    """What each day's close is multiplied by for the model spread (v5.48).
+    The share count the company filed for that day (share_history), after
+    the same price check the charts make; with no filed history to use,
+    today's count for today alone. A past day is never given today's count.
+    -> (count(day) or None, inputs, history_note or None, retry_soon)"""
+    hist = None
+    if _SHIST_AVAILABLE and _shist is not None:
+        try:
+            hist = _shist.get(symbol, wait=5.0)
+        except Exception:  # noqa: BLE001
+            hist = None
+    hist = hist or {}
+    status = hist.get("status")
+    retry = (status not in ("ok", "unsupported")) or bool(hist.get("partial") or hist.get("refreshing"))
+    last_day = str(bars[-1]["date"])[:10] if bars else None
+    today = (lambda day: float(yahoo_shares) if day == last_day else None) if (yahoo_shares and last_day) else None
+    inputs = {"shares_basis": "today_only" if today else None, "shares_outstanding": yahoo_shares,
+              "shares_source": "Yahoo's current count, for today only" if today else None}
+    if status == "ok":
+        chk = _shist.price_basis(hist, bars)
+        if chk["status"] != "mismatch":
+            now = _shist.shares_on(hist, last_day) if last_day else None
+
+            def filed(day):
+                c = _shist.shares_on(hist, day)
+                if c:
+                    return c["shares"]
+                return today(day) if today else None
+            note = None
+            if not now:
+                latest = (hist.get("latest") or {}).get("as_of")
+                note = (f"The newest SEC share count is from {latest}, too old to stand for recent days, so "
+                        "they have no model spread" + ("; today's uses Yahoo's current count." if today else "."))
+            return filed, {"shares_basis": "filed",
+                           "shares_outstanding": now["shares"] if now else yahoo_shares,
+                           "shares_as_of": now["as_of"] if now else None,
+                           "shares_form": now.get("form") if now else None,
+                           "shares_source": hist.get("source"),
+                           "share_coverage": hist.get("coverage"),
+                           "price_check": chk["status"]}, note, retry
+        w = chk["worst"] or {}
+        note = ("Past model spreads aren't shown: this price history doesn't match Yahoo's unadjusted closes "
+                f"({w.get('diff_pct', 0):+.1f}% on {w.get('date')}). It looks adjusted for dividends or for a split "
+                "the share counts aren't on yet, which would put past market caps off.")
+    elif status == "building":
+        note = ("This company's SEC filings are still being read for its share counts; past model spreads "
+                "appear in a few minutes.")
+    elif status == "unsupported":
+        note = f"No past model spreads: they need the share count filed for each day. {hist.get('reason') or ''}".strip()
+    else:
+        note = (f"Share counts couldn't be loaded ({hist.get('reason') or 'share history unavailable'}); "
+                "past model spreads appear once they are.")
+    if today:
+        note += " Today's spread uses Yahoo's current share count."
+    return today, inputs, note, retry
 
 
 def build_credit_risk(symbol: str) -> dict:
@@ -4209,7 +4268,7 @@ def build_credit_risk(symbol: str) -> dict:
     now = time.time()
     with _CREDIT_LOCK:
         hit = _CREDIT_CACHE.get(symbol)
-    base = hit[1] if hit and now - hit[0] < _CREDIT_TTL else None
+    base = hit[1] if hit and now - hit[0] < (hit[2] if len(hit) > 2 else _CREDIT_TTL) else None
 
     if base is None:
         base = {"symbol": symbol}
@@ -4248,16 +4307,19 @@ def build_credit_risk(symbol: str) -> dict:
             print(f"[credit] fundamentals failed for {symbol}: {exc}", file=sys.stderr)
         dp = _cr.default_point(debt_short, debt_long, debt_total)
         r_rf, r_src = risk_free_rate()
+        # v5.48: each past day's market cap from the share count filed for
+        # it, not today's (credit monitor's old shortcut).
+        count, share_inputs, history_note, retry = _credit_shares(symbol, bars, shares)
         series = []
-        if bars and shares and dp is not None:
-            series = _cr.merton_series(bars, float(shares), float(dp), r_rf)
+        if bars and count is not None and dp is not None:
+            series = _cr.merton_series(bars, count, float(dp), r_rf)
         latest = series[-1] if series else None
         base.update({
             "merton": {
                 "series": series[-260:],
                 "latest": latest,
                 "inputs": {
-                    "shares_outstanding": shares,
+                    **share_inputs,
                     "default_point": dp,
                     "default_point_basis": ("short + ½·long-term debt (KMV)"
                                             if (debt_short is not None or debt_long is not None)
@@ -4273,8 +4335,9 @@ def build_credit_risk(symbol: str) -> dict:
                                                 latest["leverage_pct"] if latest else None),
                 "unavailable_reason": (None if series else
                                        "missing price history" if not bars else
-                                       "shares outstanding unavailable" if not shares else
+                                       "shares outstanding unavailable" if count is None else
                                        "balance-sheet debt unavailable"),
+                "history_note": history_note,
             },
         })
         # REAL credit-index backdrop (traded, free): ICE BofA OAS via FRED.
@@ -4302,11 +4365,16 @@ def build_credit_risk(symbol: str) -> dict:
         base["notes"] = [
             "Single-name CDS quotes (e.g. 'NVDA 5Y CDS') are OTC dealer data sold by S&P Global/Bloomberg/ICE — no free source exists, so none is shown.",
             "The Merton 5Y spread is a STRUCTURAL MODEL estimate from market cap, equity volatility and balance-sheet debt (Moody's-KMV approach) — it trends with real CDS but is not a traded quote.",
-            "Market-cap history uses the CURRENT share count; the default point uses the most recent quarterly balance sheet.",
+            ("Market cap each day = that day's close × the share count the company filed for it (SEC 10-Q/10-K "
+             "cover pages, on today's split basis); a day with no filed count is left out, never given today's. "
+             if share_inputs.get("shares_basis") == "filed" else
+             "Only today's model spread is shown: a past day's market cap needs the share count filed for that "
+             "day, never today's. ")
+            + "The default point uses the most recent quarterly balance sheet.",
             "The IG/BBB/HY spreads ARE real traded index data (ICE BofA via FRED).",
         ]
         with _CREDIT_LOCK:
-            _CREDIT_CACHE[symbol] = (now, base)
+            _CREDIT_CACHE[symbol] = (now, base, _CREDIT_RETRY_TTL if retry else _CREDIT_TTL)
             if len(_CREDIT_CACHE) > 40:
                 oldest = min(_CREDIT_CACHE, key=lambda k: _CREDIT_CACHE[k][0])
                 _CREDIT_CACHE.pop(oldest, None)
