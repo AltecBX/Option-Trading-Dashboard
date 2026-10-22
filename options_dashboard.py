@@ -8980,13 +8980,15 @@ class DashboardHandler(SimpleHTTPRequestHandler):
 
     def _check_api_key(self) -> bool:
         # If API_KEY is unset (typical local dev) we don't enforce. In
-        # production Jerry sets API_KEY on Railway and the same value in
-        # the frontend config so the page can call the backend.
-        expected = os.environ.get("API_KEY", "")
+        # production Jerry sets API_KEY on Railway and the page gets it
+        # through config.js (v5.49). Both sides are trimmed, as config.js
+        # trims it: a stray space or newline in the Railway variable must
+        # not lock the page out of its own API (Codex, #434).
+        expected = os.environ.get("API_KEY", "").strip()
         if not expected:
             return True
-        provided = self.headers.get("X-API-Key", "")
-        return provided == expected
+        provided = self.headers.get("X-API-Key", "").strip()
+        return hmac.compare_digest(provided.encode("utf-8", "replace"), expected.encode("utf-8", "replace"))
 
     def _send_unauthorized(self):
         self._send_json({"error": "unauthorized"}, status=401)

@@ -331,6 +331,19 @@ class TestConfigKeyFromTheEnvironment(unittest.TestCase):
         _, _, js = self._config()
         self.assertEqual('a"b\\c</script>', self._key_the_page_sees(js))
 
+    def test_the_key_the_page_gets_is_the_key_the_api_takes(self):
+        # Codex, #434: a key set on Railway with a stray space or newline.
+        # The page and the API must agree on it.
+        os.environ["API_KEY"] = " rotated-key-123\n"
+        key = self._key_the_page_sees(self._config()[2])
+        req = urllib.request.Request(self.base + "/api/data_source", headers={"X-API-Key": key})
+        try:
+            with urllib.request.urlopen(req, timeout=10) as r:
+                code = r.status
+        except urllib.error.HTTPError as e:
+            code = e.code
+        self.assertNotEqual(401, code, f"the page's own key {key!r} was refused")
+
 class TestStartupGate(unittest.TestCase):
     def test_loopback_never_blocked(self):
         self.assertEqual(od.check_deploy_security("127.0.0.1"), [])

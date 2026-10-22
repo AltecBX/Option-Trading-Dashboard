@@ -26,10 +26,13 @@ Open http://localhost:8765/ in a browser. The page calls `/api/ticker?symbol=...
 See `DEPLOY.md` for the full walkthrough. Short version:
 
 1. Push to a private GitHub repo
-2. Deploy backend to Railway (auto-detects Python, runs from Procfile)
-3. Deploy frontend to Vercel (pure static)
-4. Set `API_KEY` on Railway (the server hands it to the page through `config.js`; nothing to edit)
-5. Add the Vercel URL to your iPhone home screen
+2. Deploy to Railway (auto-detects Python, runs from Procfile). It serves the
+   page and the API from one address; `config.js` keeps `apiBase` empty for
+   that reason. The live setup is Railway behind Cloudflare Access on its own
+   domain (OPERATIONS.md). A static copy on Vercel (`vercel.json`, the
+   original setup) cannot reach the API and is not used.
+3. Set `API_KEY` on Railway (the server hands it to the page through `config.js`; nothing to edit)
+4. Add the dashboard's address to your iPhone home screen
 
 ## Files
 

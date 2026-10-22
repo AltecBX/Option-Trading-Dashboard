@@ -6878,3 +6878,19 @@ Tests (the first two fail on the old code):
 - `test_ui_frame.js`: the v5.18 static guard now reads `var(--sab)`, and a
   new one pins the variable's formula and that no padding reads the raw
   inset any more.
+
+Codex on #434, two findings:
+- **The key with a stray space** (right, fixed; the test fails on the old
+  code). `config.js` handed the page the trimmed `API_KEY`, while the
+  API compared against the untrimmed one. A Railway variable with a
+  trailing space or newline would have locked the page out of its own API.
+  `_check_api_key` now trims both sides, as `config.js` does, and compares
+  in constant time. Test:
+  `test_the_key_the_page_gets_is_the_key_the_api_takes`.
+- **"The Vercel frontend gets no key"** (not the live setup, so no code
+  change). Railway serves the page and the API from one address through
+  the Cloudflare domain. `config.js` on main already kept `apiBase` empty
+  for that reason, so a static copy on Vercel could not reach the API
+  before this change either. What was wrong is the README's quick-start,
+  which still said to deploy the page to Vercel. It now describes the
+  setup in use.
