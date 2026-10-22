@@ -18395,7 +18395,12 @@ function CreditRiskCard({
     let stop = false,
       again = null;
     const load = fresh => {
-      sharedJson(apiFetch, `/api/credit_risk?symbol=${encodeURIComponent(ticker)}`, fresh ? 0 : 5 * 60 * 1000).then(x => {
+      const url = `/api/credit_risk?symbol=${encodeURIComponent(ticker)}`,
+        ttl = fresh ? 0 : 5 * 60 * 1000;
+      // A cached copy's retry_after_s was counted from when it was fetched:
+      // a card opened again on it waits only what is left (Codex, #433).
+      const age = sharedJsonAge(url, ttl);
+      sharedJson(apiFetch, url, ttl).then(x => {
         if (stop) return;
         if (x && !x.error) {
           setD(x);
@@ -18411,7 +18416,7 @@ function CreditRiskCard({
             again = s ? setTimeout(() => {
               again = null;
               load(true);
-            }, (s + 5) * 1000) : null;
+            }, Math.max(0, s * 1000 - age) + 5000) : null;
           }
         } else setErr(x && x.error || "no data");
       }).catch(e => {

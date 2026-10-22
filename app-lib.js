@@ -417,6 +417,14 @@ function sharedJson(apiFetch, url, ttlMs = 15000) {
   }
   return _sjFetch(apiFetch, url);
 }
+// How old, in ms, the copy sharedJson(url, ttlMs) is about to hand back:
+// 0 when it will fetch. An answer that says "ask again in N seconds"
+// counted them from when it was fetched (v5.48, the credit card).
+function sharedJsonAge(url, ttlMs = 15000) {
+  const hit = _SJ_CACHE.get(url);
+  const age = hit ? Date.now() - hit.t : Infinity;
+  return age < ttlMs * 4 ? age : 0;
+}
 
 // ── Bounded board rendering (v3.64) ────────────────────────────────────────
 // The scanner boards (~600 names) used to render EVERY row into the DOM at
@@ -1341,6 +1349,7 @@ Object.assign(window, {
   RootErrorBoundary,
   fmtUSDate,
   sharedJson,
+  sharedJsonAge,
   loadChunk,
   LazyTab,
   useBoundedList,

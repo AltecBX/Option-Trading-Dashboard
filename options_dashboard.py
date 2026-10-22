@@ -4359,7 +4359,9 @@ def build_credit_risk(symbol: str) -> dict:
                 "unavailable_reason": (None if series else
                                        "missing price history" if not bars else
                                        "shares outstanding unavailable" if count is None else
-                                       "balance-sheet debt unavailable"),
+                                       "balance-sheet debt unavailable" if dp is None else
+                                       # Codex, #433: the counts ran out, not the debt.
+                                       "no filed share count covers these days"),
                 "history_note": history_note,
             },
         })

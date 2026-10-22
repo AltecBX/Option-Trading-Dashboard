@@ -6594,3 +6594,17 @@ the old `retry_after_s`), and rescheduled the retry another 600s on, so a
 partial history could stay up 20 minutes. Now a fresh answer decides; the
 poll's cached copy only starts a retry when none is pending, never moves a
 due one. Test: `test_the_credit_cards_poll_does_not_push_back_its_retry`.
+
+Codex on #433, fifth review, both right and fixed (the tests fail on the
+old code):
+- **A card opened again waited the whole retry again.** Switch to another
+  symbol and back, and the card opened on the cached partial answer,
+  minutes old, and waited its full `retry_after_s` from then. Now
+  `sharedJsonAge` says how old the copy is, and the card waits only what is
+  left. Browser test:
+  `test_the_credit_card_reopened_on_a_cached_answer_waits_only_what_is_left`.
+- **"Balance-sheet debt unavailable" when it was the share counts.** With
+  no filed count recent enough for any day (and no current count from
+  Yahoo), the series was empty and the card blamed the debt. It now says
+  "no filed share count covers these days". Test:
+  `test_no_count_for_these_days_is_not_called_missing_debt`.

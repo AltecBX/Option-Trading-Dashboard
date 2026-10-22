@@ -3590,6 +3590,44 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         finally:
             self._close(handles)
 
+    def test_the_credit_card_reopened_on_a_cached_answer_waits_only_what_is_left(self):
+        # Codex, #433: switch to another symbol and back, and the card opens
+        # on the cached partial answer, ten minutes old. Its "ask again in
+        # 600s" was counted from then: what is left is seconds, not 600 more.
+        def answer(note, retry):
+            series = [{"date": f"2026-0{1 + i // 28}-{1 + i % 28:02d}", "spread_bps": 100.0 + i, "dd": 3.0,
+                       "pd_pct": 1.0, "leverage_pct": 30.0} for i in range(60)]
+            return {"symbol": "AAPL", "merton": {"series": series, "latest": series[-1],
+                                                 "interpretation": "Model 5Y spread ≈ 100 bps.",
+                                                 "inputs": {"shares_basis": "filed"}, "unavailable_reason": None,
+                                                 "history_note": note, "retry_after_s": retry},
+                    "market": None, "skew": None, "notes": []}
+        partial = answer("The share-count history is incomplete just now: 1 filing could not be read.", 600)
+        whole = answer(None, None)
+        # Date.now runs 590s ahead once the test says so.
+        clock = ("(() => { const now = Date.now.bind(Date); window.__skew = 0;"
+                 " Date.now = () => now() + window.__skew; })()")
+        # AAPL, then MSFT, then AAPL's cached copy refreshed behind the
+        # scenes: partial all three. The fourth, the retry, is whole.
+        geo, errs, handles = self._measure(1440, 900, tab="analyze", init=clock, starred=["AAPL", "MSFT"],
+                                           credit_risk=[partial, partial, partial, whole])
+        page = handles[2]
+        pick = ("(sym) => [...document.querySelectorAll('.preset-pill')]"
+                ".find(b => b.textContent.trim().startsWith(sym)).click()")
+        try:
+            page.wait_for_function("() => /incomplete just now/.test(document.body.innerText)", timeout=20000)
+            self.assertEqual(1, self.credit_risk_calls)
+            page.evaluate("window.__skew = 590000")
+            page.evaluate(pick, "MSFT")
+            page.wait_for_function("() => /incomplete just now/.test(document.body.innerText)", timeout=20000)
+            page.wait_for_timeout(1000)
+            page.evaluate(pick, "AAPL")
+            page.wait_for_function("() => !/incomplete just now/.test(document.body.innerText)", timeout=30000)
+            self.assertEqual(4, self.credit_risk_calls, "asked again in seconds, not another ten minutes")
+            self.assertEqual(errs, [], f"the page threw: {errs[:2]}")
+        finally:
+            self._close(handles)
+
     def test_the_one_minute_chart_draws_market_cap(self):
         daily = json.loads(_default_payload("AAPL"))["daily"]
         hist = share_history_answer(first_after_days=30, bars=daily)

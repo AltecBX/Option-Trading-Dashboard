@@ -309,6 +309,22 @@ class TestBuildUsesFiledCounts(unittest.TestCase):
         finally:
             od._shist.expires_in = saved
 
+    # Codex, #433 (fifth review): when no filed count reaches any day, the
+    # spread is missing for want of share counts, not of debt.
+    def test_no_count_for_these_days_is_not_called_missing_debt(self):
+        class T:
+            def __init__(self, s):
+                self.info = {"sharesOutstanding": None, "totalDebt": 100.0}
+                self.balance_sheet = None
+        self.od.yf = type("YF", (), {"Ticker": T})
+        old = {"as_of": "2024-01-02", "shares": 1.0, "form": "10-K"}
+        self.hist = dict(self.ok, points=[old], latest=old, coverage={"from": old["as_of"], "to": old["as_of"]})
+        m = self.od.build_credit_risk("TEST")["merton"]
+        self.assertEqual([], m["series"])
+        self.assertIsNotNone(m["inputs"]["default_point"], "the debt is there")
+        self.assertNotIn("debt", m["unavailable_reason"])
+        self.assertIn("share count", m["unavailable_reason"])
+
 
 if __name__ == "__main__":
     unittest.main()
