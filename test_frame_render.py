@@ -534,14 +534,14 @@ def daily_history_answer(years: int) -> dict:
     return {"ok": True, "symbol": "AAPL", "years": years, "daily": rows, "first": rows[0]["date"][:10]}
 
 
-def share_history_answer() -> dict:
+def share_history_answer(first_after_days: int = 200) -> dict:
     """/api/share_history for AAPL, against daily_history_answer(10): a
     10-Q count each quarter from about seven months in (a buyback: 20.0B
     down to about 15B), and the first close of each month of those same
     bars, the way the server sends them for the price check."""
     bars = daily_history_answer(10)["daily"]
     first, end = date.fromisoformat(bars[0]["date"][:10]), date.today()
-    pts, d, n = [], first + timedelta(days=200), 0
+    pts, d, n = [], first + timedelta(days=first_after_days), 0
     while d < end - timedelta(days=20):
         pts.append({"as_of": d.isoformat(), "shares": round(20e9 - n * 0.13e9), "form": "10-Q",
                     "filed": (d + timedelta(days=14)).isoformat()})
@@ -3226,6 +3226,34 @@ class TheFrameStaysOnScreen(unittest.TestCase):
             page.wait_for_function("() => /Market cap is off for AAPL/.test(document.body.innerText)", timeout=15000)
             self.assertIn("2-year price", page.inner_text(".card:has(.chart-mode)").lower().replace("2-year price", "2-year price"))
             self.assertEqual("price", page.evaluate(f"({self._CHART_PARTS})()")["fmt"])
+            self.assertEqual(errs, [], f"the page threw: {errs[:2]}")
+        finally:
+            self._close(handles)
+
+    def test_a_filing_dot_is_where_its_count_begins(self):
+        # Codex, #431: the chart draws a slice of the history. Here the
+        # 10-year window opens part-way through a count filed before it:
+        # its first bar is not a filing, and has no dot.
+        hist = share_history_answer(first_after_days=30)
+        geo, errs, handles = self._measure(1440, 900, tab="trade", daily_history=True, share_history=hist)
+        page = handles[2]
+        try:
+            page.wait_for_function("() => { const e = document.querySelector('.tv-price-chart'); return e && e.__parts; }",
+                                   timeout=20000)
+            page.click(".chart-range button:text-is('10Y')")
+            page.wait_for_function(f"() => ({self._VISIBLE_YEARS})() > 9.5", timeout=15000)
+            page.click(".chart-mode button:text-is('Mkt cap')")
+            page.wait_for_function("() => /10-year market cap/i.test(document.body.innerText)", timeout=10000)
+            got = page.evaluate("""() => { const p = document.querySelector('.tv-price-chart').__parts();
+                const day = (t) => typeof t === 'string' ? t : `${t.year}-${String(t.month).padStart(2, '0')}-${String(t.day).padStart(2, '0')}`;
+                const strip = p.series.find(s => s.options().priceScaleId === 'shares');
+                return {first: day(p.vol.data()[0].time), days: p.vol.data().map(d => day(d.time)),
+                        marks: strip.markers().map(m => day(m.time))}; }""")
+            first = got["first"]
+            self.assertTrue(any(p["as_of"] < first for p in hist["points"]), "the window opens part-way through a count")
+            self.assertNotIn(first, got["marks"], "the window's first bar is not a filing")
+            want = [next(d for d in got["days"] if d >= p["as_of"]) for p in hist["points"] if p["as_of"] > first]
+            self.assertEqual(want, got["marks"], "a dot on the first bar each count covers, and nowhere else")
             self.assertEqual(errs, [], f"the page threw: {errs[:2]}")
         finally:
             self._close(handles)

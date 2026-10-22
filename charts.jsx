@@ -346,13 +346,10 @@ function TVPriceChart({ daily, expHigh, expLow, emHigh, emLow, callStrike, putSt
       const pts = ascendingByTime(daily.filter(d => d && d.date != null)
         .map(d => d.cap ? { time: norm(d.date), value: d.cap.shares } : { time: norm(d.date) }));
       strip.setData(pts);
-      const marks = [];
-      let prevAsOf = null;
-      daily.forEach(d => {
-        if (!d || !d.cap) { prevAsOf = null; return; }
-        if (d.cap.as_of !== prevAsOf) marks.push({ time: norm(d.date), position: "inBar", color: "rgba(56,189,248,1)", shape: "circle", size: 0.2 });
-        prevAsOf = d.cap.as_of;
-      });
+      // `starts` comes from the whole series: the first bar of this slice
+      // is not where its count began unless it is (Codex, #431).
+      const marks = daily.filter(d => d && d.cap && d.cap.starts)
+        .map(d => ({ time: norm(d.date), position: "inBar", color: "rgba(56,189,248,1)", shape: "circle", size: 0.2 }));
       try { strip.setMarkers(ascendingByTime(marks)); } catch (e) {}
       extraRef.current.series.push(strip);
     }

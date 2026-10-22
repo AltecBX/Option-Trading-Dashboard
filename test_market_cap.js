@@ -60,6 +60,14 @@ ok("the bar keeps its own prices and its count", cap[2].px.close === 165 && cap[
 ok("a day with no count keeps its day and volume, and loses its prices",
    cap[0].close === null && cap[0].open === null && cap[0].volume === 1000 && cap[0].cap === null);
 ok("the bars handed in are not changed", bars[1].close === 191 && bars[1].cap === undefined);
+// Codex, #431: the strip's dot marks the bar a count begins on, worked out
+// on the whole series: the chart is handed a slice of it.
+ok("each count begins on the first bar it covers",
+   cap.map(b => b.cap ? b.cap.starts : null).join() === ",true,true,true");
+const mid = M.capBars([bar("2024-02-01", 180), bar("2024-02-02", 181), bar("2024-04-19", 170)], HIST);
+ok("a series that starts part-way through a count does not mark its first bar",
+   mid[0].cap.starts === false && mid[1].cap.starts === false && mid[2].cap.starts === true);
+ok("a series that starts on a count's own day does", M.capBars([bar("2024-01-19", 191)], HIST)[0].cap.starts === true);
 
 // ── the price check ────────────────────────────────────────────────────
 const year = [];

@@ -85,10 +85,18 @@
   // times that day's count. The bar's own prices stay in `px` and its count
   // in `cap`. A bar with no count keeps its day and volume and loses its
   // prices, so the time axis is the price chart's and zoom carries over.
+  // `cap.starts` marks the bar a count begins on, worked out here on the
+  // whole series because the chart is handed a slice of it (Codex, #431):
+  // the first bar of the series only when the count is dated that day.
   function capBars(bars, hist) {
+    var prevAsOf, first = true;
     return (bars || []).map(function (b) {
       if (!b) return b;
-      var s = sharesOn(hist, dayKey(b.date));
+      var day = dayKey(b.date);
+      var s = sharesOn(hist, day);
+      if (s) s.starts = first ? s.as_of === day : s.as_of !== prevAsOf;
+      prevAsOf = s ? s.as_of : null;
+      first = false;
       var out = Object.assign({}, b, {
         px: { open: b.open, high: b.high, low: b.low, close: b.close },
         cap: s,

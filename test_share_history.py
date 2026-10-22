@@ -826,3 +826,41 @@ class FilingErrors(Base):
         r = SH.build("PNR")
         self.assertEqual(2, len(r["points"]), "nothing after it says it was wrong")
         self.assertTrue(any("very large issue" in w for w in r["warnings"]))
+
+
+class Codex431(Base):
+    """Codex, #431: the filing list is asked when Company Facts has no
+    reports at all, as for a company that listed months ago and whose first
+    10-Q has not reached Company Facts (it holds the S-1's facts only)."""
+
+    def setUp(self):
+        super().setUp()
+        self.facts = facts(filings=[(acc(5), "S-1", "2026-03-02")])
+        self.web.docs = {acc(6): instance([(None, "2026-08-07", int(612e6))])}
+
+    def configure(self, filings_fn):
+        SH.configure(data_dir=self.tmp, facts_fn=lambda s: self.facts, fetch_fn=self.web,
+                     splits_fn=lambda s: self.splits, quote_fn=lambda s: self.quote,
+                     today_fn=lambda: self.today, filings_fn=filings_fn)
+
+    def test_a_first_10q_company_facts_lacks_is_read(self):
+        self.configure(lambda s: [{"form": "10-Q", "date": "2026-08-12", "accession": acc(6)},
+                                  {"form": "S-1", "date": "2026-03-02", "accession": acc(5)}])
+        r = SH.build("NEWCO")
+        self.assertEqual("ok", r["status"])
+        self.assertEqual([("2026-08-07", 612e6, "filing")], [(p["as_of"], p["shares"], p["source"]) for p in r["points"]])
+
+    def test_no_reports_and_no_list_is_could_not_ask(self):
+        def down(sym):
+            raise OSError("SEC timed out")
+        self.configure(down)
+        r = SH.build("NEWCO")
+        self.assertEqual("unavailable", r["status"], "not 'no reports' for 12 hours")
+        self.assertTrue(r["partial"])
+
+    def test_a_foreign_filer_is_still_unsupported(self):
+        self.facts = facts(filings=[(acc(7), "20-F", "2026-04-01")])
+        self.configure(lambda s: [{"form": "20-F", "date": "2026-04-01", "accession": acc(7)}])
+        r = SH.build("TSM")
+        self.assertEqual("unsupported", r["status"])
+        self.assertIn("foreign filer", r["reason"])

@@ -6394,7 +6394,7 @@ Checked on real data through the app (Yahoo prices, as in this sandbox):
 KO $398.8B and NVDA $5.35T today, both on Yahoo's market cap; the strike
 lines sit at the current value; SPY says it has no SEC share counts.
 
-Tests: `test_market_cap.js` (50: formats, the count each day uses, bars,
+Tests: `test_market_cap.js` (50, now 53: formats, the count each day uses, bars,
 the check catching dividend-adjusted prices and another split basis but
 not one bad print or a rounded penny price, every reason the chart draws
 the price), `test_share_history.PriceCheck` (5), `FilingList` (3),
@@ -6405,3 +6405,22 @@ the call line converted with its price in the label, the strip and its
 dots, the readout and hover, back to price exactly as it was, a failed
 price check drawing the price; and on a 390px phone, "building" then
 "unsupported" said, nothing off screen, nothing asked again.
+
+Codex on #431, both right and fixed (the tests fail on the old code):
+
+- **A filing dot at the window's edge.** The chart is handed the visible
+  slice of the bars, and the strip marked a count's start wherever the
+  count changed from the bar before, so the slice's first bar always got a
+  dot, though its count was filed weeks earlier (every 30/60/120-day
+  view). `capBars` now marks `cap.starts` on the whole series, the first
+  bar of the series only when the count is dated that very day, and the
+  chart draws a dot only there. Tests: `test_market_cap.js` (+3) and the
+  browser test `test_a_filing_dot_is_where_its_count_begins` (a 10-year
+  window opening part-way through a count).
+- **The filing list when Company Facts has no reports at all.** It was
+  asked only when Company Facts listed some 10-Q/10-K, so a company that
+  listed months ago, with only its S-1's facts there, was "no quarterly or
+  annual reports" for 12 hours though its first 10-Q was on file. It is
+  now asked whenever there are facts; no reports and no list is
+  "unavailable", retried in minutes; a foreign filer is still unsupported.
+  Tests: `test_share_history.Codex431` (3).

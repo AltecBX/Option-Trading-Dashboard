@@ -372,9 +372,11 @@ def build(symbol: str) -> dict:
     # Company Facts can miss a report for months: Coca-Cola's 10-Q of
     # Jul 29, 2026 was not in it in October, nor were four other companies'
     # from that week out of 36 sampled (v5.46). The company's own filing
-    # list adds every 10-Q/10-K it lacks, and those covers are read.
+    # list adds every 10-Q/10-K it lacks, and those covers are read. Asked
+    # when Company Facts has none at all too: a company that listed months
+    # ago may have only its S-1's facts there (Codex, #431).
     unlisted = False
-    if _FILINGS_FN is not None and filings:
+    if _FILINGS_FN is not None:
         try:
             for r in _FILINGS_FN(sym) or []:
                 acc, form = r.get("accession"), str(r.get("form") or "").upper()
@@ -389,6 +391,9 @@ def build(symbol: str) -> dict:
                         reason="A foreign filer: it reports its share count once a year, in home-market "
                                "shares, and SEC data does not say how many of those one US-listed share "
                                "stands for.")
+        if unlisted:
+            return dict(base, status="unavailable", partial=True, entity=facts.get("entityName"),
+                        reason="SEC's list of filings could not be read just now; trying again in a few minutes.")
         return dict(base, status="unsupported", entity=facts.get("entityName"),
                     reason="No quarterly or annual reports (10-Q/10-K) in SEC data for this symbol.")
     cik = int(facts.get("cik") or 0)
