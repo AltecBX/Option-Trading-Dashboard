@@ -85,10 +85,13 @@ Cloudflare out of the path for a few minutes.
 
 Step 7 is not optional: **Cloudflare Access only applies to traffic that
 goes through Cloudflare, which is only while the cloud is orange.** Grey
-means anyone who knows `dashboard.jerrytrade.com` reaches the dashboard with
-no login at all. Keep that window to minutes, not hours.
+means a request to `dashboard.jerrytrade.com` goes straight to Railway with
+no login. Once the origin check is on (below) the app refuses those with a
+403, but the site does not work for you either until the cloud is orange
+again. Keep that window to minutes, not hours.
 
-**Orange is necessary but it is not sufficient — see the open item below.**
+**Orange alone does not make the dashboard private: the Railway address is
+a second door. See "Closing the Railway back door" below.**
 
 **How to check it worked.** From any terminal:
 
@@ -101,13 +104,13 @@ cloud takes Cloudflare Access out of the path:
 
 | Where you are | Good | Why |
 |---|---|---|
-| **Step 6** — cloud still GREY | **`200`** | Railway is answering you directly with a working certificate. There is no Access login in the way, so you get the app, not a redirect. |
+| **Step 6** — cloud still GREY | **`200`**, or **`403`** once the origin check is on | Railway is answering you directly with a working certificate. There is no Access login in the way, so you get the app (`200`), or, with `ORIGIN_SECRET` set, the app's own refusal (`403`, `forbidden: origin check failed`): Cloudflare is not in the path to add the secret. Either one means the certificate works. |
 | **Step 7** — cloud back ORANGE | **`302`** | Cloudflare Access is bouncing a signed-out visitor to the login. |
 
 Either way, `000` with *"certificate has expired"* means the renewal has not
-gone through yet, and `526` means it is still broken. A `200` at step 6 is
-the result you are waiting for — do not read it as a failure and start
-removing the domain again.
+gone through yet, and `526` means it is still broken. A `200` (or the app's
+`403`) at step 6 is the result you are waiting for — do not read it as a
+failure and start removing the domain again.
 
 **To read the certificate itself**, ask the Railway host for the custom
 domain by name. That is exactly what Cloudflare does, so it sees the
@@ -136,16 +139,12 @@ certificate — so it is a fair **temporary** bridge if you need the
 dashboard open during market hours. Set it back to Full (strict) once the
 certificate is reissued.
 
-### Open item: the Railway address is a back door
+### Closing the Railway back door
 
-Putting the cloud back to orange protects `dashboard.jerrytrade.com`. It does
-**not** make the dashboard private, because the Railway address still serves
-it directly, and Cloudflare Access never sees that traffic. The app does not
-check Access itself: `/` is served to anyone who asks, and the `config.js` it
-serves carries the API key every later request needs.
-
-Measured against the live deployment, going straight to Railway with the
-custom domain as the `Host` header and no credentials whatsoever:
+**Why.** Putting the cloud back to orange protects `dashboard.jerrytrade.com`.
+It did **not** make the dashboard private, because the Railway address
+served it too, and Cloudflare Access never sees that traffic. Measured
+before v5.49, going straight to Railway with no credentials whatsoever:
 
 ```
 GET /            200   the dashboard loads, no login
@@ -154,27 +153,89 @@ GET /api/prefs   401   without the key
 GET /api/prefs   200   with the key config.js just gave out
 ```
 
-The API key is not a second lock. The page hands it to whoever asks for it,
-which is fine behind a login and is the whole story without one. So today
-the Railway address is the only thing standing between a stranger and the
-dashboard — it is a password, not a hostname, and it sits in Cloudflare DNS
-in plain sight whenever the record is grey.
+**What the app does now (v5.49).** When the Railway variable `ORIGIN_SECRET`
+is set, the app answers only requests that carry that same value in a
+header called `X-Origin-Secret`. You set up Cloudflare to add that header
+to every request it passes on to Railway, which it only does after Access
+has let the request in. A request that goes to the Railway address
+directly has no header, so it gets `403 forbidden: origin check failed`:
+no page, no `config.js`, no API. Until `ORIGIN_SECRET` is set, nothing
+changes, so until then **treat the `*.up.railway.app` address as a
+secret**: keep it out of issues, screenshots and commit messages.
 
-Until that is closed:
+**Do it in this order: Cloudflare first, Railway second.** The other way
+round, the app starts refusing everything before Cloudflare sends the
+header, and the dashboard is locked until you finish.
 
-- **Treat the `*.up.railway.app` address as a secret.** Do not paste it into
-  issues, screenshots or commit messages.
-- Keep the grey-cloud window short, because the address is publicly visible
-  in DNS while it lasts.
+1. **Make a secret.** In a Terminal: `openssl rand -hex 32`. Copy the 64
+   characters it prints into your password manager. Don't paste it
+   anywhere else: not in GitHub, not in a chat, not in a screenshot.
+2. **Cloudflare adds it.** dash.cloudflare.com → `jerrytrade.com` →
+   **Rules → Overview → Create rule → Request Header Transform Rule**
+   (on the older dashboard: **Rules → Transform Rules → Modify Request
+   Header → Create rule**).
+   - Rule name: `Origin secret to Railway`
+   - *If incoming requests match…* → **Custom filter expression**:
+     Field **Hostname**, Operator **equals**, Value
+     `dashboard.jerrytrade.com`
+   - *Then…* → **Set static** → Header name `X-Origin-Secret` → Value: the
+     secret from step 1
+   - **Deploy.** Nothing changes yet: the app ignores the header until
+     step 3.
+3. **Railway checks it.** Railway → `web` → **Variables → New Variable** →
+   name `ORIGIN_SECRET`, value: the same secret → save. Railway redeploys
+   (about a minute). The start of the new deploy's log says
+   `Origin check: ON, X-Origin-Secret required`.
+4. **Check it worked.**
+   - Open https://dashboard.jerrytrade.com: it loads as before, after the
+     Access login.
+   - The Railway address now refuses. `THE-RAILWAY-ADDRESS` is the
+     `*.up.railway.app` value on Railway's Networking page:
+     ```
+     curl -s -o /dev/null -w "%{http_code}\n" https://THE-RAILWAY-ADDRESS/
+     curl -s https://THE-RAILWAY-ADDRESS/config.js
+     ```
+     The first prints `403`, the second `forbidden: origin check failed`.
+   - The watchman (below) stays green: it goes through Cloudflare, so its
+     requests get the header too.
+5. **Then rotate the API key.** It was committed to `config.js` in this
+   repo until v5.49, so it is public. Now it's one change on Railway:
+   SECURITY_NOTES.md, "Rotating `API_KEY`".
 
-Closing it properly means the app refusing requests that did not come
-through Cloudflare — either by verifying the Access token Cloudflare adds to
-every request it forwards, or by requiring a shared secret header that only
-Cloudflare sends. Neither is done yet.
+**If the dashboard itself says `forbidden: origin check failed`,** the
+Cloudflare rule and the Railway variable don't match (a character missing,
+a space pasted in, or the rule's hostname not matching). The quickest way
+back is to delete `ORIGIN_SECRET` on Railway, which puts things back as they
+were, then fix the rule and add the variable again. The watchman reports
+this as `ORIGIN SECRET`.
+
+**Changing the secret later, without a gap:** set `ORIGIN_SECRET` on Railway
+to `NEW,OLD` (both values, comma between), change the Cloudflare rule's
+value to `NEW`, then set `ORIGIN_SECRET` to `NEW` alone.
+
+**Two things that must not use the Railway address once this is on:**
+
+- **A Railway health check.** None is set up today. If you ever add one
+  (Railway → `web` → Settings → Deploy → Healthcheck Path), use `/healthz`:
+  it is the one path that answers without the secret, and all it says is
+  `ok`. Any other path gets 403, and Railway would fail every deploy.
+- **Schwab's one-click sign-in.** If `SCHWAB_REDIRECT_URI` is set, it must
+  point at `https://dashboard.jerrytrade.com/...`, not at the Railway
+  address, or Schwab's redirect back is refused.
+
+**Why a shared header and not Access's own token.** Cloudflare also adds a
+signed Access token (`Cf-Access-Jwt-Assertion`) to the requests it lets
+through. Checking it properly means verifying an RSA signature against keys
+the app would download from Cloudflare: a new dependency (or hand-written
+crypto) and a network call on the request path. The header does the same
+job here with neither: only Cloudflare knows the value, and Cloudflare only
+forwards a request to Railway after Access has passed it. Not done; it
+could be added later as a second check.
 
 **One trap worth knowing.** Railway keeps old addresses alive for a while,
 and an old one will still answer a plain request while having no valid
-certificate. So "the old address responds" proves nothing. The only
+certificate. So "the old address responds" proves nothing, and neither does
+"the old address says 403". The only
 address that counts is the one Railway's Networking page shows **right
 now**.
 
@@ -199,8 +260,8 @@ problem.
    requires to be refused. If the site ever answers a stranger — a grey cloud
    left on after the certificate fix — that is reported as loudly as an
    outage. **It only watches the `dashboard.jerrytrade.com` door.** The
-   Railway address is a second door it cannot see, and that one is still
-   unlocked — see the open item above.
+   Railway address is a second door it cannot see; `ORIGIN_SECRET` is what
+   shuts that one (see "Closing the Railway back door" above).
 3. **When does the certificate expire?** Given the origin address it warns
    **fourteen days ahead**, which turns a market-hours outage into a quiet
    evening's work. This is the one that prevents rather than reports.
@@ -267,6 +328,9 @@ else to do.
 - **Variables tab** — settings & secrets:
   - `JERRY_DATA_DIR = /data` (where the watchlist + token are saved)
   - `SCHWAB_APP_KEY`, `SCHWAB_APP_SECRET` (your Schwab app credentials)
+  - `API_KEY` (the page gets it through `config.js`; nothing to commit)
+  - `ORIGIN_SECRET` (shuts the Railway address; see "Closing the Railway
+    back door")
 - **Volume** (`web-volume`, mounted at `/data`) — keeps the watchlist and
   Schwab token forever, across restarts.
 - **Custom domain** — `dashboard.jerrytrade.com` (DNS lives in Cloudflare as a
@@ -339,6 +403,8 @@ doesn't pause.
 | Check yesterday's capture actually ran | Investment tab → **Data readiness** |
 | Fix Schwab | `jerry auth` → paste token in Railway Console → Restart |
 | Site shows **Error 526** | grey cloud → re-add domain in Railway → new CNAME → orange cloud |
+| Site says **forbidden: origin check failed** | the Cloudflare rule and Railway's `ORIGIN_SECRET` don't match; delete the variable to get back in, then fix |
+| Rotate the API key | Railway → Variables → `API_KEY` → new value (SECURITY_NOTES.md) |
 | Check the watchman is working | GitHub → **Actions** → **uptime** → newest run |
 | Update the app | push to GitHub `main` |
 | Run it locally again | `python options_dashboard.py --serve --port 8765` |

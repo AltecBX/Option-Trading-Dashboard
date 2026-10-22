@@ -40,6 +40,7 @@ def _find_free_port() -> int:
 def _start_server(port: int, ticker: str = "AAPL", env_override: dict | None = None):
     """Spawn the server. Returns Popen handle. Caller must terminate."""
     env = os.environ.copy()
+    env.pop("ORIGIN_SECRET", None)  # the harness talks to the server directly (v5.49)
     if env_override:
         env.update(env_override)
     proc = subprocess.Popen(

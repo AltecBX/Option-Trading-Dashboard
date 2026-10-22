@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import gzip as _gzip
+import hmac
 import json
 import math
 import os
@@ -8919,6 +8920,64 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    # ── The Railway back door (v5.49) ──────────────────────────────────
+    # Cloudflare Access guards the dashboard's own domain, but the Railway
+    # address served the page, and config.js with the API key in it, to
+    # anyone who asked it directly. With ORIGIN_SECRET set, a request is
+    # served only if it carries that value in X-Origin-Secret, which a
+    # Cloudflare Transform Rule adds to the traffic it forwards (after
+    # Access has let it through). Unset, nothing changes: local use and the
+    # tests run without it. Checked in parse_request, so it comes before
+    # every method, static file and API route alike. No exemption by client
+    # address: behind Railway's proxy every request comes from the proxy,
+    # and a forwarded-for header is whatever the sender wrote.
+    # Comma-separated values are all accepted, so the secret can be rotated
+    # without a gap (OPERATIONS.md).
+    _ORIGIN_HEADER = "X-Origin-Secret"
+    # Railway's health check cannot carry the secret. It gets "ok", and
+    # nothing about the app, for GET or HEAD on exactly this path.
+    _HEALTH_PATH = "/healthz"
+
+    @staticmethod
+    def _origin_secrets() -> list[bytes]:
+        raw = os.environ.get("ORIGIN_SECRET", "")
+        return [v.strip().encode("utf-8") for v in raw.split(",") if v.strip()]
+
+    def _origin_ok(self) -> bool:
+        secrets = self._origin_secrets()
+        if not secrets:
+            return True
+        if (self.command in ("GET", "HEAD")
+                and urllib.parse.urlsplit(self.path).path == self._HEALTH_PATH):
+            return True
+        got = (self.headers.get(self._ORIGIN_HEADER) or "").strip().encode("utf-8", "replace")
+        # Every value is compared, so the time taken says nothing about
+        # which one, or how much of it, matched.
+        ok = False
+        for want in secrets:
+            ok = hmac.compare_digest(got, want) or ok
+        return ok
+
+    def parse_request(self):  # noqa: D401
+        if not super().parse_request():
+            return False
+        if self._origin_ok():
+            return True
+        body = b"forbidden: origin check failed\n"
+        self.close_connection = True      # any request body is left unread
+        self.send_response(403)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        if self.command != "HEAD":
+            try:
+                self.wfile.write(body)
+            except Exception:  # noqa: BLE001
+                pass
+        return False
+
     def _check_api_key(self) -> bool:
         # If API_KEY is unset (typical local dev) we don't enforce. In
         # production Jerry sets API_KEY on Railway and the same value in
@@ -14449,11 +14508,23 @@ whole screen and send it back.</p>
 
     def _serve_static(self, parsed):
         p = parsed.path
+        if p == self._HEALTH_PATH:
+            # Railway's health check (v5.49): alive, and nothing more.
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", "2")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(b"ok")
+            return
         # HTML shell — always revalidated so a new deploy applies at once.
         if p in self._HTML_ROUTES:
             baked = HERE / "options_dashboard.html"
             target = baked if baked.exists() else (HERE / "index.html")
             return self._send_file(target, "text/html; charset=utf-8", "no-cache")
+        if p == "/config.js" and os.environ.get("API_KEY", "").strip():
+            return self._send_config_js()
         if p in self._STATIC_EXACT:
             rel, ctype, cache = self._STATIC_EXACT[p]
             return self._send_file(HERE / rel, ctype, cache)
@@ -14486,6 +14557,30 @@ whole screen and send it back.</p>
                 self.wfile.write(b"not found")
         except Exception:
             pass
+
+    def _send_config_js(self):
+        """config.js with Railway's API_KEY put in as it is served (v5.49).
+        The committed file holds no key, so the key never goes into the
+        repo and rotating it is one change on Railway. A line is added
+        after the file rather than the file edited, so it holds whatever
+        the file looks like; json.dumps makes the key a JS string literal
+        whatever it contains."""
+        try:
+            text = (HERE / "config.js").read_text(encoding="utf-8")
+        except OSError:
+            text = "window.__APP_CONFIG = {};\n"
+        key = os.environ.get("API_KEY", "").strip()
+        text += ("\n// API_KEY from the server's environment (v5.49).\n"
+                 "(window.__APP_CONFIG = window.__APP_CONFIG || {}).apiKey = "
+                 + json.dumps(key) + ";\n")
+        body = text.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/javascript")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(body)
 
     def _send_file(self, path: Path, ctype: str, cache: str):
         try:
@@ -14567,7 +14662,7 @@ def check_deploy_security(host: str) -> list[str]:
         problems.append(
             f"Refusing to bind {host} without auth: the API (including broker/"
             "position endpoints) would be open to the network. Set API_KEY "
-            "(and the same value in config.js apiKey), or set "
+            "(the page gets it through config.js), or set "
             "DANGEROUSLY_DISABLE_AUTH=1 if you truly want an open server.")
     if os.environ.get("ALLOWED_ORIGIN", "").strip() == "*" and not loopback:
         problems.append(
@@ -14583,6 +14678,11 @@ def serve(host: str, port: int, weeks: int, friday_baseline: bool) -> None:
         for p in problems:
             print(f"🛑  SECURITY: {p}", file=sys.stderr)
         sys.exit(2)
+    # Said once at start, so Railway's log shows whether the back door is
+    # shut (v5.49). The secret itself is never printed.
+    n_secrets = len(DashboardHandler._origin_secrets())
+    print(f"Origin check: {'ON, X-Origin-Secret required' if n_secrets else 'off (ORIGIN_SECRET not set)'}"
+          + (f" ({n_secrets} values accepted)" if n_secrets > 1 else ""), file=sys.stderr)
     DashboardHandler.weeks = weeks
     DashboardHandler.friday_baseline = friday_baseline
     # Prewarm the ticker autocomplete index in the background. Doing this off

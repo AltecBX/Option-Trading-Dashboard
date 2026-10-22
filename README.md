@@ -15,7 +15,7 @@ Open http://localhost:8765/ in a browser. The page calls `/api/ticker?symbol=...
 
 **Backend.** `options_dashboard.py` is still the HTTP entry point — stdlib `http.server`, every `/api/*` route — but it is no longer where the work happens. Most features now live in their own Python modules that it imports and wires: `gap_engine.py` / `gap_scan.py`, `invest_engine.py` / `invest_scan.py` / `fair_value.py` / `peers.py`, `korea_lead_engine.py` / `korea_lead.py` / `korea_research*.py` / `korea_capture.py`, `strat_states.py` / `gex_engine.py` / `market_state.py`, `backtest.py`, `patterns.py`, and others. The consistent split is a pure engine (mathematics, no I/O, no clock) beside a stateful module that owns fetching, caching and disk. Market data comes from Schwab first where a real quote is needed, with Yahoo as a fallback. Tunables live in `thresholds.json`, overridable key by key from `<data_dir>/thresholds.json`, and the effective config is hashed onto the results it produced.
 
-**Frontend.** The layout is a PERMANENT FRAME with one scrolling hole in it: `.shell` is a viewport-height three-row grid — the ten market charts and the grouped section bar on top, the two bottom feeds and the version line underneath, the four high/low rails fixed in the margins — and `.main` is the only element that scrolls. That is why the charts and feeds are on every destination rather than merely rendered somewhere in an 11,000-pixel document. See `UI_FRAME.md`. React source in `.jsx`, compiled by `node build_frontend.js` — there is no Babel in the browser. That script compiles the JSX to readable committed `.js`, minifies everything through esbuild into `dist/`, pre-compresses each asset to a `.gz` sibling, and stamps content hashes so a changed file gets a new URL. Several heavy tabs — Gap Scan, Investment, Backtest, Patterns and others — are lazy chunks that are not `<script>` tags in `index.html` at all; `LazyTab` injects them the first time that tab is opened. `config.js` is deliberately left unminified and unversioned because it is edited after deploy. Run the build after any `.jsx` change; deploy machines never run node.
+**Frontend.** The layout is a PERMANENT FRAME with one scrolling hole in it: `.shell` is a viewport-height three-row grid — the ten market charts and the grouped section bar on top, the two bottom feeds and the version line underneath, the four high/low rails fixed in the margins — and `.main` is the only element that scrolls. That is why the charts and feeds are on every destination rather than merely rendered somewhere in an 11,000-pixel document. See `UI_FRAME.md`. React source in `.jsx`, compiled by `node build_frontend.js` — there is no Babel in the browser. That script compiles the JSX to readable committed `.js`, minifies everything through esbuild into `dist/`, pre-compresses each asset to a `.gz` sibling, and stamps content hashes so a changed file gets a new URL. Several heavy tabs — Gap Scan, Investment, Backtest, Patterns and others — are lazy chunks that are not `<script>` tags in `index.html` at all; `LazyTab` injects them the first time that tab is opened. `config.js` is deliberately left unminified; the server adds the API key to it as it serves it, from Railway's `API_KEY` (v5.49). Run the build after any `.jsx` change; deploy machines never run node.
 
 **Korea Lead** is not a tab. It is a quantitative layer that renders at the top of Gap Scan, with its own research endpoints behind it (`/api/korea_lead`, `/api/korea_research/*`, `/api/korea_forward/*`) and a background thread that archives point-in-time Korean state and a pre-open prediction record each session.
 
@@ -28,7 +28,7 @@ See `DEPLOY.md` for the full walkthrough. Short version:
 1. Push to a private GitHub repo
 2. Deploy backend to Railway (auto-detects Python, runs from Procfile)
 3. Deploy frontend to Vercel (pure static)
-4. Edit `config.js` to point at the Railway URL
+4. Set `API_KEY` on Railway (the server hands it to the page through `config.js`; nothing to edit)
 5. Add the Vercel URL to your iPhone home screen
 
 ## Files
@@ -40,7 +40,7 @@ See `DEPLOY.md` for the full walkthrough. Short version:
 | `requirements.txt` | Python dependencies (Railway reads this) |
 | `Procfile` | How Railway starts the server |
 | `vercel.json` | Tells Vercel this is pure static |
-| `config.js` | Frontend runtime config (API base + key) |
+| `config.js` | Frontend runtime config (API base; the server adds the key from `API_KEY`) |
 | `index.html` | Entry point, loads everything |
 | `app.jsx` | Main React app |
 | `charts.jsx` | All SVG chart components |

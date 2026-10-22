@@ -147,6 +147,190 @@ class TestStaticAllowlist(unittest.TestCase):
             os.environ.pop("ALLOWED_ORIGIN", None)
 
 
+class TestOriginSecret(unittest.TestCase):
+    """v5.49: the Railway address is a back door. Cloudflare Access guards
+    the dashboard's own domain, but the *.up.railway.app address served the
+    page, and config.js with the API key in it, to anyone. With
+    ORIGIN_SECRET set, only requests carrying it in X-Origin-Secret (which
+    a Cloudflare Transform Rule adds to the traffic it forwards) are
+    served; everything else gets a bare 403. Unset, nothing changes."""
+
+    SECRET = "test-origin-secret-0123456789abcdef"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.httpd = ThreadingHTTPServer(("127.0.0.1", 0), od.DashboardHandler)
+        cls.base = f"http://127.0.0.1:{cls.httpd.server_address[1]}"
+        threading.Thread(target=cls.httpd.serve_forever, daemon=True).start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.httpd.shutdown()
+
+    def tearDown(self):
+        os.environ.pop("ORIGIN_SECRET", None)
+        os.environ.pop("API_KEY", None)
+
+    def _req(self, path, headers=None, method="GET", data=None):
+        req = urllib.request.Request(self.base + path, headers=headers or {},
+                                     method=method, data=data)
+        try:
+            with urllib.request.urlopen(req, timeout=10) as r:
+                return r.status, dict(r.headers), r.read()
+        except urllib.error.HTTPError as e:
+            return e.code, dict(e.headers), e.read()
+
+    def _with(self, secret=None):
+        return {"X-Origin-Secret": secret or self.SECRET}
+
+    def test_unset_changes_nothing(self):
+        os.environ.pop("ORIGIN_SECRET", None)
+        for p in ("/", "/config.js", "/api/prefs", "/dist/styles.min.css?v=t"):
+            code, _, _ = self._req(p)
+            self.assertEqual(200, code, p)
+
+    def test_set_refuses_a_request_without_the_header(self):
+        os.environ["ORIGIN_SECRET"] = self.SECRET
+        for p in ("/", "/index.html", "/config.js", "/api/prefs",
+                  "/dist/app-lib.min.js?v=t", "/manifest.webmanifest", "/nope"):
+            code, headers, body = self._req(p)
+            self.assertEqual(403, code, p)
+            self.assertNotIn(b"<script", body, p)
+            self.assertNotIn(b"apiKey", body, p)
+            self.assertIn(b"origin check failed", body, p)
+            self.assertIn("no-store", headers.get("Cache-Control", ""), p)
+
+    def test_config_js_is_not_handed_out(self):
+        # The point of it all: config.js carries the API key.
+        os.environ["ORIGIN_SECRET"] = self.SECRET
+        code, _, body = self._req("/config.js")
+        self.assertEqual(403, code)
+        self.assertLess(len(body), 100, "a bare refusal, not the file")
+
+    def test_a_wrong_or_partial_secret_is_refused(self):
+        os.environ["ORIGIN_SECRET"] = self.SECRET
+        for bad in ("wrong", self.SECRET[:-1], self.SECRET + "x", self.SECRET.upper()):
+            code, _, _ = self._req("/", self._with(bad))
+            self.assertEqual(403, code, bad)
+
+    def test_the_right_secret_is_served(self):
+        os.environ["ORIGIN_SECRET"] = self.SECRET
+        code, _, body = self._req("/", self._with())
+        self.assertEqual(200, code)
+        self.assertIn(b"<script", body)
+        for p in ("/config.js", "/api/prefs", "/dist/styles.min.css?v=t"):
+            code, _, _ = self._req(p, self._with())
+            self.assertEqual(200, code, p)
+
+    def test_every_method_is_checked(self):
+        os.environ["ORIGIN_SECRET"] = self.SECRET
+        for method, path, data in (("HEAD", "/", None), ("OPTIONS", "/api/prefs", None),
+                                   ("PUT", "/api/watchlist", b'{"symbols": []}'),
+                                   ("POST", "/api/prefs", b"{}")):
+            code, _, body = self._req(path, method=method, data=data,
+                                      headers={"Content-Type": "application/json"})
+            self.assertEqual(403, code, method)
+        code, _, _ = self._req("/", self._with(), method="HEAD")
+        self.assertEqual(200, code, "HEAD with the secret")
+
+    def test_the_api_key_still_applies_behind_it(self):
+        os.environ["ORIGIN_SECRET"] = self.SECRET
+        os.environ["API_KEY"] = "sekrit"
+        code, _, _ = self._req("/api/prefs", self._with())
+        self.assertEqual(401, code, "the origin secret is not the API key")
+        code, _, _ = self._req("/api/prefs", {**self._with(), "X-API-Key": "sekrit"})
+        self.assertEqual(200, code)
+
+    def test_two_secrets_while_rotating(self):
+        os.environ["ORIGIN_SECRET"] = f"{self.SECRET}-new, {self.SECRET}"
+        for s in (self.SECRET, self.SECRET + "-new"):
+            code, _, _ = self._req("/", self._with(s))
+            self.assertEqual(200, code, s)
+        code, _, _ = self._req("/", self._with("-new"))
+        self.assertEqual(403, code)
+
+    def test_the_health_check_answers_and_says_nothing(self):
+        # Railway's own health check cannot carry the secret. /healthz
+        # answers it, with two bytes and nothing about the app.
+        os.environ["ORIGIN_SECRET"] = self.SECRET
+        for p in ("/healthz", "/healthz?probe=1"):
+            code, headers, body = self._req(p)
+            self.assertEqual(200, code, p)
+            self.assertEqual(b"ok", body, p)
+            self.assertIn("text/plain", headers.get("Content-Type", ""))
+        code, _, _ = self._req("/healthz", method="HEAD")
+        self.assertEqual(200, code)
+        for p in ("/healthz/../config.js", "/healthz/x", "/api/healthz", "/healthzz"):
+            code, _, body = self._req(p)
+            self.assertEqual(403, code, p)
+        code, _, _ = self._req("/healthz", method="PUT", data=b"{}")
+        self.assertEqual(403, code, "only GET and HEAD are exempt")
+
+class TestConfigKeyFromTheEnvironment(unittest.TestCase):
+    """v5.49: config.js gets the API key from Railway's API_KEY as it is
+    served, so the key is not committed to the repo and rotating it is one
+    change on Railway. Unset (local use), config.js is the file as it is."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.httpd = ThreadingHTTPServer(("127.0.0.1", 0), od.DashboardHandler)
+        cls.base = f"http://127.0.0.1:{cls.httpd.server_address[1]}"
+        threading.Thread(target=cls.httpd.serve_forever, daemon=True).start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.httpd.shutdown()
+
+    def tearDown(self):
+        os.environ.pop("API_KEY", None)
+
+    def _config(self, headers=None):
+        req = urllib.request.Request(self.base + "/config.js", headers=headers or {})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return r.status, dict(r.headers), r.read().decode("utf-8")
+
+    def _key_the_page_sees(self, js):
+        # Run config.js the way the page does and read back what it set.
+        import json
+        import shutil
+        import subprocess
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+        out = subprocess.run([node, "-e", "const window = {};" + js + ";process.stdout.write("
+                              "JSON.stringify(window.__APP_CONFIG))"],
+                             capture_output=True, text=True, timeout=30)
+        self.assertEqual(0, out.returncode, out.stderr)
+        return json.loads(out.stdout).get("apiKey")
+
+    def test_the_repo_holds_no_key(self):
+        import re
+        from pathlib import Path
+        text = (Path(od.__file__).parent / "config.js").read_text()
+        m = re.search(r'apiKey:\s*"([^"]*)"', text)
+        self.assertIsNotNone(m)
+        self.assertEqual("", m.group(1), "the API key is committed to the repo")
+
+    def test_unset_serves_the_file(self):
+        code, headers, js = self._config()
+        self.assertEqual(200, code)
+        self.assertIn("no-cache", headers.get("Cache-Control", ""))
+        self.assertEqual("", self._key_the_page_sees(js))
+
+    def test_set_puts_the_key_in(self):
+        os.environ["API_KEY"] = "rotated-key-123"
+        for h in ({}, {"Accept-Encoding": "gzip"}):
+            code, headers, js = self._config(h)
+            self.assertEqual(200, code)
+            self.assertIn("no-cache", headers.get("Cache-Control", ""))
+            self.assertIsNone(headers.get("Content-Encoding"))
+            self.assertEqual("rotated-key-123", self._key_the_page_sees(js))
+
+    def test_a_key_with_quotes_stays_a_string(self):
+        os.environ["API_KEY"] = 'a"b\\c</script>'
+        _, _, js = self._config()
+        self.assertEqual('a"b\\c</script>', self._key_the_page_sees(js))
+
 class TestStartupGate(unittest.TestCase):
     def test_loopback_never_blocked(self):
         self.assertEqual(od.check_deploy_security("127.0.0.1"), [])

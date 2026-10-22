@@ -94,10 +94,13 @@ running on the volume (or paste symbols back in via the UI).
 Right now the URL is public (same as your Mac tunnel is today). If you want
 a soft gate:
 
-- Railway **Variables** → `API_KEY=some-random-string`
-- Then set the same value in `config.js` (`apiKey: "some-random-string"`),
-  commit, push — Railway auto-redeploys. The served frontend will send the
-  key; random scanners without it get `unauthorized`.
+- Railway **Variables** → `API_KEY=some-random-string`. Railway redeploys,
+  and the server hands the key to the page through `config.js` as it
+  serves it (v5.49), so nothing is committed. Random scanners without it
+  get `unauthorized`.
+- The key is not a lock on its own: the page gives it to whoever loads the
+  page. To shut the Railway address itself, see OPERATIONS.md, "Closing
+  the Railway back door".
 
 ---
 
