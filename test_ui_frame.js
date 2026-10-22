@@ -182,7 +182,14 @@ ok("the phone frame is a fixed box, not a height in viewport units",
    /@media \(max-width: 900px\)[\s\S]*?\.shell \{[\s\S]{0,1400}?position: fixed;\s*inset: 0;\s*height: auto !important;/.test(css));
 ok("the shell absorbs the top inset inside its own height",
    /\.shell \{[\s\S]{0,1600}?padding: calc\(8px \+ env\(safe-area-inset-top, 0px\)\)/.test(css)
-   && /\.frame-bottom \{[^}]*padding-bottom: env\(safe-area-inset-bottom, 0px\)/.test(css));
+   && /\.frame-bottom \{[^}]*padding-bottom: var\(--sab\)/.test(css));
+// v5.49. The 105px band on Jerry's iPhone: every bottom reserve goes through
+// one variable, the reported inset capped at the home indicator's 34px, less
+// however far a home-screen window falls short of the screen (app.jsx).
+ok("the bottom reserve is the inset capped at 34px, less the window's shortfall",
+   /:root \{ --sab: max\(0px, min\(env\(safe-area-inset-bottom, 0px\), 34px\) - var\(--vp-short, 0px\)\); \}/.test(css)
+   && !/padding[^;]*env\(safe-area-inset-bottom/.test(css)
+   && /setProperty\("--vp-short"/.test(app));
 
 // v5.19. Jerry: "The P/E 153.1 · Fwd 76.5 should always be on 1 line. Also
 // I want to put the YTD % underneath this." The line sat in the ~120px

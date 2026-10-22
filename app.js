@@ -2581,10 +2581,33 @@ function App() {
         return "?";
       }
     };
+    // v5.49: how far a home-screen app's window falls short of the screen,
+    // in px, or 0. Only when the window starts at the top of the screen
+    // (the island's inset is reported): then the bottom of the screen, and
+    // the home indicator with it, is below the window, and the room the
+    // frame keeps clear for it (--sab in styles.css) is an empty band.
+    // Safari's window is short because of its own bars, and a window with
+    // no top inset may start lower and end at the bottom edge: both keep it.
+    const isStandalone = () => window.navigator.standalone === true || !!(window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
+    const shortfall = top => {
+      if (!isStandalone() || !(top > 0)) return 0;
+      const sw = (window.screen || {}).width || 0,
+        sh = (window.screen || {}).height || 0;
+      // iOS keeps screen.height the long side whichever way the phone is held.
+      const full = window.innerWidth <= window.innerHeight ? Math.max(sw, sh) : Math.min(sw, sh);
+      const gap = Math.round(full - window.innerHeight);
+      return gap > 40 ? gap : 0;
+    };
     const read = () => {
       try {
         const vv = window.visualViewport;
-        setScreenNote(`${(window.screen || {}).height || "?"}·${window.innerHeight}` + `·${vv ? Math.round(vv.height) : "-"}·${probe("top")}/${probe("bottom")}`);
+        const top = probe("top"),
+          bottom = probe("bottom"),
+          short = shortfall(top);
+        document.documentElement.style.setProperty("--vp-short", `${short}px`);
+        // ·sa: running from the home screen; ·−62: the window is 62px short
+        // and the bottom reserve has been given back.
+        setScreenNote(`${(window.screen || {}).height || "?"}·${window.innerHeight}` + `·${vv ? Math.round(vv.height) : "-"}·${top}/${bottom}` + (isStandalone() ? "·sa" : "") + (short ? `·−${short}` : ""));
       } catch (_) {
         setScreenNote("");
       }
@@ -11275,7 +11298,7 @@ function App() {
     className: "sl-ver"
   }, "v", APP_VERSION)), screenNote && /*#__PURE__*/React.createElement("span", {
     className: "sl-screen",
-    title: "Temporary screen check: screen height \xB7 window height \xB7 visible height \xB7 top/bottom insets. It comes out once the empty band at the bottom is fixed."
+    title: "Temporary screen check: screen height \xB7 window height \xB7 visible height \xB7 top/bottom insets, then sa when running from the home screen and \u2212N when the window is N px short of the screen (the bottom reserve is given back). It comes out once the empty band at the bottom is confirmed gone."
   }, screenNote), /*#__PURE__*/React.createElement("span", {
     className: "sl-sep",
     "aria-hidden": "true"

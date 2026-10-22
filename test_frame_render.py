@@ -1899,6 +1899,93 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         finally:
             self._close(handles)
 
+    # v5.49: the phone's bottom band, fixed for both readings of Jerry's
+    # screenshot. These run the page as an iPhone 16 Pro Max home-screen app
+    # would report itself: `navigator.standalone`, a 440x956 screen, and the
+    # window the test asks for.
+    _STANDALONE = ("(() => { const def = (o, k, v) => Object.defineProperty(o, k, {get: () => v, configurable: true});"
+                   " def(Navigator.prototype, 'standalone', true); })()")
+    _SCREEN_956 = ("(() => { const def = (o, k, v) => Object.defineProperty(o, k, {get: () => v, configurable: true});"
+                   " def(Screen.prototype, 'height', 956); def(Screen.prototype, 'width', 440); })()")
+    _BOTTOM = """() => {
+        const fb = document.querySelector('.frame-bottom');
+        let low = 0;
+        for (const e of fb.querySelectorAll('*')) {
+          const r = e.getBoundingClientRect();
+          if (r.height > 0 && r.width > 0 && getComputedStyle(e).visibility !== 'hidden') low = Math.max(low, r.bottom);
+        }
+        const sl = document.querySelector('.sl-screen');
+        return {reserve: parseFloat(getComputedStyle(fb).paddingBottom), low: Math.round(low),
+                vh: window.innerHeight, note: sl ? sl.textContent.trim() : null};
+    }"""
+
+    def test_a_reported_bottom_inset_past_the_home_indicator_is_capped(self):
+        """v5.49. One reading of Jerry's band: the phone reports a bottom
+        inset near 105 rather than the home indicator's 34, and the frame
+        reserved all of it: 956 - 105 = 851 is where his content stopped,
+        to the pixel. The reserve is capped at 34px, the real home
+        indicator on a Face ID iPhone."""
+        geo, errors, handles = self._measure(440, 956, safe_area=(62, 105))
+        try:
+            self.assertFalse(errors, f"page errors: {errors[:3]}")
+            m = handles[2].evaluate(self._BOTTOM)
+            self.assertLessEqual(m["reserve"], 34, f"{m['reserve']}px kept clear at the bottom, past the home indicator")
+            self.assertGreaterEqual(m["low"], m["vh"] - 34 - 4,
+                                    f"the frame ends at {m['low']}px on a {m['vh']}px screen: an empty band below it")
+            self.assertLessEqual(m["low"], m["vh"] - 34, "and nothing is under the home indicator")
+            self.assertRegex(m["note"] or "", r"/105\b", "the footer still shows what the phone reports")
+        finally:
+            self._close(handles)
+
+    def test_a_short_home_screen_window_takes_back_the_reserve(self):
+        """v5.49. The other reading: on the home screen, iOS gives the page a
+        window ~894 tall on a 956 screen while painting from the top, so the
+        home indicator is already below the window and the 34px kept clear
+        for it inside the window is an empty band. With the island's inset
+        reported (the window starts at the top of the screen), a window that
+        falls short of the screen by more than 40px gives that reserve back,
+        and the frame runs to the bottom of the window."""
+        geo, errors, handles = self._measure(440, 894, safe_area=(62, 34),
+                                             init=self._STANDALONE + ";" + self._SCREEN_956)
+        try:
+            self.assertFalse(errors, f"page errors: {errors[:3]}")
+            m = handles[2].evaluate(self._BOTTOM)
+            self.assertEqual(0, m["reserve"], f"{m['reserve']}px kept clear for a home indicator below the window")
+            self.assertGreaterEqual(m["low"], m["vh"] - 4,
+                                    f"the frame ends at {m['low']}px in an {m['vh']}px window: an empty band below it")
+            self.assertLessEqual(m["low"], m["vh"], "and nothing hangs below the window")
+            self.assertIn("sa", (m["note"] or "").split("·"), f"the footer says it is a home-screen app: {m['note']!r}")
+        finally:
+            self._close(handles)
+
+    def test_the_reserve_stays_where_the_home_indicator_may_be_inside_the_window(self):
+        """v5.49, the guards. The reserve is given back only when the window
+        is a home-screen app's, falls short of the screen, and starts at its
+        top (the island's inset is reported). In Safari the window is short
+        because of the browser's own bars; with no top inset the window may
+        start lower and end at the screen's bottom edge, where the home
+        indicator is. Both keep the 34px."""
+        cases = [("Safari", (62, 34), self._SCREEN_956),
+                 ("no top inset", (0, 34), self._STANDALONE + ";" + self._SCREEN_956),
+                 ("full-height window", (62, 34), self._STANDALONE)]
+        for name, insets, init in cases:
+            h = 956 if name == "full-height window" else 894
+            geo, errors, handles = self._measure(440, h, safe_area=insets, init=init)
+            try:
+                self.assertFalse(errors, f"{name}: page errors: {errors[:3]}")
+                m = handles[2].evaluate(self._BOTTOM)
+                self.assertEqual(34, m["reserve"], f"{name}: the home indicator's 34px is no longer kept clear")
+                self.assertLessEqual(m["low"], m["vh"] - 34, f"{name}: the frame runs under the home indicator")
+            finally:
+                self._close(handles)
+        geo, errors, handles = self._measure(1440, 900, init=self._STANDALONE)
+        try:
+            m = handles[2].evaluate(self._BOTTOM)
+            self.assertEqual(0, m["reserve"], "the desktop frame keeps nothing at the bottom")
+            self.assertGreaterEqual(m["low"], m["vh"] - 4, "and runs to the bottom of the window")
+        finally:
+            self._close(handles)
+
     def test_a_phone_on_its_side_keeps_clear_of_the_notch_and_home_indicator(self):
         """Codex on #405: the upright fix lives under max-width:900px, and a
         phone on its side is 956px wide — its own branch, where a later
