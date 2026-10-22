@@ -3449,6 +3449,189 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         finally:
             self._close(handles)
 
+    # v5.49 — RSI and the probability cone on the TradingView chart. The
+    # toggles only ever reached the SVG fallback; on the chart Jerry sees
+    # they did nothing.
+    _STUDIES = """() => { const el = document.querySelector('.tv-price-chart');
+        const p = el && el.__parts && el.__parts(); if (!p || !p.main) return null;
+        const day = (t) => typeof t === 'string' ? t : typeof t === 'number' ? new Date(t * 1000).toISOString().slice(0, 10)
+                           : `${t.year}-${String(t.month).padStart(2, '0')}-${String(t.day).padStart(2, '0')}`;
+        const pts = (s) => s.data().filter(d => d.value !== undefined).map(d => [day(d.time), d.value]);
+        const c = el.__chart, vis = c.timeScale().getVisibleRange();
+        const volDays = p.vol.data().map(d => day(d.time));
+        return {
+          height: el.clientHeight, fmt: p.main.options().priceFormat.type,
+          rsi: p.rsi ? pts(p.rsi) : null,
+          rsiLines: p.rsi ? p.rsiLines.map(l => l.options().price) : [],
+          rsiBand: p.rsi ? c.priceScale('rsi').options().scaleMargins : null,
+          volBand: c.priceScale('vol').options().scaleMargins,
+          cone: (p.cone || []).map(s => ({title: s.options().title, pts: pts(s)})),
+          visTo: vis ? day(vis.to) : null,
+          volDays, firstBar: volDays[0], lastBar: volDays[volDays.length - 1],
+          closes: p.main.data().map(d => [day(d.time), d.close === undefined ? d.value : d.close]),
+        }; }"""
+
+    @staticmethod
+    def _wilder(closes, n=14):
+        """RSI14, Wilder's smoothing: what the chart is meant to draw."""
+        out = [None] * len(closes)
+        if len(closes) < n + 1:
+            return out
+        g = l = 0.0
+        for i in range(1, n + 1):
+            ch = closes[i] - closes[i - 1]
+            if ch >= 0:
+                g += ch
+            else:
+                l -= ch
+        ag, al = g / n, l / n
+        out[n] = 100.0 if al == 0 else 100 - 100 / (1 + ag / al)
+        for i in range(n + 1, len(closes)):
+            ch = closes[i] - closes[i - 1]
+            ag = (ag * (n - 1) + (ch if ch > 0 else 0)) / n
+            al = (al * (n - 1) + (-ch if ch < 0 else 0)) / n
+            out[i] = 100.0 if al == 0 else 100 - 100 / (1 + ag / al)
+        return out
+
+    def _studies_ready(self, page, rsi, cone):
+        page.wait_for_function(
+            "([rsi, cone]) => { const e = document.querySelector('.tv-price-chart'); const p = e && e.__parts && e.__parts();"
+            " return p && !!p.rsi === rsi && (p.cone || []).length === cone; }", arg=[rsi, cone], timeout=15000)
+        page.wait_for_timeout(300)
+        return page.evaluate(f"({self._STUDIES})()")
+
+    def test_the_trade_chart_draws_rsi_and_the_cone(self):
+        import math
+        geo, errs, handles = self._measure(1440, 900, tab="trade", daily_history=True)
+        page = handles[2]
+        try:
+            page.wait_for_function("() => { const e = document.querySelector('.tv-price-chart'); return e && e.__parts; }",
+                                   timeout=20000)
+            page.click(".chart-range button:text-is('120D')")
+            off = self._studies_ready(page, False, 0)
+
+            page.click("button.rsi")
+            got = self._studies_ready(page, True, 0)
+            vals = [v for _, v in got["rsi"]]
+            self.assertTrue(vals and all(0 <= v <= 100 for v in vals), f"RSI runs 0 to 100: {vals[:5]}")
+            self.assertEqual(got["firstBar"], got["rsi"][0][0],
+                             "warm at the window's first bar: worked out on the whole series, then cut")
+            self.assertEqual(got["lastBar"], got["rsi"][-1][0])
+            self.assertEqual([70, 30], sorted(got["rsiLines"], reverse=True), "the 70 and 30 guides")
+            self.assertGreater(got["height"], off["height"] + 80, "the chart grows to make room, as the SVG one does")
+            self.assertLessEqual(1 - got["volBand"]["bottom"], got["rsiBand"]["top"],
+                                 "the RSI has a band of its own, under the volume")
+
+            page.click("button.cone")
+            got = self._studies_ready(page, True, 4)
+            cone = {c["title"]: c["pts"] for c in got["cone"]}
+            self.assertEqual({"+2σ", "+1σ", "-1σ", "-2σ"}, set(cone))
+            spot = cone["+1σ"][0][1]
+            for title, pts in cone.items():
+                self.assertEqual(got["lastBar"], pts[0][0], f"{title} starts at the last bar")
+                self.assertAlmostEqual(spot, pts[0][1], places=6)
+                self.assertGreater(pts[-1][0], got["lastBar"], f"{title} runs into the future")
+                self.assertLessEqual(pts[-1][0], got["visTo"], f"and the chart shows where it ends")
+            up1, up2, dn1, dn2 = (cone[t][-1][1] for t in ("+1σ", "+2σ", "-1σ", "-2σ"))
+            self.assertTrue(up2 > up1 > spot > dn1 > dn2)
+            self.assertAlmostEqual(math.log(up2 / spot), 2 * math.log(up1 / spot), places=9)
+            self.assertAlmostEqual(math.log(dn1 / spot), -math.log(up1 / spot), places=9)
+            self.assertAlmostEqual(math.log(dn2 / spot), -2 * math.log(up1 / spot), places=9)
+            # It widens with the square root of time, counted in days.
+            d0 = date.fromisoformat(got["lastBar"])
+            mid, end = cone["+1σ"][len(cone["+1σ"]) // 2], cone["+1σ"][-1]
+            t_mid, t_end = ((date.fromisoformat(p[0]) - d0).days for p in (mid, end))
+            self.assertAlmostEqual(math.log(mid[1] / spot) / math.log(end[1] / spot),
+                                   math.sqrt(t_mid / t_end), places=9)
+
+            page.click("button.rsi")
+            page.click("button.cone")
+            back = self._studies_ready(page, False, 0)
+            self.assertEqual(off["height"], back["height"])
+            self.assertEqual(errs, [], f"the page threw: {errs[:2]}")
+        finally:
+            self._close(handles)
+
+    def test_rsi_and_the_cone_in_market_cap(self):
+        hist = share_history_answer()
+        geo, errs, handles = self._measure(1440, 900, tab="trade", daily_history=True, share_history=hist)
+        page = handles[2]
+        try:
+            page.wait_for_function("() => { const e = document.querySelector('.tv-price-chart'); return e && e.__parts; }",
+                                   timeout=20000)
+            page.click(".chart-range button:text-is('10Y')")
+            page.wait_for_function(f"() => ({self._VISIBLE_YEARS})() > 9.5", timeout=15000)
+            page.click("button.rsi")
+            page.click("button.cone")
+            price = self._studies_ready(page, True, 4)
+            page.click(".chart-mode button:text-is('Mkt cap')")
+            page.wait_for_function("() => /10-year market cap/i.test(document.body.innerText)", timeout=10000)
+            page.wait_for_function("() => document.querySelector('.tv-price-chart').__parts().main.options().priceFormat.type === 'custom'",
+                                   timeout=10000)
+            cap = self._studies_ready(page, True, 4)
+
+            # The RSI of the market cap: Wilder over each unbroken stretch of
+            # market caps, a day with no count ending one.
+            caps, runs, run = dict(cap["closes"]), [], []
+            for d in cap["volDays"]:
+                if d in caps:
+                    run.append(d)
+                elif run:
+                    runs.append(run)
+                    run = []
+            if run:
+                runs.append(run)
+            self.assertGreater(len(runs), 0)
+            self.assertNotIn(cap["firstBar"], caps, "the window opens before the first count")
+            want = []
+            for r in runs:
+                want += [(d, v) for d, v in zip(r, self._wilder([caps[d] for d in r])) if v is not None]
+            self.assertEqual([d for d, _ in want], [d for d, _ in cap["rsi"]])
+            for (d, a), (_, b) in zip(want, cap["rsi"]):
+                self.assertAlmostEqual(a, b, delta=1e-6, msg=d)
+            by_day = dict(price["rsi"])
+            self.assertTrue(any(abs(by_day[d] - v) > 1e-6 for d, v in cap["rsi"] if d in by_day),
+                            "a change in the share count moves the market cap's RSI, not the price's")
+
+            # The cone is the price cone at today's share count.
+            shares = hist["points"][-1]["shares"]
+            pc = {c["title"]: c["pts"] for c in price["cone"]}
+            for c in cap["cone"]:
+                self.assertEqual([d for d, _ in pc[c["title"]]], [d for d, _ in c["pts"]])
+                for (d, a), (_, b) in zip(pc[c["title"]], c["pts"]):
+                    self.assertAlmostEqual(a * shares / b, 1.0, places=9, msg=f"{c['title']} {d}")
+            self.assertEqual(errs, [], f"the page threw: {errs[:2]}")
+        finally:
+            self._close(handles)
+
+    def test_no_cone_in_market_cap_without_a_current_count(self):
+        # The newest count is too old to stand for today: the strike lines
+        # are hidden in market cap, and so is the cone. The RSI needs no
+        # count of today's and stays.
+        hist = share_history_answer()
+        cut = (date.today() - timedelta(days=260)).isoformat()
+        pts = [p for p in hist["points"] if p["as_of"] <= cut]
+        hist = dict(hist, points=pts, coverage={"from": pts[0]["as_of"], "to": pts[-1]["as_of"]},
+                    latest={"as_of": pts[-1]["as_of"], "shares": pts[-1]["shares"], "form": "10-Q"})
+        geo, errs, handles = self._measure(1440, 900, tab="trade", daily_history=True, share_history=hist)
+        page = handles[2]
+        try:
+            page.wait_for_function("() => { const e = document.querySelector('.tv-price-chart'); return e && e.__parts; }",
+                                   timeout=20000)
+            page.click(".chart-range button:text-is('10Y')")
+            page.wait_for_function(f"() => ({self._VISIBLE_YEARS})() > 9.5", timeout=15000)
+            page.click("button.rsi")
+            page.click("button.cone")
+            self._studies_ready(page, True, 4)
+            page.click(".chart-mode button:text-is('Mkt cap')")
+            page.wait_for_function("() => /lines are hidden/.test(document.body.innerText)", timeout=10000)
+            cap = self._studies_ready(page, True, 0)
+            self.assertEqual("custom", cap["fmt"])
+            self.assertTrue(cap["rsi"], "the RSI stays")
+            self.assertEqual(errs, [], f"the page threw: {errs[:2]}")
+        finally:
+            self._close(handles)
+
     def test_a_partial_share_history_is_asked_again(self):
         # The server says "partial, retried in ten minutes" (a filing list
         # or the price check could not be had). The page asks again then,

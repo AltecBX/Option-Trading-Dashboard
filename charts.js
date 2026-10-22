@@ -238,7 +238,7 @@ function capPriceFormat(more = 0) {
 // candles, with a dot on the bar each count begins on (`cap.starts`, worked
 // out on the whole series, Codex #431). `rows` carry `cap` (capBars);
 // `timeOf(row)` is the chart's time for it. Returns the series.
-function addShareStrip(chart, rows, timeOf) {
+function addShareStrip(chart, rows, timeOf, margins = SHARE_MARGINS) {
   const LC = window.LightweightCharts,
     MC = window.MarketCap;
   const strip = chart.addLineSeries({
@@ -256,10 +256,7 @@ function addShareStrip(chart, rows, timeOf) {
     }
   });
   chart.priceScale("shares").applyOptions({
-    scaleMargins: {
-      top: 0.72,
-      bottom: 0.17
-    }
+    scaleMargins: margins
   });
   const live = (rows || []).filter(r => r && timeOf(r) != null);
   strip.setData(ascendingByTime(live.map(r => r.cap ? {
@@ -289,6 +286,69 @@ const CAP_MARGINS = {
     top: 0.2,
     bottom: 0.1
   };
+const VOL_MARGINS = {
+    top: 0.85,
+    bottom: 0
+  },
+  SHARE_MARGINS = {
+    top: 0.72,
+    bottom: 0.17
+  };
+
+// ── RSI and the probability cone, shared by the SVG and TradingView charts (v5.49) ──
+// RSI14, Wilder's smoothing, standard 14-period: null until period+1
+// closes have accumulated. `closes` is one unbroken run.
+function rsiWilder(closes, period = 14) {
+  const out = new Array(closes.length).fill(null);
+  if (closes.length < period + 1) return out;
+  let gains = 0,
+    losses = 0;
+  for (let i = 1; i <= period; i++) {
+    const ch = closes[i] - closes[i - 1];
+    if (ch >= 0) gains += ch;else losses -= ch;
+  }
+  let avgGain = gains / period;
+  let avgLoss = losses / period;
+  out[period] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+  for (let i = period + 1; i < closes.length; i++) {
+    const ch = closes[i] - closes[i - 1];
+    const g = ch > 0 ? ch : 0;
+    const l = ch < 0 ? -ch : 0;
+    avgGain = (avgGain * (period - 1) + g) / period;
+    avgLoss = (avgLoss * (period - 1) + l) / period;
+    out[i] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+  }
+  return out;
+}
+// The RSI line's colour by zone: overbought red, oversold green.
+function rsiColor(last, up = "#22c55e", down = "#ef4444", neutral = "rgb(150, 130, 220)") {
+  return last == null ? neutral : last >= 70 ? down : last <= 30 ? up : neutral;
+}
+// The probability cone `tDays` out: [low, high] of the ±k·σ band around
+// `spot`, lognormal, σ a day = annualized IV / √252.
+function coneBand(spot, ivAnnualized, tDays, k) {
+  const sigmaT = ivAnnualized / Math.sqrt(252) * Math.sqrt(Math.max(0, tDays));
+  return [spot * Math.exp(-k * sigmaT), spot * Math.exp(k * sigmaT)];
+}
+// The TradingView chart's cone colour. Not the theme's accent: that is an
+// oklch() colour, which the chart library cannot parse.
+const CONE_COLOR = "rgba(20,184,166,0.9)";
+// With RSI on, the TradingView chart grows by a quarter (as the SVG chart
+// grows its RSI pane) and every other scale keeps to the top 80%: the RSI
+// has the band under them all to itself.
+const RSI_SHARE = 0.2,
+  RSI_MARGINS = {
+    top: 0.83,
+    bottom: 0.02
+  };
+function withRsiRoom(m, on) {
+  if (!on) return m;
+  const f = 1 - RSI_SHARE;
+  return {
+    top: m.top * f,
+    bottom: 1 - f * (1 - m.bottom)
+  };
+}
 // What a chart says above itself in market cap (capState's answer): why it
 // shows the price instead, or where market cap starts, and the history's
 // own warnings, folded.
@@ -327,6 +387,14 @@ function CapNotes({
 // `daily` is the window on show; `full` is the series it was cut from. The
 // averages are worked out on `full` and drawn for the window, so MA200 is
 // there on a 120-day chart and right at its left edge (Codex, #431).
+//
+// RSI and the probability cone (v5.49): the toggles used to reach only the
+// SVG fallback. RSI14 runs in a band of its own under the volume, the chart
+// growing to make room, worked out like the averages: on `full`, in
+// unbroken stretches, then cut to the window. In market cap it is the
+// market cap's RSI. The cone fans ±1σ/±2σ from the current price to the
+// expiry over the weekdays ahead; in market cap at today's share count,
+// and not at all without one (as the strike lines).
 function TVPriceChart({
   daily,
   full = null,
@@ -342,6 +410,10 @@ function TVPriceChart({
   showMA50 = false,
   showMA200 = false,
   showEMA21 = false,
+  showRSI = false,
+  showProbCone = false,
+  ivAnnualized = null,
+  dteToExp = null,
   levels = null,
   resetKey = "",
   cap = null
@@ -357,6 +429,11 @@ function TVPriceChart({
     lines: [],
     series: []
   });
+  const rsiRef = React.useRef({
+    series: null,
+    lines: []
+  });
+  const coneRef = React.useRef([]);
   const dailyRef = React.useRef(daily);
   dailyRef.current = daily; // touch-zoom reads the live length
   const norm = s => {
@@ -424,10 +501,7 @@ function TVPriceChart({
       priceScaleId: "vol"
     });
     chart.priceScale("vol").applyOptions({
-      scaleMargins: {
-        top: 0.85,
-        bottom: 0
-      }
+      scaleMargins: VOL_MARGINS
     });
     chartRef.current = chart;
     volRef.current = vol;
@@ -436,7 +510,10 @@ function TVPriceChart({
       main: mainRef.current,
       vol: volRef.current,
       lines: extraRef.current.lines,
-      series: extraRef.current.series
+      series: extraRef.current.series,
+      rsi: rsiRef.current.series,
+      rsiLines: rsiRef.current.lines,
+      cone: coneRef.current
     });
     const detachTouch = attachTouchZoom(el, chart, {
       getBarCount: () => (dailyRef.current || []).length,
@@ -446,9 +523,12 @@ function TVPriceChart({
         } catch (e) {}
       }
     });
+    // Height too (v5.49): the chart grows when the RSI is on.
     const ro = new window.ResizeObserver(() => {
-      if (wrapRef.current) chart.applyOptions({
-        width: wrapRef.current.clientWidth
+      const w = wrapRef.current;
+      if (w) chart.applyOptions({
+        width: w.clientWidth,
+        height: w.clientHeight || 460
       });
     });
     ro.observe(el);
@@ -463,6 +543,11 @@ function TVPriceChart({
       chartRef.current = null;
       mainRef.current = null;
       volRef.current = null;
+      rsiRef.current = {
+        series: null,
+        lines: []
+      };
+      coneRef.current = [];
     };
   }, [LC]);
 
@@ -524,9 +609,6 @@ function TVPriceChart({
         minMove: 0.01
       }
     });
-    if (chartRef.current) chartRef.current.priceScale("right").applyOptions({
-      scaleMargins: capMode ? CAP_MARGINS : PRICE_MARGINS
-    });
     mainRef.current.setData(ascendingByTime(axis.map(point)));
     const up = d => {
       const b = drawn(d) ? d : d.px || d;
@@ -540,6 +622,19 @@ function TVPriceChart({
     }))) : []);
   }, [daily, chartStyle, capMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Where each scale sits: the candles make room for the share strip in
+  // market cap, and everything keeps to the top 80% while the RSI is on.
+  React.useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    chart.priceScale("right").applyOptions({
+      scaleMargins: withRsiRoom(capMode ? CAP_MARGINS : PRICE_MARGINS, showRSI)
+    });
+    chart.priceScale("vol").applyOptions({
+      scaleMargins: withRsiRoom(VOL_MARGINS, showRSI)
+    });
+  }, [LC, capMode, showRSI]);
+
   // Fit the time scale when the WINDOW changes (a new symbol or range, a new
   // day's bar), NOT on a style toggle and NOT on each update of today's live
   // candle: the quote poll rebuilds `daily` every 15 seconds, and fitting on
@@ -552,6 +647,25 @@ function TVPriceChart({
     fitKeyRef.current = key;
     chartRef.current.timeScale().fitContent();
   }, [daily, resetKey]);
+
+  // What the averages and the RSI run over: the whole series, in unbroken
+  // stretches of bars. In market cap a day with no share count ends one,
+  // rather than being averaged across. Only the window's part is drawn.
+  const closeRuns = () => {
+    const series = full && full.length ? full : daily;
+    const runs = [];
+    if (capMode) {
+      let run = [];
+      series.forEach(d => {
+        if (d && isDrawable(d.close)) run.push(d);else if (run.length) {
+          runs.push(run);
+          run = [];
+        }
+      });
+      if (run.length) runs.push(run);
+    } else runs.push(series.filter(d => d && isDrawable(d.close)));
+    return runs;
+  };
   React.useEffect(() => {
     const chart = chartRef.current,
       main = mainRef.current;
@@ -570,23 +684,9 @@ function TVPriceChart({
       lines: [],
       series: []
     };
-    // The averages run over the whole series, in unbroken stretches of
-    // bars: in market-cap mode a day with no share count ends one, rather
-    // than averaging across it. Only the window's part is drawn.
-    const series = full && full.length ? full : daily;
     const from = norm(daily[0].date),
       to = norm(daily[daily.length - 1].date);
-    const runs = [];
-    if (capMode) {
-      let run = [];
-      series.forEach(d => {
-        if (d && isDrawable(d.close)) run.push(d);else if (run.length) {
-          runs.push(run);
-          run = [];
-        }
-      });
-      if (run.length) runs.push(run);
-    } else runs.push(series.filter(d => d && isDrawable(d.close)));
+    const runs = closeRuns();
     const inWindow = out => out.filter(p => p.time >= from && p.time <= to);
     const sma = n => {
       const out = [];
@@ -680,7 +780,7 @@ function TVPriceChart({
       pl(lv.price, RCV_COLOR[lv.kind] || "rgba(148,163,184,0.7)", lv.kind === "invalidation" ? LC.LineStyle.Dashed : LC.LineStyle.Dotted, lv.label);
     });
     // The shares outstanding, in a strip of its own under the candles.
-    if (capMode) extraRef.current.series.push(addShareStrip(chart, daily, d => d.date != null ? norm(d.date) : null));
+    if (capMode) extraRef.current.series.push(addShareStrip(chart, daily, d => d.date != null ? norm(d.date) : null, withRsiRoom(SHARE_MARGINS, showRSI)));
     if (earnings) {
       const m = [];
       (earnings.past || []).forEach(d => {
@@ -705,7 +805,139 @@ function TVPriceChart({
         main.setMarkers(m);
       } catch (e) {}
     }
-  }, [daily, full, currentPrice, callStrike, putStrike, expHigh, expLow, emHigh, emLow, showMA50, showMA200, showEMA21, earnings, chartStyle, levels, capMode, cap]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [daily, full, currentPrice, callStrike, putStrike, expHigh, expLow, emHigh, emLow, showMA50, showMA200, showEMA21, showRSI, earnings, chartStyle, levels, capMode, cap]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // RSI14 (v5.49) on a scale of its own, 0 to 100, in the band under the
+  // volume, with the 70 and 30 guides. Coloured by where it ends, as the
+  // SVG chart's.
+  React.useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    if (rsiRef.current.series) {
+      try {
+        chart.removeSeries(rsiRef.current.series);
+      } catch (e) {}
+    }
+    rsiRef.current = {
+      series: null,
+      lines: []
+    };
+    if (!showRSI || !daily || !daily.length) return;
+    const from = norm(daily[0].date),
+      to = norm(daily[daily.length - 1].date);
+    const data = [];
+    closeRuns().forEach(rows => {
+      const vals = rsiWilder(rows.map(d => d.close));
+      rows.forEach((d, i) => {
+        const t = norm(d.date);
+        if (vals[i] != null && t >= from && t <= to) data.push({
+          time: t,
+          value: vals[i]
+        });
+      });
+    });
+    if (!data.length) return;
+    const s = chart.addLineSeries({
+      priceScaleId: "rsi",
+      color: rsiColor(data[data.length - 1].value),
+      lineWidth: 1,
+      title: "RSI 14",
+      priceLineVisible: false,
+      lastValueVisible: true,
+      crosshairMarkerVisible: false,
+      priceFormat: {
+        type: "price",
+        precision: 1,
+        minMove: 0.1
+      },
+      autoscaleInfoProvider: () => ({
+        priceRange: {
+          minValue: 0,
+          maxValue: 100
+        }
+      })
+    });
+    chart.priceScale("rsi").applyOptions({
+      scaleMargins: RSI_MARGINS
+    });
+    s.setData(ascendingByTime(data));
+    const guide = (price, color) => s.createPriceLine({
+      price,
+      color,
+      lineWidth: 1,
+      lineStyle: LC.LineStyle.Dashed,
+      axisLabelVisible: false,
+      title: String(price)
+    });
+    rsiRef.current = {
+      series: s,
+      lines: [guide(70, "rgba(239,68,68,0.55)"), guide(30, "rgba(34,197,94,0.55)")]
+    };
+  }, [daily, full, showRSI, capMode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The probability cone (v5.49): ±1σ and ±2σ from the current price, out
+  // over the weekdays to the expiry, `t` calendar days from the last bar
+  // (the SVG chart's math, coneBand). In market cap, at today's share
+  // count; without one, none. Turning it on fits the chart so its end is
+  // in view, and turning it off fits it back.
+  const coneFitRef = React.useRef("");
+  React.useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    coneRef.current.forEach(s => {
+      try {
+        chart.removeSeries(s);
+      } catch (e) {}
+    });
+    coneRef.current = [];
+    const spot = +currentPrice,
+      mult = capMode ? cap.levelShares : 1;
+    if (!showProbCone || !(ivAnnualized > 0) || !(dteToExp > 0) || !(spot > 0) || !mult || !daily || !daily.length) {
+      if (coneFitRef.current) {
+        coneFitRef.current = "";
+        chart.timeScale().fitContent();
+      }
+      return;
+    }
+    const start = norm(daily[daily.length - 1].date),
+      t0 = Date.parse(start + "T00:00:00Z");
+    const n = Math.max(1, Math.round(dteToExp)),
+      dayAt = t => new Date(t0 + t * 86400000);
+    const days = [];
+    for (let t = 1; t <= n; t++) {
+      const wd = dayAt(t).getUTCDay();
+      if (wd !== 0 && wd !== 6) days.push(t);
+    }
+    if (!days.length) days.push(n);
+    const fmtOpt = capMode ? {
+      priceFormat: capPriceFormat()
+    } : {};
+    const line = (k, side, title, style) => {
+      const s = chart.addLineSeries(Object.assign({
+        color: CONE_COLOR,
+        lineWidth: 1,
+        lineStyle: style,
+        title,
+        priceLineVisible: false,
+        lastValueVisible: true,
+        crosshairMarkerVisible: false
+      }, fmtOpt));
+      s.setData([{
+        time: start,
+        value: spot * mult
+      }].concat(days.map(t => ({
+        time: dayAt(t).toISOString().slice(0, 10),
+        value: coneBand(spot, ivAnnualized, t, k)[side] * mult
+      }))));
+      return s;
+    };
+    coneRef.current = [line(2, 1, "+2σ", LC.LineStyle.Dashed), line(1, 1, "+1σ", LC.LineStyle.Solid), line(1, 0, "-1σ", LC.LineStyle.Solid), line(2, 0, "-2σ", LC.LineStyle.Dashed)];
+    const key = `${resetKey}|${norm(daily[0].date)}|${start}|${daily.length}|${n}`;
+    if (key !== coneFitRef.current) {
+      coneFitRef.current = key;
+      chart.timeScale().fitContent();
+    }
+  }, [daily, showProbCone, ivAnnualized, dteToExp, currentPrice, capMode, cap, resetKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The day under the cursor, for the market-cap readout.
   const [hoverDay, setHoverDay] = React.useState(null);
@@ -736,7 +968,7 @@ function TVPriceChart({
   return /*#__PURE__*/React.createElement(React.Fragment, null, capMode && /*#__PURE__*/React.createElement("div", {
     className: "cap-readout"
   }, MC.readout(shown, cap.hist)), /*#__PURE__*/React.createElement("div", {
-    className: "tv-price-chart",
+    className: `tv-price-chart${showRSI ? " with-rsi" : ""}`,
     ref: wrapRef
   }));
 }
@@ -918,10 +1150,9 @@ function PriceChart({
     // Extend y-axis to include ±2σ cone bounds at full DTE so the cone
     // doesn't get clipped above or below the visible range.
     if (showProbCone && ivAnnualized && dteToExp > 0 && currentPrice > 0) {
-      const dailySigma = ivAnnualized / Math.sqrt(252);
-      const sigmaT = dailySigma * Math.sqrt(dteToExp);
-      yMax = Math.max(yMax, currentPrice * Math.exp(2 * sigmaT));
-      yMin = Math.min(yMin, currentPrice * Math.exp(-2 * sigmaT));
+      const [lo2, hi2] = coneBand(currentPrice, ivAnnualized, dteToExp, 2);
+      yMax = Math.max(yMax, hi2);
+      yMin = Math.min(yMin, lo2);
     }
     const pad = (yMax - yMin) * 0.08;
     yMin -= pad;
@@ -1006,31 +1237,8 @@ function PriceChart({
   // Returns null entries until period+1 closes have accumulated.
   const rsiData = useMemo(() => {
     if (!daily.length) return null;
-    const closes = daily.map(d => d.close ?? null);
-    const period = 14;
-    const out = new Array(closes.length).fill(null);
-    if (closes.length < period + 1) return {
-      values: out
-    };
-    let gains = 0,
-      losses = 0;
-    for (let i = 1; i <= period; i++) {
-      const ch = closes[i] - closes[i - 1];
-      if (ch >= 0) gains += ch;else losses -= ch;
-    }
-    let avgGain = gains / period;
-    let avgLoss = losses / period;
-    out[period] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
-    for (let i = period + 1; i < closes.length; i++) {
-      const ch = closes[i] - closes[i - 1];
-      const g = ch > 0 ? ch : 0;
-      const l = ch < 0 ? -ch : 0;
-      avgGain = (avgGain * (period - 1) + g) / period;
-      avgLoss = (avgLoss * (period - 1) + l) / period;
-      out[i] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
-    }
     return {
-      values: out
+      values: rsiWilder(daily.map(d => d.close ?? null))
     };
   }, [daily]);
   const rsiScale = useMemo(() => {
@@ -1349,16 +1557,12 @@ function PriceChart({
     // Build smooth fan with ~24 sample points across the projection.
     const N = 24;
     const T_total = dteToExp;
-    // Annualized vol → daily stdev assuming 252 trading days
-    const dailySigma = ivAnnualized / Math.sqrt(252);
     const sample = sigmaMult => {
       const upper = [];
       const lower = [];
       for (let i = 0; i <= N; i++) {
         const tDays = i / N * T_total;
-        const sigmaT = dailySigma * Math.sqrt(tDays);
-        const upPrice = currentPrice * Math.exp(sigmaMult * sigmaT);
-        const dnPrice = currentPrice * Math.exp(-sigmaMult * sigmaT);
+        const [dnPrice, upPrice] = coneBand(currentPrice, ivAnnualized, tDays, sigmaMult);
         const x = xStart + (xEnd - xStart) * i / N;
         upper.push([x, yScale(upPrice)]);
         lower.push([x, yScale(dnPrice)]);
@@ -1856,7 +2060,7 @@ function PriceChart({
     }
     const lastVal = vals[vals.length - 1];
     // Color line by zone — red overbought, green oversold, neutral default
-    const lineColor = lastVal == null ? colors.fg2 : lastVal >= 70 ? colors.down : lastVal <= 30 ? colors.up : "rgb(150, 130, 220)";
+    const lineColor = lastVal == null ? colors.fg2 : rsiColor(lastVal, colors.up, colors.down);
     return /*#__PURE__*/React.createElement("g", null, /*#__PURE__*/React.createElement("rect", {
       x: padL,
       y: rsiTop,
@@ -3698,6 +3902,7 @@ Object.assign(window, {
   addShareStrip,
   CAP_MARGINS,
   PRICE_MARGINS,
+  CONE_COLOR,
   CapNotes,
   PriceChart,
   TVPriceChart,

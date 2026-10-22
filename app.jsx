@@ -4763,6 +4763,8 @@ function App() {
                     : `Loading ${longYears} years of history… showing the last year meanwhile.`)
                 : (longReady && longHist.bars.length && (Date.now() - longHist.bars[0].date.getTime()) / 31557600000 < longYears - 0.25
                     ? `History for ${ticker} starts ${fmtUSDate(longHist.first)}.` : null);
+              // The probability cone's IV: the suggested strikes' average.
+              const coneIV = (callAtSug.iv && putAtSug.iv) ? (callAtSug.iv + putAtSug.iv) / 2 : (callAtSug.iv || putAtSug.iv || null);
               return (
                 <CardErrorBoundary label="Price chart">
                 {longNote && <div className="chart-range-note" role="status">{longNote}</div>}
@@ -4775,6 +4777,8 @@ function App() {
                                 chartStyle={chartStyle} earnings={liveEarnings}
                                 levels={rcvLevels && rcvLevels.symbol === ticker ? rcvLevels.levels : null}
                                 showMA50={showMA50} showMA200={showMA200} showEMA21={showEMA21}
+                                showRSI={showRSI} showProbCone={showProbCone}
+                                ivAnnualized={coneIV} dteToExp={FRONT_DTE}
                                 resetKey={`${ticker}|${chartDays}`} cap={capOn ? capView : null}
                                 full={capOn ? capView.bars : chartDaily} />
                 ) : (
@@ -4788,7 +4792,7 @@ function App() {
                             showEMA21={showEMA21}
                             showRSI={showRSI}
                             showProbCone={showProbCone}
-                            ivAnnualized={(callAtSug.iv && putAtSug.iv) ? (callAtSug.iv + putAtSug.iv) / 2 : (callAtSug.iv || putAtSug.iv || null)}
+                            ivAnnualized={coneIV}
                             dteToExp={FRONT_DTE}
                             fullDailyLength={len}
                             visibleStart={start}
@@ -4832,7 +4836,11 @@ function App() {
               {showEMA21 && <span className="item"><span className="swatch" style={{background: "rgb(80, 160, 255)", height: 2}}></span>EMA 21</span>}
               {showMA50 && <span className="item"><span className="swatch" style={{background: chartColors.warn, height: 2}}></span>MA 50</span>}
               {showMA200 && <span className="item"><span className="swatch" style={{background: chartColors.accent, height: 2}}></span>MA 200</span>}
-              {showProbCone && <span className="item"><span className="swatch" style={{background: chartColors.accent, opacity: 0.22, height: 10}}></span>Prob cone ±1σ/±2σ</span>}
+              {showProbCone && <span className="item"><span className="swatch" style={window.LightweightCharts
+                ? {background: CONE_COLOR, height: 2} : {background: chartColors.accent, opacity: 0.22, height: 10}}></span>Prob cone ±1σ/±2σ</span>}
+              {showRSI && <span className="item" title={"RSI 14 (Wilder) in the band under the volume: above 70 overbought, below 30 oversold."
+                + (capOn ? " In market cap it is the market cap's RSI: a change in the share count moves it." : "")}>
+                <span className="swatch" style={{background: "rgb(150, 130, 220)", height: 2}}></span>RSI 14 · 70/30</span>}
               {showMA50 && showMA200 && (() => {
                 const last = daily[daily.length - 1];
                 if (!last || last.ma50 == null || last.ma200 == null) return null;

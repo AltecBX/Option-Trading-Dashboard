@@ -5855,6 +5855,8 @@ function App() {
     // Market cap: the same bars, one for one, so the window is the same.
     const visibleDaily = (capOn ? capView.bars : chartDaily).slice(start, end);
     const longNote = longYears && !longReady ? longHist && longHist.error && longHist.ticker === ticker ? `Couldn't load ${longYears} years of history (${longHist.error}). Showing the last year.` : `Loading ${longYears} years of history… showing the last year meanwhile.` : longReady && longHist.bars.length && (Date.now() - longHist.bars[0].date.getTime()) / 31557600000 < longYears - 0.25 ? `History for ${ticker} starts ${fmtUSDate(longHist.first)}.` : null;
+    // The probability cone's IV: the suggested strikes' average.
+    const coneIV = callAtSug.iv && putAtSug.iv ? (callAtSug.iv + putAtSug.iv) / 2 : callAtSug.iv || putAtSug.iv || null;
     return /*#__PURE__*/React.createElement(CardErrorBoundary, {
       label: "Price chart"
     }, longNote && /*#__PURE__*/React.createElement("div", {
@@ -5877,6 +5879,10 @@ function App() {
       showMA50: showMA50,
       showMA200: showMA200,
       showEMA21: showEMA21,
+      showRSI: showRSI,
+      showProbCone: showProbCone,
+      ivAnnualized: coneIV,
+      dteToExp: FRONT_DTE,
       resetKey: `${ticker}|${chartDays}`,
       cap: capOn ? capView : null,
       full: capOn ? capView.bars : chartDaily
@@ -5897,7 +5903,7 @@ function App() {
       showEMA21: showEMA21,
       showRSI: showRSI,
       showProbCone: showProbCone,
-      ivAnnualized: callAtSug.iv && putAtSug.iv ? (callAtSug.iv + putAtSug.iv) / 2 : callAtSug.iv || putAtSug.iv || null,
+      ivAnnualized: coneIV,
       dteToExp: FRONT_DTE,
       fullDailyLength: len,
       visibleStart: start,
@@ -6036,12 +6042,24 @@ function App() {
     className: "item"
   }, /*#__PURE__*/React.createElement("span", {
     className: "swatch",
-    style: {
+    style: window.LightweightCharts ? {
+      background: CONE_COLOR,
+      height: 2
+    } : {
       background: chartColors.accent,
       opacity: 0.22,
       height: 10
     }
-  }), "Prob cone \xB11\u03C3/\xB12\u03C3"), showMA50 && showMA200 && (() => {
+  }), "Prob cone \xB11\u03C3/\xB12\u03C3"), showRSI && /*#__PURE__*/React.createElement("span", {
+    className: "item",
+    title: "RSI 14 (Wilder) in the band under the volume: above 70 overbought, below 30 oversold." + (capOn ? " In market cap it is the market cap's RSI: a change in the share count moves it." : "")
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "swatch",
+    style: {
+      background: "rgb(150, 130, 220)",
+      height: 2
+    }
+  }), "RSI 14 \xB7 70/30"), showMA50 && showMA200 && (() => {
     const last = daily[daily.length - 1];
     if (!last || last.ma50 == null || last.ma200 == null) return null;
     const isAbove = last.ma50 > last.ma200;
