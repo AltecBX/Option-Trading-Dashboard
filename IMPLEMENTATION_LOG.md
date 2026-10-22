@@ -6502,3 +6502,10 @@ readout falls back to the newest bar, in the new units. Checked both ways
 a switch can follow a hover: a phone tap on a bar then a tap on Mkt cap,
 and a mouse resting on a bar while the switch is pressed from the
 keyboard. Test (a guard, not a fix): `test_the_swing_readout_is_redone_when_the_units_change`.
+
+CI on #432: the job's 20-minute limit was reached mid-suite with no test
+failed. The last green run already took 19m13s (Python tests 16.5 minutes,
+the 400-day run two), and the market-cap browser tests add about a minute;
+on top of that, npm install took 7 minutes instead of 4 seconds that time.
+`timeout-minutes` is 30 now: it is there to stop a hung job, not to time a
+healthy one.
