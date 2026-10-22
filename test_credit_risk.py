@@ -325,6 +325,24 @@ class TestBuildUsesFiledCounts(unittest.TestCase):
         self.assertNotIn("debt", m["unavailable_reason"])
         self.assertIn("share count", m["unavailable_reason"])
 
+    # Codex, #433 (sixth review): a series that stops weeks ago (the newest
+    # filed count too old, no current count from Yahoo) has no current
+    # spread; its last point is not shown as today's.
+    def test_a_series_that_stops_early_has_no_current_spread(self):
+        class T:
+            def __init__(self, s):
+                self.info = {"sharesOutstanding": None, "totalDebt": 100.0}
+                self.balance_sheet = None
+        self.od.yf = type("YF", (), {"Ticker": T})
+        old = {"as_of": self.bars[60]["date"][:10], "shares": 1.0, "form": "10-Q"}
+        self.hist = dict(self.ok, points=[old], latest=old, coverage={"from": old["as_of"], "to": old["as_of"]})
+        m = self.od.build_credit_risk("TEST")["merton"]
+        self.assertTrue(m["series"], "the history it has is still drawn")
+        self.assertLess(m["series"][-1]["date"], self.bars[-1]["date"][:10])
+        self.assertIsNone(m["latest"], "not presented as the current spread")
+        self.assertIn("No current model spread", m["interpretation"])
+        self.assertIn(m["series"][-1]["date"], m["interpretation"])
+
 
 if __name__ == "__main__":
     unittest.main()

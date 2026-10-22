@@ -6608,3 +6608,12 @@ old code):
   Yahoo), the series was empty and the card blamed the debt. It now says
   "no filed share count covers these days". Test:
   `test_no_count_for_these_days_is_not_called_missing_debt`.
+
+Codex on #433, sixth review, right and fixed (the test fails on the old
+code): **a series that stopped weeks ago showed its last point as today's
+spread.** With the newest filed count over 200 days old and no current
+count from Yahoo, the history ends early, and its last point became the
+headline, the stats and "Model 5Y spread ≈ …". Now the newest point is the
+current spread only if it is the newest bar's. Otherwise there is no
+headline, and the line says "No current model spread: the newest, N bps,
+is from <date>." Test: `test_a_series_that_stops_early_has_no_current_spread`.

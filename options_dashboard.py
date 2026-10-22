@@ -4336,7 +4336,11 @@ def build_credit_risk(symbol: str) -> dict:
         series = []
         if bars and count is not None and dp is not None:
             series = _cr.merton_series(bars, count, float(dp), r_rf)
-        latest = series[-1] if series else None
+        # The newest point is the current spread only if it is the newest
+        # bar's: a series that stops weeks ago (the last filed count too old,
+        # no count from Yahoo) has none, and says so (Codex, #433).
+        last_day = str(bars[-1]["date"])[:10] if bars else None
+        latest = series[-1] if series and series[-1]["date"] == last_day else None
         base.update({
             "merton": {
                 "series": series[-260:],
@@ -4354,8 +4358,10 @@ def build_credit_risk(symbol: str) -> dict:
                     "tenor_years": _cr.T_YEARS,
                     "lgd": _cr.LGD,
                 },
-                "interpretation": _cr.interpret(series,
-                                                latest["leverage_pct"] if latest else None),
+                "interpretation": (_cr.interpret(series, latest["leverage_pct"] if latest else None)
+                                   if latest or not series else
+                                   f"No current model spread: the newest, {series[-1]['spread_bps']:.0f} bps, "
+                                   f"is from {series[-1]['date']}."),
                 "unavailable_reason": (None if series else
                                        "missing price history" if not bars else
                                        "shares outstanding unavailable" if count is None else
