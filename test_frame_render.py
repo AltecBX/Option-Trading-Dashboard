@@ -534,6 +534,32 @@ def daily_history_answer(years: int) -> dict:
     return {"ok": True, "symbol": "AAPL", "years": years, "daily": rows, "first": rows[0]["date"][:10]}
 
 
+def share_history_answer() -> dict:
+    """/api/share_history for AAPL, against daily_history_answer(10): a
+    10-Q count each quarter from about seven months in (a buyback: 20.0B
+    down to about 15B), and the first close of each month of those same
+    bars, the way the server sends them for the price check."""
+    bars = daily_history_answer(10)["daily"]
+    first, end = date.fromisoformat(bars[0]["date"][:10]), date.today()
+    pts, d, n = [], first + timedelta(days=200), 0
+    while d < end - timedelta(days=20):
+        pts.append({"as_of": d.isoformat(), "shares": round(20e9 - n * 0.13e9), "form": "10-Q",
+                    "filed": (d + timedelta(days=14)).isoformat()})
+        d += timedelta(days=91)
+        n += 1
+    months: dict = {}
+    for b in bars:
+        months.setdefault(b["date"][:7], [b["date"][:10], b["close"]])
+    last = pts[-1]
+    return {"ok": True, "status": "ok", "symbol": "AAPL", "schema": 2, "max_age_days": 200,
+            "points": pts, "coverage": {"from": pts[0]["as_of"], "to": last["as_of"]},
+            "latest": {"as_of": last["as_of"], "shares": last["shares"], "form": "10-Q"},
+            "warnings": ["Yahoo's market cap today implies 15.10B shares, 0.4% more than the filing."],
+            "price_check": {"closes": [months[k] for k in sorted(months)],
+                            "source": "Yahoo daily closes, one a month: split-adjusted, not dividend-adjusted"},
+            "source": "SEC filings: the shares-outstanding count on each 10-Q and 10-K cover page"}
+
+
 def _default_payload(symbol: str) -> str:
     """sell_payload() for `symbol`, serialized once per symbol per run —
     the plan is built by the real engine, which is not free."""
@@ -614,7 +640,8 @@ class TheFrameStaysOnScreen(unittest.TestCase):
     def _measure(self, width, height, tab="trade", init="", ticker_payload=None,
                  timezone=None, safe_area=None, starred=None, ytd_bases=None,
                  quotes=None, tab_order=None, setup_board=None, live=None, uw=None,
-                 buyers=None, report_card=None, hotlist=None, debt=None, daily_history=None):
+                 buyers=None, report_card=None, hotlist=None, debt=None, daily_history=None,
+                 share_history=None):
         """Open the app with a production-sized news feed and measure the
         frame. Returns (geometry, page errors)."""
         from playwright.sync_api import sync_playwright
@@ -648,6 +675,10 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         # v5.44: the Trade chart's 2Y/5Y/10Y history ("error" for a failed load).
         self._daily_history = daily_history
         self.daily_history_calls = []
+        # v5.46: the market-cap chart's share counts. A list is answered in
+        # order, the last one from then on ("building", then the history).
+        self._share_history = list(share_history) if isinstance(share_history, list) else share_history
+        self.share_history_calls = []
         pw = sync_playwright().start()
         kw = {"executable_path": CHROMIUM} if Path(CHROMIUM).exists() else {}
         browser = pw.chromium.launch(**kw)
@@ -776,6 +807,14 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 body = ({"ok": False, "error": "No daily history for AAPL.", "daily": []}
                         if self._daily_history == "error" else daily_history_answer(yrs))
                 r.fulfill(status=200, content_type="application/json", body=json.dumps(body))
+                return
+            if self._share_history is not None and urllib.parse.urlsplit(url).path == "/api/share_history":
+                q = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)
+                self.share_history_calls.append((q.get("symbol") or [""])[0])
+                a = self._share_history
+                if isinstance(a, list):
+                    a = a.pop(0) if len(a) > 1 else a[0]
+                r.fulfill(status=200, content_type="application/json", body=json.dumps(a))
                 return
             if self._debt is not None and urllib.parse.urlsplit(url).path == "/api/debt":
                 r.fulfill(status=200, content_type="application/json", body=json.dumps(self._debt))
@@ -3077,6 +3116,149 @@ class TheFrameStaysOnScreen(unittest.TestCase):
             self.assertIn("No daily history for AAPL.", note)
             self.assertIn("Showing the last year", note)
             self.assertEqual([], [e for e in errs])
+        finally:
+            self._close(handles)
+
+    # v5.46 — the Trade chart in market cap.
+    _CHART_PARTS = """() => { const el = document.querySelector('.tv-price-chart');
+        const p = el && el.__parts && el.__parts(); if (!p || !p.main) return null;
+        const day = (t) => typeof t === 'string' ? t : typeof t === 'number' ? new Date(t * 1000).toISOString().slice(0, 10)
+                           : `${t.year}-${String(t.month).padStart(2, '0')}-${String(t.day).padStart(2, '0')}`;
+        const strip = p.series.find(s => s.options().priceScaleId === 'shares');
+        return {
+          fmt: p.main.options().priceFormat.type, sample: p.main.priceFormatter().format(2.954e12),
+          data: p.main.data().map(d => [day(d.time), d.close === undefined ? (d.value === undefined ? null : d.value) : d.close]),
+          lines: p.lines.map(l => ({price: l.options().price, title: l.options().title})),
+          strip: strip ? {type: strip.options().lineType, n: strip.data().filter(d => d.value !== undefined).length,
+                          marks: strip.markers().length} : null,
+          averages: p.series.filter(s => s.options().priceScaleId !== 'shares').map(s => s.options().priceFormat.type),
+          volDays: p.vol.data().map(d => day(d.time)),
+        }; }"""
+
+    def test_the_trade_chart_draws_market_cap(self):
+        hist = share_history_answer()
+        geo, errs, handles = self._measure(1440, 900, tab="trade", daily_history=True, share_history=hist)
+        page = handles[2]
+        try:
+            self.assertEqual(errs, [], f"the page threw: {errs[:2]}")
+            page.wait_for_function("() => { const e = document.querySelector('.tv-price-chart'); return e && e.__parts; }",
+                                   timeout=20000)
+            self.assertEqual(["Price", "Mkt cap"],
+                             page.evaluate("() => [...document.querySelectorAll('.chart-mode button')].map(b => b.innerText.trim())"))
+            self.assertEqual([], self.share_history_calls, "nothing is asked until market cap is picked")
+            page.click(".chart-range button:text-is('10Y')")
+            page.wait_for_function(f"() => ({self._VISIBLE_YEARS})() > 9.5", timeout=15000)
+            page.click("button.ma50")
+            price = page.evaluate(f"({self._CHART_PARTS})()")
+            self.assertEqual("price", price["fmt"])
+            calls = [l for l in price["lines"] if l["title"] == "call"]
+            self.assertEqual(1, len(calls), f"the suggested call is drawn: {price['lines']}")
+            strike = calls[0]["price"]
+            # Zoomed to the last half year: switching to market cap keeps it.
+            page.evaluate("""() => { const c = document.querySelector('.tv-price-chart').__chart;
+                const n = c.timeScale().getVisibleLogicalRange();
+                c.timeScale().setVisibleLogicalRange({from: n.to - 126, to: n.to}); }""")
+            page.wait_for_timeout(300)
+            zoom = page.evaluate(f"({self._VISIBLE_YEARS})()")
+
+            page.click(".chart-mode button:text-is('Mkt cap')")
+            page.wait_for_function("() => /10-year market cap/i.test(document.body.innerText)", timeout=10000)
+            self.assertEqual(["AAPL"], self.share_history_calls)
+            cap = page.evaluate(f"({self._CHART_PARTS})()")
+            self.assertAlmostEqual(zoom, page.evaluate(f"({self._VISIBLE_YEARS})()"), places=2,
+                                   msg="switching to market cap threw the zoom away")
+            self.assertEqual("custom", cap["fmt"])
+            self.assertEqual("$2.95T", cap["sample"], "the axis reads in trillions and billions")
+            self.assertEqual(["custom"], cap["averages"], "the 50-day average is on the market cap too")
+
+            # Each bar is that day's price times that day's filed count.
+            bars = daily_history_answer(10)["daily"]
+            by_day = dict(cap["data"])
+            pts = hist["points"]
+            for b in (bars[300], bars[1500], bars[-40]):
+                d = b["date"][:10]
+                shares = [p["shares"] for p in pts if p["as_of"] <= d][-1]
+                self.assertAlmostEqual(b["close"] * shares, by_day[d], delta=b["close"] * shares * 1e-9, msg=d)
+            early = bars[100]["date"][:10]
+            self.assertIn(early, cap["volDays"], "a day before the first count keeps its place on the axis")
+            self.assertIsNone(by_day.get(early), "and has no market cap")
+            note = page.inner_text(".card:has(.chart-mode)")
+            self.assertRegex(note, r"Market cap starts \w{3} \d+, \d{4}")
+
+            # The suggested call, moved to what the company is worth there.
+            lines = {l["title"]: l["price"] for l in cap["lines"]}
+            title = f"call ${strike:.2f}"
+            self.assertIn(title, lines, f"the call keeps its price in its label: {cap['lines']}")
+            self.assertAlmostEqual(strike * pts[-1]["shares"], lines[title], delta=1)
+            self.assertTrue(any(t.startswith("now $") for t in lines))
+
+            # The shares strip: a step line with a dot at each filing.
+            self.assertEqual(1, cap["strip"]["type"], "a step line")
+            self.assertEqual(len(pts), cap["strip"]["marks"])
+            readout = page.inner_text(".cap-readout")
+            self.assertRegex(readout, r"Market cap \$[\d.]+[TB] = \$[\d.]+ × [\d.]+B shares · shares as of \w{3} \d+, \d{4} \(10-Q\)")
+            self.assertIn("Shares outstanding", page.inner_text(".legend"))
+            page.click(".cap-about summary")
+            self.assertIn("0.4% more than the filing", page.inner_text(".cap-about"))
+            # Hovering a bar shows its own sum.
+            page.locator(".tv-price-chart").scroll_into_view_if_needed()
+            box = page.locator(".tv-price-chart").bounding_box()
+            page.mouse.move(box["x"] + box["width"] * 0.25, box["y"] + box["height"] * 0.3)
+            page.mouse.move(box["x"] + box["width"] * 0.3, box["y"] + box["height"] * 0.3, steps=4)
+            page.wait_for_timeout(300)
+            self.assertNotEqual(readout, page.inner_text(".cap-readout"))
+            self.assertEqual("cap", page.evaluate(
+                "() => JSON.parse(localStorage.getItem('weeklyOptionsTimer.settings.v1')).chartMode"), "remembered")
+
+            # Back to price: the same chart, as it was.
+            page.click(".chart-mode button:text-is('Price')")
+            page.wait_for_function("() => /10-year price/i.test(document.body.innerText)", timeout=10000)
+            back = page.evaluate(f"({self._CHART_PARTS})()")
+            self.assertEqual("price", back["fmt"])
+            self.assertIsNone(back["strip"])
+            self.assertEqual(sorted(l["title"] for l in price["lines"]), sorted(l["title"] for l in back["lines"]))
+            self.assertEqual(0, page.locator(".cap-readout").count())
+
+            # Prices that disagree with the unadjusted closes are not
+            # multiplied: the 2-year bars here are a different series.
+            page.click(".chart-mode button:text-is('Mkt cap')")
+            page.click(".chart-range button:text-is('2Y')")
+            page.wait_for_function("() => /Market cap is off for AAPL/.test(document.body.innerText)", timeout=15000)
+            self.assertIn("2-year price", page.inner_text(".card:has(.chart-mode)").lower().replace("2-year price", "2-year price"))
+            self.assertEqual("price", page.evaluate(f"({self._CHART_PARTS})()")["fmt"])
+            self.assertEqual(errs, [], f"the page threw: {errs[:2]}")
+        finally:
+            self._close(handles)
+
+    def test_market_cap_fits_a_phone_and_says_when_there_is_none(self):
+        building = {"ok": True, "symbol": "AAPL", "status": "building", "refreshing": True,
+                    "reason": "Reading this company's SEC filings for its share counts; this takes up to a minute the first time."}
+        unsupported = {"ok": True, "symbol": "AAPL", "status": "unsupported", "schema": 2,
+                       "reason": "No SEC share counts for this symbol: ETFs, funds and indexes file none."}
+        geo, errs, handles = self._measure(390, 844, tab="trade", share_history=[building, unsupported])
+        page = handles[2]
+        try:
+            self.assertEqual(errs, [], f"the page threw: {errs[:2]}")
+            page.wait_for_selector(".chart-mode button", timeout=20000)
+            got = page.evaluate("""() => { const vw = window.innerWidth;
+                const bad = [...document.querySelectorAll('.toolbar button')].filter(b => {
+                  const r = b.getBoundingClientRect(); return r.width === 0 || r.left < -1 || r.right > vw + 1; })
+                  .map(b => b.innerText);
+                const m = document.querySelector('.main');
+                return {bad, scroll: Math.max(0, m.scrollWidth - m.clientWidth)}; }""")
+            self.assertEqual([], got["bad"], "a chart button runs off a phone")
+            self.assertLessEqual(got["scroll"], 2, "the page scrolls sideways")
+            page.click(".chart-mode button:text-is('Mkt cap')")
+            page.wait_for_function("() => /up to a minute/.test(document.body.innerText)", timeout=10000)
+            page.wait_for_function("() => /isn't available for AAPL/.test(document.body.innerText)", timeout=15000)
+            self.assertIn("ETFs", page.inner_text(".cap-note"))
+            self.assertEqual("price", page.evaluate(f"({self._CHART_PARTS})()")["fmt"], "the price is still drawn")
+            self.assertEqual(2, len(self.share_history_calls), "asked again while building, then not again")
+            page.wait_for_timeout(4500)
+            self.assertEqual(2, len(self.share_history_calls))
+            got = page.evaluate("() => Math.max(0, document.querySelector('.main').scrollWidth - document.querySelector('.main').clientWidth)")
+            self.assertLessEqual(got, 2, "the note does not push the page sideways")
+            self.assertEqual(errs, [], f"the page threw: {errs[:2]}")
         finally:
             self._close(handles)
 

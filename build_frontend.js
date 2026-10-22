@@ -37,7 +37,7 @@ const JSX_FILES = ["strategies.jsx", "tweaks-panel.jsx", "tooltips.jsx", "charts
   "tab-recovery.jsx", "tab-ask.jsx", "tab-edge.jsx", "tab-gap.jsx",
   "tab-invest.jsx", "tab-strat.jsx", "tab-setup.jsx", "tab-sell.jsx", "tab-spike.jsx", "tab-stretch.jsx", "tab-hedge.jsx", "tab-live.jsx", "tab-buyers.jsx", "tab-hotlist.jsx", "tab-dailyedge.jsx"];
 // Everything index.html loads locally, in load order. config.js excluded on purpose.
-const SERVED_JS = ["data.js", "recommendation.js", "weather.js", "journal.js",
+const SERVED_JS = ["data.js", "recommendation.js", "weather.js", "market_cap.js", "journal.js",
   "strategies.js", "tweaks-panel.js", "tooltips.js", "charts.js",
   "app-lib.js", "timing.js", "app-cards.js", "app.js"];
 // On-demand chunks: emitted to dist/ and injected by LazyTab. Each is

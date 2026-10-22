@@ -1832,6 +1832,20 @@ input, select, textarea {
   margin: 0 0 6px; line-height: 1.35;
 }
 
+/* v5.46: market cap on the Trade chart. The readout is the sum for the bar
+   under the cursor; one line, tabular figures, so it does not jitter. */
+.cap-readout {
+  font-family: var(--font-mono);
+  font-size: 12px; color: var(--fg); font-variant-numeric: tabular-nums;
+  margin: 0 0 6px; line-height: 1.35; min-height: 1.35em;
+  overflow-wrap: anywhere;
+}
+.cap-about { font-size: 12px; color: var(--muted); margin: 0 0 6px; }
+.cap-about summary { cursor: pointer; }
+.cap-about ul { margin: 4px 0 2px; padding-left: 18px; }
+.cap-about li { margin: 2px 0; line-height: 1.35; }
+.cap-source { font-size: 11px; opacity: 0.85; }
+
 /* Earnings pill in chart title */
 .earn-pill {
   display: inline-block;
@@ -5244,6 +5258,14 @@ tr.oc-has-leg .oc-strike { background: color-mix(in srgb, var(--accent) 20%, tra
 .chart-card .card-head .toolbar {
   margin-top: 42px;
 }
+/* v5.46: with Price | Mkt cap the chart's buttons are wider than the card
+   on a laptop. A group that does not fit goes to the next line, whole:
+   squeezed, "1-Min" and "Mkt cap" broke in two inside their buttons. */
+@media (min-width: 901px) {
+  .chart-card .card-head .toolbar { flex-wrap: wrap; justify-content: flex-end; row-gap: 6px; }
+  .chart-card .card-head .toolbar > .seg { flex-shrink: 0; }
+}
+.seg.chart-mode button { white-space: nowrap; }
 @media (max-width: 900px) {
   .chart-card .card-head .toolbar { margin-top: 0; }
 }

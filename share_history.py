@@ -44,6 +44,7 @@ BIG_MOVE_PCT = 50.0         # report-to-report change worth naming
 RESULT_TTL_S = 12 * 3600    # Company Facts changes at most once a quarter
 PARTIAL_TTL_S = 600         # some filings could not be read: try again soon
 INSTANCE_READ_BYTES = 1_500_000   # cover facts sit at the top of an instance file
+SCHEMA = 2                  # v5.46 added price_check: a history kept from before is rebuilt
 
 FORMS = {"10-Q", "10-K", "10-Q/A", "10-K/A", "10-KT", "10-KT/A"}
 _SYMBOL = re.compile(r"[A-Z0-9][A-Z0-9.\-]{0,11}")
@@ -68,23 +69,30 @@ _FETCH_FN: Optional[Callable[..., bytes]] = None
 _SPLITS_FN: Optional[Callable[[str], Iterable]] = None
 _QUOTE_FN: Optional[Callable[[str], Optional[Mapping]]] = None
 _TODAY_FN: Optional[Callable[[], date]] = None
+_PRICES_FN: Optional[Callable[[str], Iterable]] = None
+_FILINGS_FN: Optional[Callable[[str], Iterable]] = None
 _RESULTS: dict = {}          # SYMBOL -> (built_ts, result)
 _clock = time.time           # every cache stamp and age; the tests pin it
 _BUILDING: dict = {}         # SYMBOL -> threading.Event
 
 
 def configure(data_dir=None, facts_fn=None, fetch_fn=None, splits_fn=None,
-              quote_fn=None, today_fn=None) -> None:
+              quote_fn=None, today_fn=None, prices_fn=None, filings_fn=None) -> None:
     """facts_fn(symbol) -> SEC Company Facts (fundamentals.company_facts).
     fetch_fn(url, limit=None) -> bytes, polite to SEC (sec_filings._fetch).
     splits_fn(symbol) -> [(date_iso, ratio)], ratio 10 for ten-for-one,
     0.1 for one-for-ten. quote_fn(symbol) -> {price, market_cap} today
-    (Yahoo), for the check. All optional; tests pass fakes."""
-    global _DATA_DIR, _FACTS_FN, _FETCH_FN, _SPLITS_FN, _QUOTE_FN, _TODAY_FN
+    (Yahoo), for the check. prices_fn(symbol) -> [(date_iso, close)], one
+    close a month, split-adjusted and not dividend-adjusted (v5.46): what a
+    chart's own prices are checked against before it multiplies them by
+    these counts. filings_fn(symbol) -> [{form, date, accession}], the
+    company's own SEC filing list (v5.46), for the reports Company Facts
+    missed. All optional; tests pass fakes."""
+    global _DATA_DIR, _FACTS_FN, _FETCH_FN, _SPLITS_FN, _QUOTE_FN, _TODAY_FN, _PRICES_FN, _FILINGS_FN
     with _LOCK:
         _DATA_DIR = Path(data_dir) / "share_history" if data_dir else None
         _FACTS_FN, _FETCH_FN, _SPLITS_FN = facts_fn, fetch_fn, splits_fn
-        _QUOTE_FN, _TODAY_FN = quote_fn, today_fn
+        _QUOTE_FN, _TODAY_FN, _PRICES_FN, _FILINGS_FN = quote_fn, today_fn, prices_fn, filings_fn
         _RESULTS.clear()
 
 
@@ -343,7 +351,7 @@ def build(symbol: str) -> dict:
     """The full history for one ticker. May read filings (a minute for a
     multi-class company's first time); get() runs it in the background."""
     sym = str(symbol or "").upper().strip()
-    base = {"ok": True, "symbol": sym, "max_age_days": MAX_AGE_DAYS,
+    base = {"ok": True, "symbol": sym, "max_age_days": MAX_AGE_DAYS, "schema": SCHEMA,
             "built_at": datetime.now().isoformat(timespec="seconds")}
     if not _SYMBOL.fullmatch(sym):
         return dict(base, ok=False, status="unsupported", reason="Not a stock symbol.")
@@ -361,6 +369,19 @@ def build(symbol: str) -> dict:
                     reason="No SEC share counts for this symbol: ETFs, funds and indexes file none, "
                            "and neither do companies outside SEC reporting.")
     filings = _filings(facts)
+    # Company Facts can miss a report for months: Coca-Cola's 10-Q of
+    # Jul 29, 2026 was not in it in October, nor were four other companies'
+    # from that week out of 36 sampled (v5.46). The company's own filing
+    # list adds every 10-Q/10-K it lacks, and those covers are read.
+    unlisted = False
+    if _FILINGS_FN is not None and filings:
+        try:
+            for r in _FILINGS_FN(sym) or []:
+                acc, form = r.get("accession"), str(r.get("form") or "").upper()
+                if acc and form in FORMS and acc not in filings:
+                    filings[acc] = {"form": form, "filed": str(r.get("date") or "")[:10]}
+        except Exception:  # noqa: BLE001
+            unlisted = True
     if not filings:
         forms = _all_forms(facts)
         if forms & FOREIGN_FORMS or "ifrs-full" in (facts.get("facts") or {}):
@@ -430,6 +451,24 @@ def build(symbol: str) -> dict:
                     reason="The split history could not be fetched just now; trying again in a few minutes.")
     _place_on_todays_basis(points, splits)
     warnings = []
+    # A count that jumps 5x or more and comes straight back, with the counts
+    # either side of it agreeing, is a units error in that filing: Pentair's
+    # 10-Q for Apr 2, 2011 filed 146,546,358,546 shares between two of about
+    # 146.5 million (v5.46). It is left out, and said; the days it covered
+    # use the count before it. The newest count has nothing after it to show
+    # it wrong, and stays.
+    rejected = []
+    for i in range(len(points) - 2, 0, -1):
+        a, b, c = points[i - 1]["shares"], points[i]["shares"], points[i + 1]["shares"]
+        if not (a and b and c):
+            continue
+        up, back, ends = b / a, c / b, c / a
+        if ((up >= 5 and back <= 0.2) or (up <= 0.2 and back >= 5)) and 0.5 <= ends <= 2:
+            bad = points.pop(i)
+            rejected.insert(0, {k: bad.get(k) for k in ("as_of", "shares", "form", "filed", "accession")})
+            warnings.append(f"The count filed for {_day_label(bad['as_of'])} ({_money_shares(bad['shares'])} shares, "
+                            f"{bad['form']}) is about {max(up, 1 / up):,.0f}x the counts either side of it: a units "
+                            "error in the filing. It is left out; those days use the count before it.")
     moves = []
     for a, b in zip(points, points[1:]):
         ratio = b["shares"] / a["shares"] if a["shares"] else None
@@ -484,6 +523,25 @@ def build(symbol: str) -> dict:
     if unread:
         warnings.append(f"{unread} filing{'s' if unread != 1 else ''} could not be read from SEC just now; "
                         "the history is retried in a few minutes.")
+    # The closes a chart's prices are checked against (v5.46). A chart whose
+    # prices are dividend-adjusted, or on another split basis, would draw a
+    # market cap too low in the past: the page compares before it draws.
+    price_check = None
+    if _PRICES_FN is not None:
+        try:
+            closes = [[str(d)[:10], _f(c)] for d, c in (_PRICES_FN(sym) or [])]
+            closes = [[d, c] for d, c in closes if c and c > 0]
+        except Exception:  # noqa: BLE001
+            closes = []
+        if closes:
+            price_check = {"closes": closes,
+                           "source": "Yahoo daily closes, one a month: split-adjusted, not dividend-adjusted"}
+        else:
+            warnings.append("Yahoo's unadjusted closes could not be fetched just now, so the chart's prices "
+                            "could not be checked against them; retried in a few minutes.")
+    if unlisted:
+        warnings.append("SEC's list of filings could not be read just now, so a report missing from its "
+                        "summary data would be missed; retried in a few minutes.")
     stale = bool(facts.get("_stale"))
     if stale:
         when = facts.get("_fetched_ts")
@@ -493,8 +551,9 @@ def build(symbol: str) -> dict:
                         "the history is retried in a few minutes.")
     for p in points:
         p["shares"] = round(p["shares"], 2)
-    return dict(base, status="ok", entity=facts.get("entityName"), cik=cik, partial=bool(unread) or stale,
-                points=points, splits=[{"date": d, "ratio": r} for d, r in splits],
+    unchecked = _PRICES_FN is not None and price_check is None
+    return dict(base, status="ok", entity=facts.get("entityName"), cik=cik,
+                partial=bool(unread) or stale or unchecked or unlisted, points=points, rejected=rejected, price_check=price_check, splits=[{"date": d, "ratio": r} for d, r in splits],
                 coverage={"from": points[0]["as_of"], "to": last["as_of"]},
                 latest=latest, checks={"yahoo": yahoo, "big_moves": moves, "unread_filings": unread},
                 warnings=warnings,
@@ -517,6 +576,8 @@ def _cached(sym: str) -> Optional[tuple]:
     if path is not None and path.exists():
         try:
             rec = json.loads(path.read_text())
+            if rec.get("schema") != SCHEMA:
+                return None                     # kept by an older version: rebuilt
             hit = (float(rec.pop("_built_ts")), rec)
             with _LOCK:
                 _RESULTS[sym] = hit

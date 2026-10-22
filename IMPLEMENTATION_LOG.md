@@ -6321,3 +6321,87 @@ download `t.splits` made, Stock Splits and Dividends columns), and an
 empty frame is a failure: a real ticker always has prices. Checked live:
 NVDA's 2007/2021/2024 splits and 56 dividends, KO's 1992/1996/2012 splits.
 Tests: `test_daily_history.GapActions` (4).
+
+## v5.46 — Price | Mkt cap on the Trade chart (market cap, step 2)
+
+Jerry: "Convert them, start step 2" (strike and level lines are moved to
+market-cap terms rather than hidden).
+
+- **The switch.** `Price | Mkt cap` next to Candles/Area/OHLC on the daily
+  Trade chart, remembered with the other chart settings. The share counts
+  (`/api/share_history`) are asked only once market cap is picked, once
+  per ticker, and again every 4 seconds while a company's filings are
+  still being read for the first time.
+- **The bars** (`market_cap.js`, plain functions with their own node
+  tests): each day's open, high, low and close times the count that
+  company filed for that day (the last one reported on or before it, up to
+  200 days old). A day with no count keeps its place on the axis and its
+  volume, with no candle: the time scale is the price chart's, so a zoom
+  carries across the switch, and an empty stretch says plainly where there
+  is no count. Before the first count the chart says where market cap
+  starts.
+- **The axis** reads $2.95T / $820.4B / $950.2M; labels at or below zero
+  (the strip and volume area) are blank.
+- **MA50 / MA200 / EMA21** are worked out on the market cap, over unbroken
+  stretches of bars (a day with no count ends one rather than being
+  averaged across).
+- **Strike and level lines** (now, suggested call/put, expected range, EM
+  band, Recovery levels) are what the company is worth at that price with
+  the count that applies today, and the label keeps the price: "call
+  $225.00" at $5.42T. With no current count they are hidden, and the chart
+  says so.
+- **Shares outstanding strip** under the candles: a step line with a dot on
+  the day each filing's count begins, so buybacks and dilution show.
+- **Readout** above the chart, for the bar under the cursor (the newest
+  otherwise): "Oct 21, 2026 · Market cap $5.35T = $221.97 × 24.10B shares
+  · shares as of Aug 21, 2026 (10-Q)". The history's own warnings sit
+  under "About these share counts".
+- **The price check.** Prices adjusted for dividends read low in the past,
+  and so would every market cap drawn from them; nothing in Schwab's
+  documentation says whether its daily history is. So the share history
+  now carries one close a month from Yahoo's `auto_adjust=False` history
+  (split-adjusted, not dividend-adjusted, from the download `_gap_actions`
+  already makes), and the chart compares its own closes before it draws.
+  More than a tenth of the months apart by over 1% (and over a rounding
+  cent) and it draws the price instead, saying how far apart and where:
+  "They look adjusted for dividends, or for a split the share counts
+  aren't on yet". The newest week and today's live bar are not compared.
+  A history kept from before (no closes) is rebuilt (`SCHEMA`).
+- **Not drawn, with the reason:** ETFs and funds, foreign filers, a
+  company whose filings are still being read, SEC unreachable, prices
+  that fail the check, a range with no counts at all, or the chart library
+  not loaded.
+
+Found while checking step 2 on real data, both fixed in the share history:
+
+- **Reports SEC's Company Facts missed.** Coca-Cola's 10-Q of Jul 29,
+  2026 was not in Company Facts in October, and nor were Pentair's,
+  Bloom's, Principal's or Incyte's from that week: 5 of 36 companies
+  sampled. The history now also reads the company's own SEC filing list
+  (`sec_filings.filings`, cached 15 minutes) and reads the cover of every
+  10-Q/10-K Company Facts lacks. A list that could not be had is said, and
+  the history retried in ten minutes. Checked live: all five now end on
+  their July count (KO Jul 27, 2026, 4.30B, matching Yahoo).
+- **A filing's units error.** Pentair's 10-Q for Apr 2, 2011 filed
+  146,546,358,546 shares between two quarters of about 146.5 million. A
+  count that jumps 5x or more and comes straight back, with the counts
+  either side agreeing, is left out (`rejected`) and said; those days use
+  the count before it. A real jump that stays (Pentair's 2012 merger
+  doubled it) is kept, and the newest count, with nothing after it, is
+  kept and flagged as before.
+
+Checked on real data through the app (Yahoo prices, as in this sandbox):
+KO $398.8B and NVDA $5.35T today, both on Yahoo's market cap; the strike
+lines sit at the current value; SPY says it has no SEC share counts.
+
+Tests: `test_market_cap.js` (50: formats, the count each day uses, bars,
+the check catching dividend-adjusted prices and another split basis but
+not one bad print or a rounded penny price, every reason the chart draws
+the price), `test_share_history.PriceCheck` (5), `FilingList` (3),
+`FilingErrors` (3), `test_daily_history.GapActions` (+2: one close a month,
+the first real one), and two browser tests in `test_frame_render`: market
+cap drawn bar for bar from price × count, the zoom kept across the switch,
+the call line converted with its price in the label, the strip and its
+dots, the readout and hover, back to price exactly as it was, a failed
+price check drawing the price; and on a 390px phone, "building" then
+"unsupported" said, nothing off screen, nothing asked again.

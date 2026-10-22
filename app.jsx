@@ -5,7 +5,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "5.45";
+const APP_VERSION = "5.46";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, { APP_VERSION });
@@ -644,6 +644,8 @@ function App() {
   const [showEMA21, setShowEMA21] = useState(persisted.showEMA21 ?? false);
   const [showProbCone, setShowProbCone] = useState(persisted.showProbCone ?? false);
   const [showRSI, setShowRSI] = useState(persisted.showRSI ?? false);
+  // v5.46: the Trade chart in price or market cap ("price" | "cap").
+  const [chartMode, setChartMode] = useState(persisted.chartMode === "cap" ? "cap" : "price");
   // Strategy mode (Phase C, v1.12). "both" shows the CC and CSP banners,
   // strike cards, and analyst warning columns side by side. "cc" hides
   // the CSP side, "csp" hides the CC side. Default is "both" to preserve
@@ -1899,10 +1901,10 @@ function App() {
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
-        ticker, weeks, bufferPct, baseline, selectedStrategy, thetaSide, watchlist, strikeMode, targetDelta, showMA50, showMA200, showEMA21, showRSI, showProbCone, autoRefreshSec, chartDays, strategyMode,
+        ticker, weeks, bufferPct, baseline, selectedStrategy, thetaSide, watchlist, strikeMode, targetDelta, showMA50, showMA200, showEMA21, showRSI, showProbCone, autoRefreshSec, chartDays, strategyMode, chartMode,
       }));
     } catch { /* quota or private mode — silently skip */ }
-  }, [ticker, weeks, bufferPct, baseline, selectedStrategy, thetaSide, watchlist, strikeMode, targetDelta, showMA50, showMA200, showEMA21, showRSI, showProbCone, autoRefreshSec, chartDays, strategyMode]);
+  }, [ticker, weeks, bufferPct, baseline, selectedStrategy, thetaSide, watchlist, strikeMode, targetDelta, showMA50, showMA200, showEMA21, showRSI, showProbCone, autoRefreshSec, chartDays, strategyMode, chartMode]);
 
   // Apply theme + accent CSS vars
   useEffect(() => {
@@ -2632,6 +2634,38 @@ function App() {
   // VWAP bands + the day-level map. Polled every 30s while active.
   const [chartTF, setChartTF] = useState("daily");
   const [intradayData, setIntradayData] = useState(null);
+
+  // v5.46: market cap on the Trade chart. The share counts (from SEC
+  // filings, /api/share_history) load once the chart is switched to market
+  // cap, once per ticker, and are asked again while a company's filings are
+  // still being read for the first time.
+  const [shareHist, setShareHist] = useState(null);   // {ticker, data|null}
+  useEffect(() => {
+    if (chartMode !== "cap" || chartTF !== "daily" || !ticker) return undefined;
+    // An answer is kept for the ticker; one that could not be had (SEC
+    // unreachable, an error) is asked again when market cap is picked again.
+    const have = shareHist && shareHist.ticker === ticker && shareHist.data;
+    if (have && !have.refreshing && (have.status === "ok" || have.status === "unsupported")) return undefined;
+    let cancelled = false, timer = null, tries = 0;
+    if (!shareHist || shareHist.ticker !== ticker) setShareHist({ ticker, data: null });
+    const load = () => {
+      apiFetch(`/api/share_history?symbol=${encodeURIComponent(ticker)}`)
+        .then(r => r.json().catch(() => ({ status: "error", reason: PAGE_NOT_DATA_MSG })))
+        .then(j => {
+          if (cancelled) return;
+          setShareHist({ ticker, data: j || { status: "error", reason: "No answer." } });
+          if (j && (j.status === "building" || j.refreshing) && ++tries < 30) timer = setTimeout(load, 4000);
+        })
+        .catch(e => { if (!cancelled) setShareHist({ ticker, data: { status: "error", reason: String((e && e.message) || e) } }); });
+    };
+    load();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+  }, [chartMode, chartTF, ticker]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const capView = useMemo(() => {
+    if (chartMode !== "cap" || chartTF !== "daily" || !window.MarketCap) return null;
+    return window.MarketCap.capState(shareHist && shareHist.ticker === ticker ? shareHist.data : null, chartDaily, ticker);
+  }, [chartMode, chartTF, shareHist, ticker, chartDaily]);
+  const capOn = !!(capView && capView.draw && window.LightweightCharts);
   // Late-bind the radar's open-intraday action now that all pieces exist.
   openIntradayRef.current = (sym) => { switchTicker(sym); setChartTF("intraday"); changeTab("trade"); };
   openFinvizRef.current = (sym) => { if (sym) switchTicker(sym); changeTab("finviz"); };
@@ -4564,7 +4598,7 @@ function App() {
             })()}
             <div className="card-head">
               <div>
-                <div className="kicker">{longYears ? `${longYears}-year` : `${chartDays} day`} price · expected weekly range</div>
+                <div className="kicker">{longYears ? `${longYears}-year` : `${chartDays} day`} {capOn ? "market cap" : "price"} · expected weekly range</div>
                 <div className="card-title">
                   {ticker} candlestick
                   {(() => {
@@ -4616,6 +4650,15 @@ function App() {
                             title="Reset zoom and pan">RESET</button>
                   )}
                 </div>
+                {chartTF === "daily" && (
+                  <div className="seg chart-mode" title="Price per share, or market cap: what the whole company was worth each day (that day's price × the shares outstanding it filed with the SEC).">
+                    {[["price", "Price"], ["cap", "Mkt cap"]].map(([v, l]) => (
+                      <button key={v} className={chartMode === v ? "active" : ""} aria-pressed={chartMode === v}
+                              onClick={() => setChartMode(v)}
+                              title={v === "cap" ? "Market cap: each day's price × the shares outstanding the company filed for that day" : "Price per share"}>{l}</button>
+                    ))}
+                  </div>
+                )}
                 <div className="seg">
                   {[["candles","Candles"],["area","Area"],["ohlc","OHLC"]].map(([v, l]) => (
                     <button key={v} className={chartStyle === v ? "active" : ""}
@@ -4675,7 +4718,10 @@ function App() {
               const len = chartDaily.length;
               const start = viewRange ? viewRange[0] : Math.max(0, len - chartDays);
               const end = viewRange ? viewRange[1] : len;
-              const visibleDaily = chartDaily.slice(start, end);
+              // Market cap: the same bars, one for one, so the window is the same.
+              const visibleDaily = (capOn ? capView.bars : chartDaily).slice(start, end);
+              const capNote = capView && !capView.draw ? capView.note
+                : capView && capView.draw && !window.LightweightCharts ? "Market cap needs the chart library, which didn't load. Showing price." : null;
               const longNote = longYears && !longReady
                 ? (longHist && longHist.error && longHist.ticker === ticker
                     ? `Couldn't load ${longYears} years of history (${longHist.error}). Showing the last year.`
@@ -4685,6 +4731,15 @@ function App() {
               return (
                 <CardErrorBoundary label="Price chart">
                 {longNote && <div className="chart-range-note" role="status">{longNote}</div>}
+                {capNote && <div className="chart-range-note cap-note" role="status">{capNote}</div>}
+                {capOn && capView.notes.map((n, i) => <div key={i} className="chart-range-note cap-note" role="status">{n}</div>)}
+                {capOn && capView.warnings.length > 0 && (
+                  <details className="cap-about">
+                    <summary>About these share counts ({capView.warnings.length} {capView.warnings.length === 1 ? "note" : "notes"})</summary>
+                    <ul>{capView.warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>
+                    {capView.source && <div className="cap-source">{capView.source}.</div>}
+                  </details>
+                )}
                 {window.LightweightCharts ? (
                   <TVPriceChart daily={visibleDaily} expHigh={expHigh} expLow={expLow}
                                 emHigh={emBand && emBand.symbol === ticker ? emBand.high : null}
@@ -4693,7 +4748,7 @@ function App() {
                                 chartStyle={chartStyle} earnings={liveEarnings}
                                 levels={rcvLevels && rcvLevels.symbol === ticker ? rcvLevels.levels : null}
                                 showMA50={showMA50} showMA200={showMA200} showEMA21={showEMA21}
-                                resetKey={`${ticker}|${chartDays}`} />
+                                resetKey={`${ticker}|${chartDays}`} cap={capOn ? capView : null} />
                 ) : (
                 <PriceChart daily={visibleDaily} expHigh={expHigh} expLow={expLow}
                             emHigh={emBand && emBand.symbol === ticker ? emBand.high : null}
@@ -4740,6 +4795,12 @@ function App() {
                 </span>
               )}
               <span className="item"><span className="swatch" style={{background: chartColors.up, height: 3}}></span>Current price</span>
+              {capOn && (
+                <span className="item" title={"Shares outstanding as each 10-Q and 10-K cover page reported them, on today's split basis. A dot marks the day a new filing's count begins."
+                  + (capView.levelShares ? ` Strike and level lines are what the company is worth at that price with ${window.MarketCap.fmtShares(capView.levelShares)} shares (as of ${window.MarketCap.fmtDay(capView.levelAsOf)}).` : "")}>
+                  <span className="swatch" style={{background: "rgba(56,189,248,0.9)", height: 2}}></span>Shares outstanding · dot = a filing
+                </span>
+              )}
               {showEMA21 && <span className="item"><span className="swatch" style={{background: "rgb(80, 160, 255)", height: 2}}></span>EMA 21</span>}
               {showMA50 && <span className="item"><span className="swatch" style={{background: chartColors.warn, height: 2}}></span>MA 50</span>}
               {showMA200 && <span className="item"><span className="swatch" style={{background: chartColors.accent, height: 2}}></span>MA 200</span>}

@@ -170,8 +170,20 @@ function attachTouchZoom(el, chart, { getBarCount, onDoubleTap } = {}) {
   };
 }
 
-function TVPriceChart({ daily, expHigh, expLow, emHigh, emLow, callStrike, putStrike, currentPrice, chartStyle = "candles", earnings, showMA50 = false, showMA200 = false, showEMA21 = false, levels = null, resetKey = "" }) {
+// Market cap (v5.46): with `cap` (window.MarketCap.capState's answer) the
+// bars are market caps, the axis reads $2.95T, the moving averages are
+// worked out on the market cap, every price line is moved to what the
+// company is worth at that price with today's share count, and a step line
+// of the shares outstanding runs under the candles with a dot at each
+// filing. A line above the chart shows the sum for the bar under the cursor.
+function TVPriceChart({ daily, expHigh, expLow, emHigh, emLow, callStrike, putStrike, currentPrice, chartStyle = "candles", earnings, showMA50 = false, showMA200 = false, showEMA21 = false, levels = null, resetKey = "", cap = null }) {
   const LC = window.LightweightCharts;
+  const MC = window.MarketCap;
+  const capMode = !!(cap && MC);
+  // The strip and the volume sit under the candles, where the market-cap
+  // scale runs down to zero and below: those labels are left blank, not
+  // "$0.00K" or "-$10.00T".
+  const capAxis = (v) => (v <= 0 ? "" : MC.fmtCap(v));
   const wrapRef = React.useRef(null);
   const chartRef = React.useRef(null);
   const mainRef = React.useRef(null);
@@ -206,13 +218,14 @@ function TVPriceChart({ daily, expHigh, expLow, emHigh, emLow, callStrike, putSt
     chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
     chartRef.current = chart; volRef.current = vol;
     el.__chart = chart;                    // the render tests read the visible range
+    el.__parts = () => ({ main: mainRef.current, vol: volRef.current, lines: extraRef.current.lines, series: extraRef.current.series });
     const detachTouch = attachTouchZoom(el, chart, {
       getBarCount: () => (dailyRef.current || []).length,
       onDoubleTap: () => { try { chart.timeScale().fitContent(); } catch (e) {} },
     });
     const ro = new window.ResizeObserver(() => { if (wrapRef.current) chart.applyOptions({ width: wrapRef.current.clientWidth }); });
     ro.observe(el);
-    return () => { ro.disconnect(); detachTouch(); el.__chart = null; try { chart.remove(); } catch (e) {} chartRef.current = null; mainRef.current = null; volRef.current = null; };
+    return () => { ro.disconnect(); detachTouch(); el.__chart = null; el.__parts = null; try { chart.remove(); } catch (e) {} chartRef.current = null; mainRef.current = null; volRef.current = null; };
   }, [LC]);
 
   // Add/swap ONLY the main price series when the style changes. The chart
@@ -231,14 +244,27 @@ function TVPriceChart({ daily, expHigh, expLow, emHigh, emLow, callStrike, putSt
   React.useEffect(() => {
     if (!mainRef.current || !daily || !daily.length) return;
     // `close` alone was the old guard; a candle needs all four.
-    const rows = daily.filter(d => d && (chartStyle === "area"
+    const drawn = (d) => d && (chartStyle === "area"
       ? (d.close != null && isFinite(d.close))
-      : isCompleteBar(d.open, d.high, d.low, d.close)));
-    if (chartStyle === "area") mainRef.current.setData(ascendingByTime(rows.map(d => ({ time: norm(d.date), value: d.close }))));
-    else mainRef.current.setData(ascendingByTime(rows.map(d => ({ time: norm(d.date), open: d.open, high: d.high, low: d.low, close: d.close }))));
-    const hasVol = rows.some(d => d.volume);
-    if (volRef.current) volRef.current.setData(hasVol ? ascendingByTime(rows.map(d => ({ time: norm(d.date), value: d.volume || 0, color: d.close >= d.open ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)" }))) : []);
-  }, [daily, chartStyle]);
+      : isCompleteBar(d.open, d.high, d.low, d.close));
+    const rows = daily.filter(drawn);
+    // A day with no share count has no market cap. It stays on the axis as
+    // an empty slot, so the time scale (and your zoom) are the price
+    // chart's, and an empty stretch says plainly where there is no count.
+    const axis = capMode ? daily.filter(d => d && d.date != null) : rows;
+    const point = (d) => !drawn(d) ? { time: norm(d.date) }
+      : chartStyle === "area" ? { time: norm(d.date), value: d.close }
+      : { time: norm(d.date), open: d.open, high: d.high, low: d.low, close: d.close };
+    mainRef.current.applyOptions({ priceFormat: capMode
+      ? { type: "custom", formatter: capAxis, minMove: 1 }
+      : { type: "price", precision: 2, minMove: 0.01 } });
+    if (chartRef.current) chartRef.current.priceScale("right").applyOptions({
+      scaleMargins: capMode ? { top: 0.08, bottom: 0.32 } : { top: 0.2, bottom: 0.1 } });
+    mainRef.current.setData(ascendingByTime(axis.map(point)));
+    const up = (d) => { const b = drawn(d) ? d : (d.px || d); return b.close >= b.open; };
+    const hasVol = axis.some(d => d.volume);
+    if (volRef.current) volRef.current.setData(hasVol ? ascendingByTime(axis.map(d => ({ time: norm(d.date), value: d.volume || 0, color: up(d) ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)" }))) : []);
+  }, [daily, chartStyle, capMode]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fit the time scale when the WINDOW changes (a new symbol or range, a new
   // day's bar), NOT on a style toggle and NOT on each update of today's live
@@ -259,15 +285,35 @@ function TVPriceChart({ daily, expHigh, expLow, emHigh, emLow, callStrike, putSt
     extraRef.current.series.forEach(s => { try { chart.removeSeries(s); } catch (e) {} });
     extraRef.current.lines.forEach(pl => { try { main.removePriceLine(pl); } catch (e) {} });
     extraRef.current = { lines: [], series: [] };
-    const rows = daily.filter(d => d && isDrawable(d.close));
-    const closes = rows.map(d => d.close);
-    const sma = (n) => { const out = []; for (let i = n - 1; i < rows.length; i++) { let s = 0; for (let j = i - n + 1; j <= i; j++) s += closes[j]; out.push({ time: norm(rows[i].date), value: s / n }); } return out; };
-    const ema = (n) => { const k = 2 / (n + 1); let prev = null; const out = []; rows.forEach((d, i) => { prev = prev == null ? d.close : d.close * k + prev * (1 - k); if (i >= n - 1) out.push({ time: norm(d.date), value: prev }); }); return out; };
-    const addLine = (data, color) => { const s = chart.addLineSeries({ color, lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false }); s.setData(data); extraRef.current.series.push(s); };
-    if (showMA50 && rows.length >= 50) addLine(sma(50), "#eab308");
-    if (showMA200 && rows.length >= 200) addLine(sma(200), "#3b82f6");
-    if (showEMA21 && rows.length >= 21) addLine(ema(21), "#a855f7");
-    const pl = (price, color, style, title) => { if (price == null) return; extraRef.current.lines.push(main.createPriceLine({ price: +price, color, lineWidth: 1, lineStyle: style, axisLabelVisible: true, title })); };
+    // The averages run over unbroken stretches of bars: in market-cap mode
+    // a day with no share count ends one, rather than averaging across it.
+    const runs = [];
+    if (capMode) {
+      let run = [];
+      daily.forEach(d => { if (d && isDrawable(d.close)) run.push(d); else if (run.length) { runs.push(run); run = []; } });
+      if (run.length) runs.push(run);
+    } else runs.push(daily.filter(d => d && isDrawable(d.close)));
+    const longest = Math.max(0, ...runs.map(r => r.length));
+    const sma = (n) => { const out = []; runs.forEach(rows => { const closes = rows.map(d => d.close); for (let i = n - 1; i < rows.length; i++) { let s = 0; for (let j = i - n + 1; j <= i; j++) s += closes[j]; out.push({ time: norm(rows[i].date), value: s / n }); } }); return out; };
+    const ema = (n) => { const k = 2 / (n + 1); const out = []; runs.forEach(rows => { let prev = null; rows.forEach((d, i) => { prev = prev == null ? d.close : d.close * k + prev * (1 - k); if (i >= n - 1) out.push({ time: norm(d.date), value: prev }); }); }); return out; };
+    const fmtOpt = capMode ? { priceFormat: { type: "custom", formatter: capAxis, minMove: 1 } } : {};
+    const addLine = (data, color) => { const s = chart.addLineSeries(Object.assign({ color, lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false }, fmtOpt)); s.setData(data); extraRef.current.series.push(s); };
+    if (showMA50 && longest >= 50) addLine(sma(50), "#eab308");
+    if (showMA200 && longest >= 200) addLine(sma(200), "#3b82f6");
+    if (showEMA21 && longest >= 21) addLine(ema(21), "#a855f7");
+    // In market-cap mode a price line is what the company is worth at that
+    // price, with the share count that applies today, and its label keeps
+    // the price: "call $150.00". No current count, no line (capState says).
+    const pl = (price, color, style, title) => {
+      if (price == null || !isFinite(+price)) return;
+      let at = +price, label = title;
+      if (capMode) {
+        if (!cap.levelShares) return;
+        at = +price * cap.levelShares;
+        label = `${title} ${fmt$(+price)}`;
+      }
+      extraRef.current.lines.push(main.createPriceLine({ price: at, color, lineWidth: 1, lineStyle: style, axisLabelVisible: true, title: label }));
+    };
     pl(currentPrice, "rgba(255,255,255,0.6)", LC.LineStyle.Solid, "now");
     pl(callStrike, "#ef4444", LC.LineStyle.Dashed, "call");
     pl(putStrike, "#22c55e", LC.LineStyle.Dashed, "put");
@@ -290,6 +336,26 @@ function TVPriceChart({ daily, expHigh, expLow, emHigh, emLow, callStrike, putSt
          lv.kind === "invalidation" ? LC.LineStyle.Dashed : LC.LineStyle.Dotted,
          lv.label);
     });
+    // The shares outstanding, as a step line in a strip of its own under the
+    // candles, with a dot on the day each filing's count begins.
+    if (capMode) {
+      const strip = chart.addLineSeries({ color: "rgba(56,189,248,0.9)", lineWidth: 2, lineType: (LC.LineType && LC.LineType.WithSteps) || 1,
+        priceScaleId: "shares", priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+        priceFormat: { type: "custom", formatter: MC.fmtShares, minMove: 1 } });
+      chart.priceScale("shares").applyOptions({ scaleMargins: { top: 0.72, bottom: 0.17 } });
+      const pts = ascendingByTime(daily.filter(d => d && d.date != null)
+        .map(d => d.cap ? { time: norm(d.date), value: d.cap.shares } : { time: norm(d.date) }));
+      strip.setData(pts);
+      const marks = [];
+      let prevAsOf = null;
+      daily.forEach(d => {
+        if (!d || !d.cap) { prevAsOf = null; return; }
+        if (d.cap.as_of !== prevAsOf) marks.push({ time: norm(d.date), position: "inBar", color: "rgba(56,189,248,1)", shape: "circle", size: 0.2 });
+        prevAsOf = d.cap.as_of;
+      });
+      try { strip.setMarkers(ascendingByTime(marks)); } catch (e) {}
+      extraRef.current.series.push(strip);
+    }
     if (earnings) {
       const m = [];
       (earnings.past || []).forEach(d => { const t = norm(d && d.date ? d.date : d); if (t) m.push({ time: t, position: "belowBar", color: "#a855f7", shape: "circle", text: "E" }); });
@@ -297,10 +363,41 @@ function TVPriceChart({ daily, expHigh, expLow, emHigh, emLow, callStrike, putSt
       m.sort((x, y) => x.time < y.time ? -1 : x.time > y.time ? 1 : 0);
       try { main.setMarkers(m); } catch (e) {}
     }
-  }, [daily, currentPrice, callStrike, putStrike, expHigh, expLow, emHigh, emLow, showMA50, showMA200, showEMA21, earnings, chartStyle, levels]);
+  }, [daily, currentPrice, callStrike, putStrike, expHigh, expLow, emHigh, emLow, showMA50, showMA200, showEMA21, earnings, chartStyle, levels, capMode, cap]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The day under the cursor, for the market-cap readout.
+  const [hoverDay, setHoverDay] = React.useState(null);
+  React.useEffect(() => {
+    const chart = chartRef.current;
+    setHoverDay(null);
+    if (!chart || !capMode) return;
+    const pad = (n) => String(n).padStart(2, "0");
+    const onMove = (param) => {
+      const t = param && param.time;
+      setHoverDay(t == null ? null
+        : typeof t === "string" ? t
+        : typeof t === "object" ? `${t.year}-${pad(t.month)}-${pad(t.day)}`
+        : new Date(t * 1000).toISOString().slice(0, 10));
+    };
+    chart.subscribeCrosshairMove(onMove);
+    return () => { try { chart.unsubscribeCrosshairMove(onMove); } catch (e) {} };
+  }, [LC, capMode]);
 
   if (!LC) return null;
-  return <div className="tv-price-chart" ref={wrapRef} />;
+  let shown = null;
+  if (capMode) {
+    const rowsNow = (daily || []).filter(Boolean);
+    shown = (hoverDay && rowsNow.find(d => norm(d.date) === hoverDay))
+      || rowsNow.slice().reverse().find(d => d.cap) || rowsNow[rowsNow.length - 1];
+  }
+  // One shape in both modes: the chart lives in the second child, and a
+  // root that changed shape would hand React a new node and lose it.
+  return (
+    <>
+      {capMode && <div className="cap-readout">{MC.readout(shown, cap.hist)}</div>}
+      <div className="tv-price-chart" ref={wrapRef} />
+    </>
+  );
 }
 
 // ── Candlestick / Area / OHLC ──────────────────────────────────────────────
