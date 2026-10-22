@@ -1499,8 +1499,15 @@ function TVAdvancedChart({ apiFetch, ticker, data, fallback }) {
   );
 }
 
-function SwingChart({ data, focusKey, onPickSwing, onClearFocus }) {
+// Market cap (v5.47): the Trade chart's Price | Mkt cap setting applies
+// here too. The candles are each day's price times that day's filed count
+// (capState, with the same price check); a swing's ends are at their own
+// days' counts, the level lines (now, targets, zones) at today's; the axis
+// reads $T/$B, the legend gives both, and the shares strip runs under the
+// candles.
+function SwingChart({ data, focusKey, onPickSwing, onClearFocus, capMode = "price", onCapMode = null, shareHist = null }) {
   const LC = window.LightweightCharts;
+  const MC = window.MarketCap;
   const wrapRef = useRef(null);
   const chartRef = useRef(null);
   const candleRef = useRef(null);
@@ -1523,6 +1530,22 @@ function SwingChart({ data, focusKey, onPickSwing, onClearFocus }) {
   const rv = data && data.reversal;
 
   const UPC = "#22c55e", DNC = "#ef4444";
+
+  const capView = useMemo(() => {
+    if (capMode !== "cap" || !MC || !bars.length) return null;
+    return MC.capState(shareHist, bars.map(b => ({ date: b.t, open: b.o, high: b.h, low: b.l, close: b.c, volume: b.v })),
+                       (data && data.symbol) || undefined);
+    /* eslint-disable-next-line */
+  }, [capMode, shareHist, data]);
+  const capOn = !!(capView && capView.draw && LC);
+  const capByDay = useMemo(() => {
+    const m = {};
+    if (capOn) capView.bars.forEach(b => { if (b) m[b.date] = b; });
+    return m;
+  }, [capOn, capView]);
+  // A level (now, targets, zones) at today's count; a swing's end at its own day's.
+  const atLevel = (price) => price == null ? null : !capOn ? price : capView.levelShares ? price * capView.levelShares : null;
+  const atDay = (day, price) => !capOn ? price : MC.capAt(capView.hist, day, price);
 
   // Default "home" view = last ~6 months (126 trading days), not the full year.
   const applyHome = () => {
@@ -1565,6 +1588,8 @@ function SwingChart({ data, focusKey, onPickSwing, onClearFocus }) {
     const vol = chart.addHistogramSeries({ priceFormat: { type: "volume" }, priceScaleId: "vol", lastValueVisible: false, priceLineVisible: false });
     chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.84, bottom: 0 } });
     chartRef.current = chart; candleRef.current = candle; volRef.current = vol;
+    el.__chart = chart;                    // the render tests read the series (v5.47)
+    el.__parts = () => ({ main: candleRef.current, vol: volRef.current, lines: overlayRef.current.priceLines, series: overlayRef.current.lines });
     if (onPickSwing) chart.subscribeClick(p => { if (p && p.time) onPickSwing(p.time); });
     // Crosshair readout: surface the hovered bar's OHLC / change% / volume.
     chart.subscribeCrosshairMove(p => {
@@ -1580,21 +1605,34 @@ function SwingChart({ data, focusKey, onPickSwing, onClearFocus }) {
     });
     const ro = new window.ResizeObserver(() => { if (wrapRef.current) chart.applyOptions({ width: wrapRef.current.clientWidth }); });
     ro.observe(el);
-    return () => { ro.disconnect(); detachTouch(); try { chart.remove(); } catch (e) {} chartRef.current = null; candleRef.current = null; volRef.current = null; };
+    return () => { ro.disconnect(); detachTouch(); el.__chart = null; el.__parts = null; try { chart.remove(); } catch (e) {} chartRef.current = null; candleRef.current = null; volRef.current = null; };
     /* eslint-disable-next-line */
   }, [LC, collapsed]);
 
-  // Candles + volume whenever bars change.
+  // Candles + volume whenever bars change. Home view only for new bars or a
+  // new chart: switching to market cap keeps the zoom (v5.47).
+  const homedRef = useRef(null);
   useEffect(() => {
     if (!candleRef.current || !bars.length) return;
     // This one filtered nothing at all: one null price anywhere in the series
     // and the whole chart threw. See isCompleteBar in charts.jsx.
     const drawable = bars.filter(b => b && isCompleteBar(b.o, b.h, b.l, b.c));
-    candleRef.current.setData(ascendingByTime(drawable.map(b => ({ time: b.t, open: b.o, high: b.h, low: b.l, close: b.c }))));
+    candleRef.current.applyOptions({ priceFormat: capOn ? capPriceFormat() : { type: "price", precision: 2, minMove: 0.01 } });
+    chartRef.current.priceScale("right").applyOptions({ scaleMargins: capOn ? CAP_MARGINS : PRICE_MARGINS });
+    if (capOn) {
+      // A day with no count keeps its place, empty (as on the Trade chart).
+      candleRef.current.setData(ascendingByTime(capView.bars.filter(Boolean).map(b => isCompleteBar(b.open, b.high, b.low, b.close)
+        ? { time: b.date, open: b.open, high: b.high, low: b.low, close: b.close } : { time: b.date })));
+    } else {
+      candleRef.current.setData(ascendingByTime(drawable.map(b => ({ time: b.t, open: b.o, high: b.h, low: b.l, close: b.c }))));
+    }
     volRef.current.setData(ascendingByTime(drawable.map(b => ({ time: b.t, value: b.v, color: b.c >= b.o ? "rgba(34,197,94,0.30)" : "rgba(239,68,68,0.30)" }))));
-    applyHome();
+    if (homedRef.current === null || homedRef.current.data !== data || homedRef.current.chart !== chartRef.current) {
+      homedRef.current = { data, chart: chartRef.current };
+      applyHome();
+    }
     /* eslint-disable-next-line */
-  }, [data, collapsed]);
+  }, [data, collapsed, capOn, capView]);
 
   // Swing overlay: markers + connector lines + current-swing price lines.
   useEffect(() => {
@@ -1624,7 +1662,7 @@ function SwingChart({ data, focusKey, onPickSwing, onClearFocus }) {
         // from the filtered swing lists as they always did.
         const lineColor = dim ? (dir === "up" ? DIMUP : DIMDN) : c;
         const ls = chart.addLineSeries({ color: lineColor, lineWidth: focused ? 3 : 1.5, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
-        const pts = [{ time: s.low_date, value: s.low_price }, { time: s.high_date, value: s.high_price }]
+        const pts = [{ time: s.low_date, value: atDay(s.low_date, s.low_price) }, { time: s.high_date, value: atDay(s.high_date, s.high_price) }]
           .filter(p => p.time && isDrawable(p.value))
           .sort((x, y) => x.time < y.time ? -1 : 1);
         if (pts.length < 2) { try { chart.removeSeries(ls); } catch (e) {} return; }
@@ -1667,8 +1705,8 @@ function SwingChart({ data, focusKey, onPickSwing, onClearFocus }) {
           priceLineVisible: false, lastValueVisible: false,
           crosshairMarkerVisible: false,
         });
-        const lp = [{ time: L.start_date, value: L.start_price },
-                    { time: L.end_date, value: L.end_price }]
+        const lp = [{ time: L.start_date, value: atDay(L.start_date, L.start_price) },
+                    { time: L.end_date, value: atDay(L.end_date, L.end_price) }]
           .filter(p => p.time && isDrawable(p.value));
         if (lp.length < 2) { try { chart.removeSeries(ls); } catch (e) {} return; }
         ls.setData(lp);
@@ -1683,8 +1721,9 @@ function SwingChart({ data, focusKey, onPickSwing, onClearFocus }) {
       // on the right edge over the candles). The values live in the HTML
       // legend rendered over the top-left of the chart instead.
       const mk = (price, color, style) => {
-        if (price == null) return;
-        overlayRef.current.priceLines.push(candle.createPriceLine({ price, color, lineWidth: 1, lineStyle: style, axisLabelVisible: false }));
+        const at = atLevel(price);
+        if (at == null) return;
+        overlayRef.current.priceLines.push(candle.createPriceLine({ price: at, color, lineWidth: 1, lineStyle: style, axisLabelVisible: false }));
       };
       if (show.current) mk(a.current_price, "rgba(255,255,255,0.55)", LC.LineStyle.Solid);
       if (show.targets && a.targets) {
@@ -1700,8 +1739,9 @@ function SwingChart({ data, focusKey, onPickSwing, onClearFocus }) {
     if (show.zones && rv && rv.ok && rv.zone) {
       const zc = rv.direction === "down" ? "#f59e0b" : "#f59e0b";
       const mk2 = (price, color, style) => {
-        if (price == null) return;
-        overlayRef.current.priceLines.push(candle.createPriceLine({ price, color, lineWidth: 1, lineStyle: style, axisLabelVisible: false }));
+        const at = atLevel(price);
+        if (at == null) return;
+        overlayRef.current.priceLines.push(candle.createPriceLine({ price: at, color, lineWidth: 1, lineStyle: style, axisLabelVisible: false }));
       };
       mk2(rv.zone.band_low_price, "rgba(245,158,11,0.55)", LC.LineStyle.Dotted);
       mk2(rv.zone.band_high_price, "rgba(245,158,11,0.55)", LC.LineStyle.Dotted);
@@ -1721,8 +1761,10 @@ function SwingChart({ data, focusKey, onPickSwing, onClearFocus }) {
       if (rv.next && rv.next.target_median_price != null)
         mk2(rv.next.target_median_price, rv.direction === "down" ? UPC : DNC, LC.LineStyle.Dotted);
     }
+    // The shares outstanding, in a strip under the candles (charts.jsx).
+    if (capOn) overlayRef.current.lines.push(addShareStrip(chart, capView.bars, b => b.date || null));
     /* eslint-disable-next-line */
-  }, [data, show, collapsed, focusKey]);
+  }, [data, show, collapsed, focusKey, capOn, capView]);
 
   // Focus the chart on a selected swing (from a table-row click), or zoom
   // back out to the home view when the selection is cleared.
@@ -1739,9 +1781,19 @@ function SwingChart({ data, focusKey, onPickSwing, onClearFocus }) {
 
   const TOGGLES = [["markers", "Markers"], ["labels", "Labels"], ["lines", "Lines"], ["up", "Up"], ["down", "Down"], ["current", "Current"], ["targets", "Targets"], ["zones", "Zones"]];
 
-  // Crosshair OHLC readout — hovered bar, falling back to the latest bar.
-  const lastBar = bars.length ? bars[bars.length - 1] : null;
+  // Crosshair OHLC readout — hovered bar, falling back to the latest bar
+  // (in market cap, the latest with a count).
+  const lastBar = capOn
+    ? (() => { const b = capView.bars.slice().reverse().find(x => x && x.cap && isDrawable(x.close)); return b ? { t: b.date, o: b.open, h: b.high, l: b.low, c: b.close, v: b.volume } : null; })()
+    : (bars.length ? bars[bars.length - 1] : null);
   const ro = ohlc || (lastBar ? { time: lastBar.t, o: lastBar.o, h: lastBar.h, l: lastBar.l, c: lastBar.c, v: lastBar.v } : null);
+  const fmtV = (v) => capOn ? MC.fmtCap(v) : v.toFixed(2);
+  const roDay = ro ? (typeof ro.time === "string" ? ro.time : ro.time && ro.time.year
+    ? `${ro.time.year}-${String(ro.time.month).padStart(2, "0")}-${String(ro.time.day).padStart(2, "0")}` : null) : null;
+  // A level's price, and in market cap what the company is worth there.
+  const lvlText = (p) => fmtUsd(p, 2) + (capOn && capView.levelShares && p != null ? ` · ${MC.fmtCap(p * capView.levelShares)}` : "");
+  const lvlRange = (p1, p2) => `${fmtUsd(p1, 2)}–${fmtUsd(p2, 2)}`
+    + (capOn && capView.levelShares ? ` · ${MC.fmtCap(p1 * capView.levelShares)}–${MC.fmtCap(p2 * capView.levelShares)}` : "");
   const fmtVol = (v) => v == null ? "—" : v >= 1e9 ? (v / 1e9).toFixed(2) + "B" : v >= 1e6 ? (v / 1e6).toFixed(1) + "M" : v >= 1e3 ? (v / 1e3).toFixed(0) + "K" : String(Math.round(v));
   const fmtBarDate = (t) => typeof t === "string" ? fmtSwingDate(t) : (t && t.year ? `${t.month}-${t.day}-${t.year}` : String(t));
   const roChg = ro && ro.o ? (ro.c - ro.o) / ro.o * 100 : null;
@@ -1786,12 +1838,23 @@ function SwingChart({ data, focusKey, onPickSwing, onClearFocus }) {
       legend.push({ name: rv.direction === "down" ? "bounce tgt" : "pullback tgt", price: rv.next.target_median_price, color: rv.direction === "down" ? UPC : DNC });
   }
 
+  // In market cap with no current count the level lines are hidden, and so
+  // are their entries here; a caption (the unfinished swing) stays (Codex, #432).
+  const shownLegend = capOn && !capView.levelShares ? legend.filter(l => l.text) : legend;
+
   return (
     <div className="swing-chart-block">
       <div className="swing-chart-head">
         <button className="swing-chart-toggle" onClick={() => setCollapsed(c => !c)}>
           {collapsed ? "▸" : "▾"} Swing chart
         </button>
+        {!collapsed && LC && onCapMode && (
+          <div className="swing-chart-toggles swing-chart-mode" title="Price per share, or market cap: what the whole company was worth each day. The same setting as the Trade chart's.">
+            {[["price", "Price"], ["cap", "Mkt cap"]].map(([v, l]) => (
+              <button key={v} className={capMode === v ? "on" : ""} aria-pressed={capMode === v} onClick={() => onCapMode(v)}>{l}</button>
+            ))}
+          </div>
+        )}
         {!collapsed && LC && (
           <div className="swing-chart-toggles">
             {TOGGLES.map(([k, lbl]) => (
@@ -1802,21 +1865,23 @@ function SwingChart({ data, focusKey, onPickSwing, onClearFocus }) {
         )}
       </div>
       {!collapsed && !LC && <div className="ab-status muted">Chart library didn't load (offline?). The swing table above has the full data.</div>}
+      {!collapsed && capMode === "cap" && <CapNotes view={capView} />}
+      {!collapsed && capOn && <div className="cap-readout">{MC.readout(capByDay[roDay] || null, capView.hist)}</div>}
       {/* The level legend sits ABOVE the canvas, not floating over it
           (v4.53). It grew to eleven entries and two lines, which put an
           opaque band across the top of the price action — and, being inside
           the pointer-events:none crosshair overlay, its tooltips could
           never be reached either. The crosshair OHLC readout stays floating:
           it is one line and belongs next to the cursor. */}
-      {!collapsed && LC && legend.length > 0 && (
+      {!collapsed && LC && shownLegend.length > 0 && (
         <div className="swing-chart-legend">
-          {legend.map(l => (
+          {shownLegend.map(l => (
             <span key={l.name} className="swing-legend-item" title={l.tip || ""}>
               {/* A text-only entry (the unfinished swing's own label)
                   carries no swatch and no price — it is a caption for the
                   candles at the right edge, not a level. */}
               {l.text ? <b>{l.text}</b> : (
-                <><i style={{ background: l.color }} />{l.name} <b>{l.price2 != null ? `${fmtUsd(l.price, 2)}–${fmtUsd(l.price2, 2)}` : fmtUsd(l.price, 2)}</b></>
+                <><i style={{ background: l.color }} />{l.name} <b>{l.price2 != null ? lvlRange(l.price, l.price2) : lvlText(l.price)}</b></>
               )}
             </span>
           ))}
@@ -1828,10 +1893,10 @@ function SwingChart({ data, focusKey, onPickSwing, onClearFocus }) {
             {ro && (
               <div className="swing-chart-ohlc">
                 <span className="muted">{fmtBarDate(ro.time)}</span>
-                <span>O <b>{ro.o.toFixed(2)}</b></span>
-                <span>H <b>{ro.h.toFixed(2)}</b></span>
-                <span>L <b>{ro.l.toFixed(2)}</b></span>
-                <span>C <b className={ro.c >= ro.o ? "up" : "down"}>{ro.c.toFixed(2)}</b></span>
+                <span>O <b>{fmtV(ro.o)}</b></span>
+                <span>H <b>{fmtV(ro.h)}</b></span>
+                <span>L <b>{fmtV(ro.l)}</b></span>
+                <span>C <b className={ro.c >= ro.o ? "up" : "down"}>{fmtV(ro.c)}</b></span>
                 {roChg != null && <span className={roChg >= 0 ? "up" : "down"}>{roChg >= 0 ? "+" : ""}{roChg.toFixed(2)}%</span>}
                 <span className="muted">Vol {fmtVol(ro.v)}</span>
               </div>
@@ -2344,7 +2409,7 @@ function SwingReversalScan({ apiFetch }) {
   );
 }
 
-function SwingPatternCard({ apiFetch, ticker }) {
+function SwingPatternCard({ apiFetch, ticker, capMode = "price", onCapMode = null, shareHist = null }) {
   const Term = window.Term || (({ children }) => <span>{children}</span>);
   const cardRef = useRef(null);
   const [data, setData] = useState(null);
@@ -2550,7 +2615,8 @@ function SwingPatternCard({ apiFetch, ticker }) {
           deleted — it stopped leading.                                   */}
       {data && (data.bars || []).length > 0 && (
         <TVAdvancedChart apiFetch={apiFetch} ticker={ticker} data={data}
-          fallback={<SwingChart data={data} focusKey={focusKey} onPickSwing={pickSwingByTime} onClearFocus={() => { setFocusKey(null); setOpenRow(null); }} />} />
+          fallback={<SwingChart data={data} focusKey={focusKey} onPickSwing={pickSwingByTime} onClearFocus={() => { setFocusKey(null); setOpenRow(null); }}
+                                capMode={capMode} onCapMode={onCapMode} shareHist={shareHist} />} />
       )}
 
       {/* ── What if I took this trade right here ─────────────────────── */}

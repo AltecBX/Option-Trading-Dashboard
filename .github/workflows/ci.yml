@@ -43,7 +43,12 @@ concurrency:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 30, not 20 (v5.47). The last green run took 19m13s (Python tests
+    # 16.5 minutes, the 400-day run two), and the market-cap browser tests
+    # add about a minute: the next run hit the limit mid-suite, with no test
+    # failed, after an npm install that took 7 minutes instead of 4 seconds.
+    # The limit is there to stop a hung job, not to time a healthy one.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 

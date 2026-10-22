@@ -534,12 +534,12 @@ def daily_history_answer(years: int) -> dict:
     return {"ok": True, "symbol": "AAPL", "years": years, "daily": rows, "first": rows[0]["date"][:10]}
 
 
-def share_history_answer(first_after_days: int = 200) -> dict:
-    """/api/share_history for AAPL, against daily_history_answer(10): a
-    10-Q count each quarter from about seven months in (a buyback: 20.0B
-    down to about 15B), and the first close of each month of those same
-    bars, the way the server sends them for the price check."""
-    bars = daily_history_answer(10)["daily"]
+def share_history_answer(first_after_days: int = 200, bars=None) -> dict:
+    """/api/share_history for AAPL, against daily_history_answer(10) (or
+    `bars`): a 10-Q count each quarter from about seven months in (a
+    buyback: 20.0B down to about 15B), and the first close of each month of
+    those same bars, the way the server sends them for the price check."""
+    bars = bars or daily_history_answer(10)["daily"]
     first, end = date.fromisoformat(bars[0]["date"][:10]), date.today()
     pts, d, n = [], first + timedelta(days=first_after_days), 0
     while d < end - timedelta(days=20):
@@ -558,6 +558,53 @@ def share_history_answer(first_after_days: int = 200) -> dict:
             "price_check": {"closes": [months[k] for k in sorted(months)],
                             "source": "Yahoo daily closes, one a month: split-adjusted, not dividend-adjusted"},
             "source": "SEC filings: the shares-outstanding count on each 10-Q and 10-K cover page"}
+
+
+def swing_rows(years: int = 10) -> list:
+    """Daily bars that swing: about 25% up and down every four months on a
+    slow climb, the row shape load_daily gives."""
+    import math
+    end = date.today()
+    d = end - timedelta(days=int(years * 365.25))
+    rows, i = [], 0
+    while d <= end:
+        if d.weekday() < 5:
+            px = 60.0 * (1.0 + i / 2600.0) * (1.0 + 0.14 * math.sin(2 * math.pi * i / 84))
+            o = px * (1.0 - 0.004 * math.cos(i))
+            rows.append({"date": f"{d.isoformat()}T12:00:00-04:00", "open": round(o, 2),
+                         "high": round(max(o, px) * 1.008, 2), "low": round(min(o, px) * 0.992, 2),
+                         "close": round(px, 2), "volume": 2_000_000 + 1000 * (i % 37)})
+            i += 1
+        d += timedelta(days=1)
+    return rows
+
+
+def swings_answer(rows=None) -> dict:
+    """/api/swings, built by the real swings engine from `rows`."""
+    import swings as _sw
+    return _sw.analyze("AAPL", period="10y", bars=rows or swing_rows())
+
+
+def intraday_answer(day=None) -> dict:
+    """/api/intraday: a session of 1-minute bars on `day` (today), VWAP with
+    its bands, and the level map, in the shape the Trade chart draws."""
+    from zoneinfo import ZoneInfo
+    day = day or date.today()
+    start = datetime(day.year, day.month, day.day, 9, 30, tzinfo=ZoneInfo("America/New_York"))
+    bars, ts, vw, px = [], [], [], 220.0
+    for m in range(120):
+        t = int((start + timedelta(minutes=m)).timestamp() * 1000)
+        o = px
+        px = round(px + (0.05 if (m // 10) % 2 == 0 else -0.04), 2)
+        bars.append({"ts": t, "open": o, "high": max(o, px) + 0.03, "low": min(o, px) - 0.03, "close": px,
+                     "volume": 50_000, "pm": False})
+        ts.append(t)
+        vw.append(round(220.0 + m * 0.004, 4))
+    return {"symbol": "AAPL", "bars": bars,
+            "vwap": {"ts": ts, "vwap": vw, "upper1": [v + 0.5 for v in vw], "lower1": [v - 0.5 for v in vw],
+                     "upper2": [v + 1.0 for v in vw], "lower2": [v - 1.0 for v in vw], "last": vw[-1], "stretch": 0.4},
+            "levels": [{"price": 218.5, "label": "PDL", "kind": "pdl"}, {"price": 223.25, "label": "PDH", "kind": "pdh"}],
+            "signals": []}
 
 
 def _default_payload(symbol: str) -> str:
@@ -641,7 +688,7 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                  timezone=None, safe_area=None, starred=None, ytd_bases=None,
                  quotes=None, tab_order=None, setup_board=None, live=None, uw=None,
                  buyers=None, report_card=None, hotlist=None, debt=None, daily_history=None,
-                 share_history=None):
+                 share_history=None, swings=None, intraday=None):
         """Open the app with a production-sized news feed and measure the
         frame. Returns (geometry, page errors)."""
         from playwright.sync_api import sync_playwright
@@ -679,6 +726,9 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         # order, the last one from then on ("building", then the history).
         self._share_history = list(share_history) if isinstance(share_history, list) else share_history
         self.share_history_calls = []
+        # v5.47: the Patterns swing chart's and the 1-minute chart's data.
+        self._swings = swings
+        self._intraday = intraday
         pw = sync_playwright().start()
         kw = {"executable_path": CHROMIUM} if Path(CHROMIUM).exists() else {}
         browser = pw.chromium.launch(**kw)
@@ -807,6 +857,12 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 body = ({"ok": False, "error": "No daily history for AAPL.", "daily": []}
                         if self._daily_history == "error" else daily_history_answer(yrs))
                 r.fulfill(status=200, content_type="application/json", body=json.dumps(body))
+                return
+            if self._swings is not None and urllib.parse.urlsplit(url).path == "/api/swings":
+                r.fulfill(status=200, content_type="application/json", body=json.dumps(self._swings))
+                return
+            if self._intraday is not None and urllib.parse.urlsplit(url).path == "/api/intraday":
+                r.fulfill(status=200, content_type="application/json", body=json.dumps(self._intraday))
                 return
             if self._share_history is not None and urllib.parse.urlsplit(url).path == "/api/share_history":
                 q = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)
@@ -3323,6 +3379,185 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                                    timeout=10000)
             page.wait_for_timeout(3000)
             self.assertEqual(2, len(self.share_history_calls), "and not again once it is whole")
+            self.assertEqual(errs, [], f"the page threw: {errs[:2]}")
+        finally:
+            self._close(handles)
+
+    # v5.47 — market cap on the Patterns swing chart and the 1-minute chart.
+    _SWING_PARTS = """(sel) => { const el = document.querySelector(sel);
+        const p = el && el.__parts && el.__parts(); if (!p || !p.main) return null;
+        const day = (t) => typeof t === 'string' ? t : typeof t === 'number' ? t
+                           : `${t.year}-${String(t.month).padStart(2, '0')}-${String(t.day).padStart(2, '0')}`;
+        const strip = p.series.find(s => s.options().priceScaleId === 'shares');
+        return {fmt: p.main.options().priceFormat.type,
+                data: p.main.data().map(d => [day(d.time), d.close === undefined ? null : d.close]),
+                levels: p.lines.map(l => ({price: l.options().price, title: l.options().title})),
+                legs: p.series.filter(s => s !== strip).map(s => s.data().map(d => [day(d.time), d.value])),
+                strip: strip ? strip.data().filter(d => d.value !== undefined).length : 0,
+                vwap: p.vwap ? p.vwap.data().slice(0, 1).map(d => d.value) : null}; }"""
+
+    def test_the_swing_chart_draws_market_cap(self):
+        rows = swing_rows()
+        sw = swings_answer(rows)
+        hist = share_history_answer(first_after_days=30, bars=rows)
+        pts = hist["points"]
+        on = lambda d: [p["shares"] for p in pts if p["as_of"] <= d][-1]
+        geo, errs, handles = self._measure(1440, 900, tab="patterns", swings=sw, share_history=hist)
+        page = handles[2]
+        try:
+            self.assertEqual(errs, [], f"the page threw: {errs[:2]}")
+            page.wait_for_function("() => { const e = document.querySelector('.swing-chart'); return e && e.__parts; }",
+                                   timeout=30000)
+            self.assertEqual(["Price", "Mkt cap"], page.evaluate(
+                "() => [...document.querySelectorAll('.swing-chart-mode button')].map(b => b.innerText.trim())"))
+            price = page.evaluate(f"({self._SWING_PARTS})('.swing-chart')")
+            self.assertEqual("price", price["fmt"])
+            page.click(".swing-chart-mode button:text-is('Mkt cap')")
+            page.wait_for_function("() => document.querySelector('.swing-chart').__parts().main.options().priceFormat.type === 'custom'",
+                                   timeout=15000)
+            cap = page.evaluate(f"({self._SWING_PARTS})('.swing-chart')")
+            self.assertEqual(["AAPL"], self.share_history_calls)
+            by_day = dict(cap["data"])
+            for r in (rows[300], rows[1800], rows[-30]):
+                d = r["date"][:10]
+                self.assertAlmostEqual(r["close"] * on(d), by_day[d], delta=r["close"] * on(d) * 1e-9, msg=d)
+            # A swing's two ends, each at its own day's count.
+            leg = next(L for L in sw["zigzag_legs"] if L["start_date"] > pts[1]["as_of"] and L["major"])
+            want = [[leg["start_date"], leg["start_price"] * on(leg["start_date"])],
+                    [leg["end_date"], leg["end_price"] * on(leg["end_date"])]]
+            drawn = [l for l in cap["legs"] if l and l[0][0] == leg["start_date"]]
+            self.assertEqual(1, len(drawn), "the leg is drawn")
+            for (d1, v1), (d2, v2) in zip(want, drawn[0]):
+                self.assertEqual(d1, d2)
+                self.assertAlmostEqual(v1, v2, delta=v1 * 1e-9)
+            # The levels at today's count, their prices kept in the legend.
+            now = sw["analysis"]["current_price"]
+            self.assertTrue(any(abs(l["price"] - now * pts[-1]["shares"]) < 1 for l in cap["levels"]),
+                            f"the 'now' line at today's count: {cap['levels']}")
+            legend = page.inner_text(".swing-chart-legend")
+            self.assertRegex(legend, r"now\s+\$[\d.,]+ · \$[\d.]+[TBM]")
+            self.assertGreater(cap["strip"], 0, "the shares strip is drawn")
+            self.assertRegex(page.inner_text(".swing-chart-block .cap-readout"),
+                             r"Market cap \$[\d.]+[TBM] = \$[\d.]+ × [\d.]+B shares · shares as of")
+            self.assertEqual("cap", page.evaluate(
+                "() => JSON.parse(localStorage.getItem('weeklyOptionsTimer.settings.v1')).chartMode"),
+                "one setting with the Trade chart")
+            page.click(".swing-chart-mode button:text-is('Price')")
+            page.wait_for_function("() => document.querySelector('.swing-chart').__parts().main.options().priceFormat.type === 'price'",
+                                   timeout=10000)
+            back = page.evaluate(f"({self._SWING_PARTS})('.swing-chart')")
+            self.assertEqual(sorted(l["price"] for l in price["levels"]), sorted(l["price"] for l in back["levels"]))
+            self.assertEqual(0, back["strip"])
+            self.assertEqual(errs, [], f"the page threw: {errs[:2]}")
+        finally:
+            self._close(handles)
+
+    def test_the_swing_legend_says_what_the_lines_say(self):
+        # Codex, #432: a range in the legend gives both ends in market cap
+        # too; and with no current count, the level lines are hidden and so
+        # are their legend entries (the unfinished swing's caption stays).
+        rows = swing_rows()
+        sw = swings_answer(rows)
+        hist = share_history_answer(first_after_days=30, bars=rows)
+        geo, errs, handles = self._measure(1440, 900, tab="patterns", swings=sw, share_history=hist)
+        page = handles[2]
+        try:
+            page.wait_for_function("() => { const e = document.querySelector('.swing-chart'); return e && e.__parts; }",
+                                   timeout=30000)
+            page.click(".swing-chart-mode button:text-is('Mkt cap')")
+            page.wait_for_function("() => document.querySelector('.swing-chart').__parts().main.options().priceFormat.type === 'custom'",
+                                   timeout=15000)
+            legend = page.inner_text(".swing-chart-legend")
+            self.assertRegex(legend, r"zone\s+\$[\d.,]+–\$[\d.,]+ · \$[\d.]+[TBM]–\$[\d.]+[TBM]",
+                             "a range gives both ends in market cap")
+        finally:
+            self._close(handles)
+        stale = dict(hist, points=[p for p in hist["points"] if p["as_of"] < (date.today() - timedelta(days=400)).isoformat()])
+        stale["latest"] = dict(stale["points"][-1])
+        geo, errs, handles = self._measure(1440, 900, tab="patterns", swings=sw, share_history=stale)
+        page = handles[2]
+        try:
+            page.wait_for_function("() => { const e = document.querySelector('.swing-chart'); return e && e.__parts; }",
+                                   timeout=30000)
+            page.click(".swing-chart-mode button:text-is('Mkt cap')")
+            page.wait_for_function("() => /lines are hidden/.test(document.body.innerText)", timeout=15000)
+            got = page.evaluate(f"({self._SWING_PARTS})('.swing-chart')")
+            self.assertEqual("custom", got["fmt"], "the past is still drawn in market cap")
+            self.assertEqual([], got["levels"], "no level lines without a current count")
+            legend = page.inner_text(".swing-chart-legend") if page.locator(".swing-chart-legend").count() else ""
+            self.assertNotRegex(legend, r"\$", f"and no level prices in the legend: {legend!r}")
+            self.assertIn("CURRENT", legend, "the unfinished swing's caption stays")
+            self.assertEqual(errs, [], f"the page threw: {errs[:2]}")
+        finally:
+            self._close(handles)
+
+    def test_the_swing_readout_is_redone_when_the_units_change(self):
+        # Codex, #432: tap a candle on a phone (the crosshair stays where the
+        # finger was), then switch to market cap: the readout must not read
+        # the tapped bar's prices as market caps ("$0.13K").
+        rows = swing_rows()
+        geo, errs, handles = self._measure(390, 844, tab="patterns", swings=swings_answer(rows),
+                                           share_history=share_history_answer(first_after_days=30, bars=rows))
+        page = handles[2]
+        try:
+            page.wait_for_selector(".swing-chart-toggle", timeout=30000)
+            page.click(".swing-chart-toggle")
+            page.wait_for_function("() => { const e = document.querySelector('.swing-chart'); return e && e.__parts; }",
+                                   timeout=30000)
+            last = page.inner_text(".swing-chart-ohlc")
+            page.locator(".swing-chart").scroll_into_view_if_needed()
+            box = page.locator(".swing-chart").bounding_box()
+            page.touchscreen.tap(box["x"] + box["width"] * 0.4, box["y"] + box["height"] * 0.4)
+            page.wait_for_timeout(300)
+            tapped = page.inner_text(".swing-chart-ohlc")
+            self.assertNotEqual(last, tapped, "the tap put the crosshair on a bar")
+            page.click(".swing-chart-mode button:text-is('Mkt cap')")
+            page.wait_for_function("() => document.querySelector('.swing-chart').__parts().main.options().priceFormat.type === 'custom'",
+                                   timeout=15000)
+            page.wait_for_timeout(300)
+            ro = page.inner_text(".swing-chart-ohlc")
+            self.assertNotRegex(ro, r"\$[\d.]+K", f"a price read as a market cap: {ro!r}")
+            self.assertRegex(ro, r"C\s+\$[\d.]+[TB]")
+            # Redrawing the candles clears the chart's crosshair, so the
+            # readout falls back to the newest bar, in the new units.
+            self.assertEqual(last.split()[0], ro.split()[0], "the newest bar")
+            self.assertEqual(errs, [], f"the page threw: {errs[:2]}")
+        finally:
+            self._close(handles)
+
+    def test_the_one_minute_chart_draws_market_cap(self):
+        daily = json.loads(_default_payload("AAPL"))["daily"]
+        hist = share_history_answer(first_after_days=30, bars=daily)
+        for p in hist["points"]:
+            p["shares"] = 15.0e9               # one count: today's is not in doubt
+        hist["latest"]["shares"] = 15.0e9
+        intra = intraday_answer()
+        geo, errs, handles = self._measure(1440, 900, tab="trade", share_history=hist, intraday=intra)
+        page = handles[2]
+        try:
+            self.assertEqual(errs, [], f"the page threw: {errs[:2]}")
+            page.wait_for_selector(".chart-mode button", timeout=20000)
+            page.click("button:text-is('1-Min')")
+            page.wait_for_function("() => { const e = document.querySelector('.tv-price-chart'); const p = e && e.__parts && e.__parts(); return p && p.vwap && p.main.data().length > 0; }",
+                                   timeout=20000)
+            page.click(".chart-mode button:text-is('Mkt cap')")
+            page.wait_for_function("() => document.querySelector('.tv-price-chart').__parts().main.options().priceFormat.type === 'custom'",
+                                   timeout=15000)
+            cap = page.evaluate(f"({self._SWING_PARTS})('.tv-price-chart')")
+            b = intra["bars"][40]
+            self.assertAlmostEqual(b["close"] * 15e9, dict(cap["data"])[b["ts"] // 1000], delta=1)
+            self.assertAlmostEqual(intra["vwap"]["vwap"][0] * 15e9, cap["vwap"][0], delta=1)
+            lv = {l["title"]: l["price"] for l in cap["levels"]}
+            self.assertAlmostEqual(223.25 * 15e9, lv["PDH $223.25"], delta=1, msg=cap["levels"])
+            self.assertRegex(page.inner_text(".cap-readout"),
+                             r"\d+:\d\d [AP]M ET · Market cap \$[\d.]+T = \$[\d.]+ × 15.00B shares · shares as of \w{3} \d+, \d{4} \(10-Q\)")
+            self.assertIn("market cap", page.inner_text(".card:has(.chart-mode) .kicker").lower())
+            page.click(".chart-mode button:text-is('Price')")
+            page.wait_for_function("() => document.querySelector('.tv-price-chart').__parts().main.options().priceFormat.type === 'price'",
+                                   timeout=10000)
+            back = page.evaluate(f"({self._SWING_PARTS})('.tv-price-chart')")
+            self.assertAlmostEqual(b["close"], dict(back["data"])[b["ts"] // 1000], places=6)
+            self.assertIn("PDH", [l["title"] for l in back["levels"]])
             self.assertEqual(errs, [], f"the page threw: {errs[:2]}")
         finally:
             self._close(handles)

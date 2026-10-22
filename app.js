@@ -6,7 +6,7 @@
 // Single source of truth for the app version. The sidebar pill renders
 // this, and index.html's ?v= cache-bust is kept identical to it so there
 // is ONE version number everywhere. Bump both together on each change.
-const APP_VERSION = "5.46";
+const APP_VERSION = "5.47";
 // Published to window because the sidebar version pill renders from a
 // component in app-cards.js and resolves APP_VERSION as a bare global.
 Object.assign(window, {
@@ -3252,10 +3252,11 @@ function App() {
   // v5.46: market cap on the Trade chart. The share counts (from SEC
   // filings, /api/share_history) load once the chart is switched to market
   // cap, once per ticker, and are asked again while a company's filings are
-  // still being read for the first time.
+  // still being read for the first time. v5.47: one setting for every stock
+  // chart, the Trade chart's Daily and 1-Min and the Patterns swing chart.
   const [shareHist, setShareHist] = useState(null); // {ticker, data|null}
   useEffect(() => {
-    if (chartMode !== "cap" || chartTF !== "daily" || !ticker) return undefined;
+    if (chartMode !== "cap" || !ticker) return undefined;
     // A whole answer is kept for the ticker. One that could not be had (SEC
     // unreachable, an error) is asked again when market cap is picked again,
     // and a partial one when the server retries it, in ten minutes (Codex,
@@ -3298,12 +3299,21 @@ function App() {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [chartMode, chartTF, ticker]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [chartMode, ticker]); // eslint-disable-line react-hooks/exhaustive-deps
+  const shareHistNow = shareHist && shareHist.ticker === ticker ? shareHist.data : null;
+  // The daily bars are checked and multiplied for the 1-minute chart too:
+  // today's bars are on the same price basis, and the count that applies
+  // to the newest daily bar is today's (v5.47).
   const capView = useMemo(() => {
-    if (chartMode !== "cap" || chartTF !== "daily" || !window.MarketCap) return null;
-    return window.MarketCap.capState(shareHist && shareHist.ticker === ticker ? shareHist.data : null, chartDaily, ticker);
-  }, [chartMode, chartTF, shareHist, ticker, chartDaily]);
+    if (chartMode !== "cap" || !window.MarketCap) return null;
+    return window.MarketCap.capState(shareHistNow, chartDaily, ticker);
+  }, [chartMode, shareHistNow, ticker, chartDaily]); // eslint-disable-line react-hooks/exhaustive-deps
   const capOn = !!(capView && capView.draw && window.LightweightCharts);
+  const capIntraday = capOn && capView.levelShares ? {
+    shares: capView.levelShares,
+    as_of: capView.levelAsOf,
+    form: capView.levelForm
+  } : null;
   // Late-bind the radar's open-intraday action now that all pieces exist.
   openIntradayRef.current = sym => {
     switchTicker(sym);
@@ -5002,7 +5012,10 @@ function App() {
     label: "Swing patterns"
   }, /*#__PURE__*/React.createElement(SwingPatternCard, {
     apiFetch: apiFetch,
-    ticker: ticker
+    ticker: ticker,
+    capMode: chartMode,
+    onCapMode: setChartMode,
+    shareHist: shareHistNow
   })), /*#__PURE__*/React.createElement(CardErrorBoundary, {
     label: "Pattern discovery"
   }, /*#__PURE__*/React.createElement(LazyTab, {
@@ -5693,7 +5706,7 @@ function App() {
     className: "card-head"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "kicker"
-  }, longYears ? `${longYears}-year` : `${chartDays} day`, " ", capOn ? "market cap" : "price", " \xB7 expected weekly range"), /*#__PURE__*/React.createElement("div", {
+  }, longYears ? `${longYears}-year` : `${chartDays} day`, " ", (chartTF === "intraday" ? capIntraday : capOn) ? "market cap" : "price", " \xB7 expected weekly range"), /*#__PURE__*/React.createElement("div", {
     className: "card-title"
   }, ticker, " candlestick", (() => {
     if (!liveEarnings || !liveEarnings.next) return null;
@@ -5756,9 +5769,9 @@ function App() {
     className: "zoom-reset",
     onClick: () => setViewRange(null),
     title: "Reset zoom and pan"
-  }, "RESET")), chartTF === "daily" && /*#__PURE__*/React.createElement("div", {
+  }, "RESET")), /*#__PURE__*/React.createElement("div", {
     className: "seg chart-mode",
-    title: "Price per share, or market cap: what the whole company was worth each day (that day's price \xD7 the shares outstanding it filed with the SEC)."
+    title: "Price per share, or market cap: what the whole company was worth each day (that day's price \xD7 the shares outstanding it filed with the SEC). One setting for every stock chart."
   }, [["price", "Price"], ["cap", "Mkt cap"]].map(([v, l]) => /*#__PURE__*/React.createElement("button", {
     key: v,
     className: chartMode === v ? "active" : "",
@@ -5776,8 +5789,14 @@ function App() {
   }, intradayData && intradayData.error ? /*#__PURE__*/React.createElement("div", {
     className: "ic-empty",
     title: "Intraday bars come from Schwab minute data \u2014 they appear once today's session has printed."
-  }, intradayData.error) : intradayData ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(IntradayChart, {
-    data: intradayData
+  }, intradayData.error) : intradayData ? /*#__PURE__*/React.createElement(React.Fragment, null, capView && (!capView.draw || !window.LightweightCharts) && /*#__PURE__*/React.createElement(CapNotes, {
+    view: capView
+  }), capOn && !capIntraday && /*#__PURE__*/React.createElement("div", {
+    className: "chart-range-note cap-note",
+    role: "status"
+  }, "No market cap today: ", ticker, "'s newest SEC share count is from ", window.MarketCap.fmtDay(shareHistNow && shareHistNow.latest && shareHistNow.latest.as_of), ", too old to stand for today. Showing price."), /*#__PURE__*/React.createElement(IntradayChart, {
+    data: intradayData,
+    cap: capIntraday
   }), intradayData.vwap && /*#__PURE__*/React.createElement("div", {
     className: "lvl-strip"
   }, /*#__PURE__*/React.createElement("span", {
@@ -5812,27 +5831,15 @@ function App() {
     const end = viewRange ? viewRange[1] : len;
     // Market cap: the same bars, one for one, so the window is the same.
     const visibleDaily = (capOn ? capView.bars : chartDaily).slice(start, end);
-    const capNote = capView && !capView.draw ? capView.note : capView && capView.draw && !window.LightweightCharts ? "Market cap needs the chart library, which didn't load. Showing price." : null;
     const longNote = longYears && !longReady ? longHist && longHist.error && longHist.ticker === ticker ? `Couldn't load ${longYears} years of history (${longHist.error}). Showing the last year.` : `Loading ${longYears} years of history… showing the last year meanwhile.` : longReady && longHist.bars.length && (Date.now() - longHist.bars[0].date.getTime()) / 31557600000 < longYears - 0.25 ? `History for ${ticker} starts ${fmtUSDate(longHist.first)}.` : null;
     return /*#__PURE__*/React.createElement(CardErrorBoundary, {
       label: "Price chart"
     }, longNote && /*#__PURE__*/React.createElement("div", {
       className: "chart-range-note",
       role: "status"
-    }, longNote), capNote && /*#__PURE__*/React.createElement("div", {
-      className: "chart-range-note cap-note",
-      role: "status"
-    }, capNote), capOn && capView.notes.map((n, i) => /*#__PURE__*/React.createElement("div", {
-      key: i,
-      className: "chart-range-note cap-note",
-      role: "status"
-    }, n)), capOn && capView.warnings.length > 0 && /*#__PURE__*/React.createElement("details", {
-      className: "cap-about"
-    }, /*#__PURE__*/React.createElement("summary", null, "About these share counts (", capView.warnings.length, " ", capView.warnings.length === 1 ? "note" : "notes", ")"), /*#__PURE__*/React.createElement("ul", null, capView.warnings.map((w, i) => /*#__PURE__*/React.createElement("li", {
-      key: i
-    }, w))), capView.source && /*#__PURE__*/React.createElement("div", {
-      className: "cap-source"
-    }, capView.source, ".")), window.LightweightCharts ? /*#__PURE__*/React.createElement(TVPriceChart, {
+    }, longNote), /*#__PURE__*/React.createElement(CapNotes, {
+      view: capView
+    }), window.LightweightCharts ? /*#__PURE__*/React.createElement(TVPriceChart, {
       daily: visibleDaily,
       expHigh: expHigh,
       expLow: expLow,

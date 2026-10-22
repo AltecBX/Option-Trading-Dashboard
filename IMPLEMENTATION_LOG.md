@@ -6443,3 +6443,69 @@ on the old code):
   window's part. Test: `test_averages_are_worked_out_before_the_window_is_cut`
   (MA200 on a 120-day price chart, and the market cap's MA50 warm at the
   10-year window's first bar).
+
+## v5.47 — Mkt cap on the 1-minute chart and the Patterns swing chart (market cap, step 3)
+
+Jerry: "Merge it when it's green, then start step 3."
+
+- **One setting.** Price | Mkt cap is now one choice for every stock chart:
+  the Trade chart's Daily and 1-Min views share the switch, and the
+  Patterns tab's swing chart has the same two buttons and follows it.
+  Flip it on either and both change; it is remembered with the other chart
+  settings. The share counts load once market cap is picked, on any tab.
+- **1-minute chart.** Every price on it (the bars, VWAP and its ±1σ/±2σ
+  bands, the level lines) is times the count that applies today (the one
+  the daily bars' newest day uses, after the same price check against
+  Yahoo's unadjusted closes, so a split the counts aren't on yet still
+  stops it). One count stands for the whole session, so the shape is the
+  price's; the axis (a decimal more: a session moves a percent or two,
+  $4.255T), the level labels ("PDH $223.25") and a line above ("11:29 AM ET
+  · Market cap $4.24T = $220.60 × 19.22B shares · shares as of …") say
+  what the company was worth. No current count: it says so and shows price.
+- **Patterns swing chart** (the Lightweight Charts one; the licensed
+  TradingView library is not in the repo). Candles are each day's price ×
+  that day's count, with the same gaps, check and notes as the Trade
+  chart. A swing's two ends are each at their own day's count, so a leg
+  from a 2019 low to a 2020 high is the company's value at both; the level
+  lines (now, median/aggressive targets, invalidation, reversal zones,
+  running extreme, next target) are at today's count. The legend gives
+  both ("now $125.14 · $1.87T"), the OHLC readout reads in $T/$B, a line
+  above gives the sum for the bar under the cursor, and the shares strip
+  runs under the candles. Switching keeps the zoom.
+- Shared in `charts.jsx`: `capPriceFormat`, `addShareStrip`, `CapNotes`
+  (what a chart says above itself), used by all three charts.
+  `MarketCap.capAt(hist, day, price)` for a single price on a day.
+
+Tests: `test_market_cap.js` (+4: `capAt`, the extra decimal), and two
+browser tests in `test_frame_render`: the swing chart's candles, a leg's
+two ends at their own counts, the "now" line at today's, the legend, the
+strip, the readout, the shared setting, and back to price; and the
+1-minute chart's bars, VWAP and level lines times today's count, the label
+keeping the price, the readout and kicker, and back to price.
+
+Codex on #432, both right and fixed (the test fails on the old code):
+
+- **A range in the swing legend gave only prices.** The zones ("top zone",
+  "usual tops") were drawn in market cap but listed as "$139.11–$139.50";
+  they now read "$139.11–$139.50 · $2.08T–$2.08T", like the single levels.
+- **Level entries without level lines.** With no current share count the
+  chart hides the now/target/zone lines and says so, but the legend still
+  listed them. It now lists only the unfinished swing's caption then.
+
+Test: `test_the_swing_legend_says_what_the_lines_say`.
+
+Codex on #432, second review: **"reset the hovered OHLC when changing
+units"**, checked and not a bug. A readout kept from a hovered bar would read
+its prices as market caps after the switch, but the switch redraws the
+candles, and the chart clears its crosshair when its data is set: the
+readout falls back to the newest bar, in the new units. Checked both ways
+a switch can follow a hover: a phone tap on a bar then a tap on Mkt cap,
+and a mouse resting on a bar while the switch is pressed from the
+keyboard. Test (a guard, not a fix): `test_the_swing_readout_is_redone_when_the_units_change`.
+
+CI on #432: the job's 20-minute limit was reached mid-suite with no test
+failed. The last green run already took 19m13s (Python tests 16.5 minutes,
+the 400-day run two), and the market-cap browser tests add about a minute;
+on top of that, npm install took 7 minutes instead of 4 seconds that time.
+`timeout-minutes` is 30 now: it is there to stop a hung job, not to time a
+healthy one.

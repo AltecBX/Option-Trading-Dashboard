@@ -42,13 +42,14 @@
     return MONTHS[+m[2] - 1] + " " + (+m[3]) + ", " + m[1];
   }
 
-  // $2.95T · $820.4B · $95.12B · $2.01B · $950.2M
-  function fmtCap(v) {
+  // $2.95T · $820.4B · $95.12B · $2.01B · $950.2M. `more` decimals for an
+  // axis whose range is narrow (a day of 1-minute bars: $4.255T, v5.47).
+  function fmtCap(v, more) {
     if (!isNum(v)) return "—";
     var a = Math.abs(v), sign = v < 0 ? "-" : "";
     var u = a >= 1e12 ? [1e12, "T"] : a >= 1e9 ? [1e9, "B"] : a >= 1e6 ? [1e6, "M"] : [1e3, "K"];
     var x = a / u[0];
-    return sign + "$" + x.toFixed(x >= 100 ? 1 : 2) + u[1];
+    return sign + "$" + x.toFixed((x >= 100 ? 1 : 2) + (more || 0)) + u[1];
   }
 
   // 24.53B · 950.2M · 12,345
@@ -79,6 +80,14 @@
     var age = daysBetween(p.as_of, day);
     if (age > ((hist && hist.max_age_days) || 200)) return null;
     return { shares: p.shares, as_of: p.as_of, age_days: age, form: p.form || null, filed: p.filed || null };
+  }
+
+  // One price on one day as market cap (a swing's end, v5.47): null when
+  // that day has no count.
+  function capAt(hist, day, price) {
+    if (!isNum(price)) return null;
+    var s = sharesOn(hist, dayKey(day));
+    return s ? price * s.shares : null;
   }
 
   // Daily bars as market cap: the same bars on the same days, each price
@@ -182,7 +191,7 @@
     if (!now) notes.push("Strike and level lines are hidden: there is no current share count to convert them with.");
     return {
       draw: true, bars: out, check: check, notes: notes, warnings: (hist.warnings || []).slice(),
-      levelShares: now ? now.shares : null, levelAsOf: now ? now.as_of : null,
+      levelShares: now ? now.shares : null, levelAsOf: now ? now.as_of : null, levelForm: now ? now.form : null,
       points: hist.points || [], source: hist.source || "", hist: hist,
     };
   }
@@ -204,7 +213,7 @@
 
   var api = {
     CHECK_TOL_PCT: CHECK_TOL_PCT, dayKey: dayKey, fmtDay: fmtDay, fmtCap: fmtCap, fmtShares: fmtShares,
-    fmtPrice: fmtPrice, sharesOn: sharesOn, capBars: capBars, checkPrices: checkPrices, capState: capState,
+    fmtPrice: fmtPrice, sharesOn: sharesOn, capAt: capAt, capBars: capBars, checkPrices: checkPrices, capState: capState,
     readout: readout,
   };
   if (typeof window !== "undefined") { window.MarketCap = api; }
