@@ -5239,6 +5239,27 @@ def _shist_splits(symbol: str) -> list:
     return sorted((acts.get("split_ratios") or {}).items())
 
 
+def _shist_prices(symbol: str) -> list:
+    """[(date, close)], one a month, for checking a market-cap chart's
+    prices (v5.46): Yahoo's auto_adjust=False closes, split-adjusted and not
+    dividend-adjusted. A lookup that failed raises."""
+    acts = _gap_actions(symbol)
+    if not acts.get("ok"):
+        raise OSError("price history unavailable")
+    return list(acts.get("ref_closes") or [])
+
+
+def _shist_filings(symbol: str) -> list:
+    """The company's own SEC filing list, for the 10-Qs and 10-Ks Company
+    Facts missed (v5.46). Empty is SEC not answering (sec_filings swallows
+    the error), never "no filings": every company with Company Facts has
+    filed, so it raises."""
+    rows = _sec_filings.filings(symbol) if (_SEC_AVAILABLE and _sec_filings is not None) else []
+    if not rows:
+        raise OSError("SEC filing list unavailable")
+    return rows
+
+
 def _shist_fetch(url: str, limit=None) -> bytes:
     if not (_SEC_AVAILABLE and _sec_filings is not None and _sec_filings.available()):
         raise OSError("SEC unavailable")
@@ -5252,6 +5273,8 @@ try:
         facts_fn=_shist_facts,
         fetch_fn=_shist_fetch,
         splits_fn=_shist_splits,
+        prices_fn=_shist_prices,
+        filings_fn=_shist_filings,
         quote_fn=lambda s: (lambda i: {"price": i.get("currentPrice") or i.get("regularMarketPrice"),
                                        "market_cap": i.get("marketCap")})(_ticker_info(s, max_wait=8.0) or {}),
     )
@@ -5839,6 +5862,16 @@ def _gap_actions(symbol: str) -> dict:
                     dv = h["Dividends"]
                     dv = dv[dv.fillna(0) != 0]
                     out["dividends"] = {str(ix)[:10]: float(v) for ix, v in dv.items()}
+                if "Close" in cols:
+                    # v5.46: the first close of each month, which a
+                    # market-cap chart checks its own prices against. These
+                    # are split-adjusted and not dividend-adjusted
+                    # (auto_adjust=False), the basis share counts need.
+                    cl = h["Close"].dropna()
+                    months: dict = {}
+                    for ix, v in cl.items():
+                        months.setdefault(str(ix)[:7], (str(ix)[:10], round(float(v), 6)))
+                    out["ref_closes"] = [months[k] for k in sorted(months) if months[k][1] > 0]
                 out["ok"] = True
         except Exception:
             pass

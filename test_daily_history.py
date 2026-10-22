@@ -90,15 +90,17 @@ class GapActions(unittest.TestCase):
             os.environ["JERRY_NO_NET"] = self.saved[1]
         od._GAP_ACT_CACHE.clear()
 
-    def frame(self, splits=(), empty=False):
+    def frame(self, splits=(), empty=False, days=None, closes=None):
         import pandas as pd
         if empty:
             return pd.DataFrame()
-        idx = pd.to_datetime(["2024-06-07", "2024-06-10", "2024-06-11"])
-        sp = [0.0, 0.0, 0.0]
+        idx = pd.to_datetime(days or ["2024-06-07", "2024-06-10", "2024-06-11"])
+        sp = [0.0] * len(idx)
         for d, r in splits:
             sp[list(idx.strftime("%Y-%m-%d")).index(d)] = r
-        return pd.DataFrame({"Close": [1200.0, 121.0, 122.0], "Dividends": [0.0, 0.0, 0.01],
+        dv = [0.0] * len(idx)
+        dv[-1] = 0.01
+        return pd.DataFrame({"Close": closes or [1200.0, 121.0, 122.0], "Dividends": dv,
                              "Stock Splits": sp}, index=idx)
 
     def fake(self, answers):
@@ -149,3 +151,18 @@ class GapActions(unittest.TestCase):
     def test_offline_is_not_ok(self):
         os.environ["JERRY_NO_NET"] = "1"
         self.assertFalse(od._gap_actions("NVDA")["ok"])
+
+    def test_one_unadjusted_close_a_month_for_the_market_cap_check(self):
+        # v5.46: a market-cap chart checks its own prices against these
+        # before it multiplies them by share counts. auto_adjust=False is
+        # split-adjusted and NOT dividend-adjusted: the basis it needs.
+        self.fake([{"days": ["2024-05-30", "2024-05-31", "2024-06-03", "2024-06-04", "2024-07-01"],
+                    "closes": [10.0, 10.5, 11.0, float("nan"), 12.25]}])
+        a = od._gap_actions("KO")
+        self.assertIs(False, self.calls[0].get("auto_adjust"))
+        self.assertEqual([("2024-05-30", 10.0), ("2024-06-03", 11.0), ("2024-07-01", 12.25)],
+                         a["ref_closes"], "the first trading day of each month")
+
+    def test_a_month_starting_on_a_missing_close_takes_the_next_one(self):
+        self.fake([{"days": ["2024-06-03", "2024-06-04"], "closes": [float("nan"), 11.5]}])
+        self.assertEqual([("2024-06-04", 11.5)], od._gap_actions("KO")["ref_closes"])

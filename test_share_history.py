@@ -670,3 +670,197 @@ class Codex430e(Base):
             SH.build = saved
         self.assertEqual("error", r["status"])
         self.assertTrue(r["partial"])
+
+
+class PriceCheck(Base):
+    """v5.46: the prices a market-cap chart multiplies are checked against
+    Yahoo's unadjusted closes, one a month, carried in the history."""
+
+    def setUp(self):
+        super().setUp()
+        self.facts = facts(dei=[("2026-07-17", 14.6e9, acc(1), "10-Q", "2026-08-01")],
+                           filings=[(acc(1), "10-Q", "2026-08-01")])
+        self.web.docs = {acc(1): instance([(None, "2026-07-17", int(14.6e9))])}
+        self.refs = [("2026-06-01", 201.5), ("2026-07-01", 0), ("2026-08-03", "212.25"), ("2026-09-01", None)]
+
+    def configure(self, prices_fn):
+        SH.configure(data_dir=self.tmp, facts_fn=lambda s: self.facts, fetch_fn=self.web,
+                     splits_fn=lambda s: self.splits, quote_fn=lambda s: self.quote,
+                     today_fn=lambda: self.today, prices_fn=prices_fn)
+
+    def test_the_closes_come_with_the_history(self):
+        self.configure(lambda s: self.refs)
+        r = SH.build("AAPL")
+        self.assertEqual("ok", r["status"])
+        self.assertFalse(r["partial"])
+        self.assertEqual([["2026-06-01", 201.5], ["2026-08-03", 212.25]], r["price_check"]["closes"],
+                         "only real prices")
+        self.assertIn("not dividend-adjusted", r["price_check"]["source"])
+
+    def test_closes_that_could_not_be_fetched_are_said_and_retried_soon(self):
+        def throttled(sym):
+            raise OSError("Yahoo said 429")
+        self.configure(throttled)
+        r = SH.build("AAPL")
+        self.assertEqual("ok", r["status"], "the share counts are still good")
+        self.assertIsNone(r["price_check"])
+        self.assertTrue(r["partial"], "tried again in minutes")
+        self.assertTrue(any("could not be checked" in w for w in r["warnings"]))
+
+    def test_no_closes_is_the_same_as_could_not_fetch(self):
+        self.configure(lambda s: [])
+        r = SH.build("AAPL")
+        self.assertIsNone(r["price_check"])
+        self.assertTrue(r["partial"])
+
+    def test_a_history_kept_on_disk_before_the_check_existed_is_rebuilt(self):
+        self.configure(lambda s: self.refs)
+        old = SH.build("AAPL")
+        for k in ("price_check", "schema"):
+            old.pop(k, None)
+        path = Path(self.tmp) / "share_history" / "AAPL.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(dict(old, _built_ts=SH._clock())))
+        r = SH.get("AAPL", wait=5)
+        self.assertEqual("ok", r["status"])
+        self.assertTrue(r.get("price_check"), "rebuilt with the closes, not served without them")
+
+    def test_the_server_passes_yahoos_unadjusted_closes(self):
+        src = (Path(__file__).resolve().parent / "options_dashboard.py").read_text()
+        cfg = src[src.index("_shist.configure("):]
+        cfg = cfg[:cfg.index("\n    )\n")]
+        self.assertIn("prices_fn=_shist_prices", cfg)
+        fn = src[src.index("def _shist_prices"):]
+        fn = fn[:fn.index("\n\n\n")]
+        self.assertIn('"ref_closes"', fn)
+        self.assertIn('.get("ok")', fn, "a failed lookup raises rather than reading as no prices")
+
+
+class FilingList(Base):
+    """v5.46: SEC's Company Facts can miss a filing for months. Coca-Cola's
+    10-Q of Jul 29, 2026 was not in it in October, nor were four other
+    companies' from that week out of 36 sampled. The company's own filing
+    list adds any 10-Q/10-K it lacks."""
+
+    def setUp(self):
+        super().setUp()
+        self.facts = facts(dei=[("2026-04-28", 4.302e9, acc(1), "10-Q", "2026-04-30")],
+                           filings=[(acc(1), "10-Q", "2026-04-30")])
+        self.web.docs = {acc(1): instance([(None, "2026-04-28", int(4.302e9))]),
+                         acc(2): instance([(None, "2026-07-24", int(4.299e9))])}
+        self.listed = [{"form": "10-Q", "date": "2026-07-29", "accession": acc(2)},
+                       {"form": "8-K", "date": "2026-07-21", "accession": acc(9)},
+                       {"form": "10-Q", "date": "2026-04-30", "accession": acc(1)}]
+
+    def configure(self, filings_fn):
+        SH.configure(data_dir=self.tmp, facts_fn=lambda s: self.facts, fetch_fn=self.web,
+                     splits_fn=lambda s: self.splits, quote_fn=lambda s: self.quote,
+                     today_fn=lambda: self.today, filings_fn=filings_fn)
+
+    def test_a_filing_company_facts_missed_is_read(self):
+        self.configure(lambda s: self.listed)
+        r = SH.build("KO")
+        self.assertEqual("ok", r["status"])
+        self.assertEqual(["2026-04-28", "2026-07-24"], [p["as_of"] for p in r["points"]])
+        self.assertEqual(("filing", "10-Q", "2026-07-29"),
+                         (r["points"][-1]["source"], r["points"][-1]["form"], r["points"][-1]["filed"]))
+        self.assertEqual("2026-07-24", r["latest"]["as_of"])
+        self.assertFalse(r["partial"])
+        self.assertFalse(any(acc(9).replace("-", "") in u for u in self.web.calls), "only 10-Q and 10-K")
+
+    def test_a_filing_list_that_could_not_be_had_is_said_and_retried_soon(self):
+        def down(sym):
+            raise OSError("SEC timed out")
+        self.configure(down)
+        r = SH.build("KO")
+        self.assertEqual("ok", r["status"], "Company Facts' counts are still good")
+        self.assertEqual(["2026-04-28"], [p["as_of"] for p in r["points"]])
+        self.assertTrue(r["partial"])
+        self.assertTrue(any("list of filings could not be read" in w for w in r["warnings"]))
+
+    def test_the_server_passes_secs_filing_list(self):
+        src = (Path(__file__).resolve().parent / "options_dashboard.py").read_text()
+        cfg = src[src.index("_shist.configure("):]
+        cfg = cfg[:cfg.index("\n    )\n")]
+        self.assertIn("filings_fn=_shist_filings", cfg)
+        fn = src[src.index("def _shist_filings"):]
+        fn = fn[:fn.index("\n\n\n")]
+        self.assertIn("_sec_filings.filings(", fn)
+        self.assertIn("raise", fn, "an empty list is SEC not answering: every 10-Q filer has filings")
+
+
+class FilingErrors(Base):
+    """v5.46: Pentair's 10-Q for Apr 2, 2011 filed 146,546,358,546 shares,
+    a thousand times the 146.5 million on either side of it. A count that
+    jumps by 5x or more and comes straight back is a units error in the
+    filing: it is left out, and said."""
+
+    def dei(self, rows):
+        self.facts = facts(dei=[(a, v, acc(i), "10-Q", f) for i, (a, v, f) in enumerate(rows, 1)],
+                           filings=[(acc(i), "10-Q", f) for i, (a, v, f) in enumerate(rows, 1)])
+        last = len(rows)
+        self.web.docs = {acc(last): instance([(None, rows[-1][0], int(rows[-1][1]))])}
+
+    def test_a_count_a_thousand_times_its_neighbours_is_left_out(self):
+        self.dei([("2010-12-31", 146531286.89, "2011-02-23"), ("2011-04-02", 146546358546.0, "2011-04-26"),
+                  ("2011-07-02", 147063072.81, "2011-07-26"), ("2011-10-01", 146764808.25, "2011-10-26")])
+        r = SH.build("PNR")
+        self.assertEqual(["2010-12-31", "2011-07-02", "2011-10-01"], [p["as_of"] for p in r["points"]])
+        self.assertEqual([("2011-04-02", 146546358546.0)], [(x["as_of"], x["shares"]) for x in r["rejected"]])
+        self.assertTrue(any("Apr 2, 2011" in w and "left out" in w for w in r["warnings"]))
+        self.assertFalse(any("very large issue" in w for w in r["warnings"]), "not reported as a move as well")
+        self.assertEqual(146531286.89, SH.shares_on(r, "2011-05-02")["shares"], "those days use the count before it")
+
+    def test_a_real_jump_that_stays_is_kept_and_flagged(self):
+        # Tyco Flow Control's merger doubled Pentair's count in 2012, and a
+        # 6x issue that stays is a 6x issue, however unusual.
+        self.dei([("2012-06-30", 98.0e6, "2012-07-24"), ("2012-09-29", 600.0e6, "2012-10-23"),
+                  ("2012-12-31", 601.0e6, "2013-02-22")])
+        r = SH.build("PNR")
+        self.assertEqual(3, len(r["points"]))
+        self.assertEqual([], r["rejected"])
+        self.assertTrue(any("very large issue" in w for w in r["warnings"]))
+
+    def test_the_newest_count_cannot_be_judged_and_is_kept(self):
+        self.dei([("2026-01-02", 146.5e6, "2026-02-01"), ("2026-04-02", 146.5e9, "2026-04-26")])
+        r = SH.build("PNR")
+        self.assertEqual(2, len(r["points"]), "nothing after it says it was wrong")
+        self.assertTrue(any("very large issue" in w for w in r["warnings"]))
+
+
+class Codex431(Base):
+    """Codex, #431: the filing list is asked when Company Facts has no
+    reports at all, as for a company that listed months ago and whose first
+    10-Q has not reached Company Facts (it holds the S-1's facts only)."""
+
+    def setUp(self):
+        super().setUp()
+        self.facts = facts(filings=[(acc(5), "S-1", "2026-03-02")])
+        self.web.docs = {acc(6): instance([(None, "2026-08-07", int(612e6))])}
+
+    def configure(self, filings_fn):
+        SH.configure(data_dir=self.tmp, facts_fn=lambda s: self.facts, fetch_fn=self.web,
+                     splits_fn=lambda s: self.splits, quote_fn=lambda s: self.quote,
+                     today_fn=lambda: self.today, filings_fn=filings_fn)
+
+    def test_a_first_10q_company_facts_lacks_is_read(self):
+        self.configure(lambda s: [{"form": "10-Q", "date": "2026-08-12", "accession": acc(6)},
+                                  {"form": "S-1", "date": "2026-03-02", "accession": acc(5)}])
+        r = SH.build("NEWCO")
+        self.assertEqual("ok", r["status"])
+        self.assertEqual([("2026-08-07", 612e6, "filing")], [(p["as_of"], p["shares"], p["source"]) for p in r["points"]])
+
+    def test_no_reports_and_no_list_is_could_not_ask(self):
+        def down(sym):
+            raise OSError("SEC timed out")
+        self.configure(down)
+        r = SH.build("NEWCO")
+        self.assertEqual("unavailable", r["status"], "not 'no reports' for 12 hours")
+        self.assertTrue(r["partial"])
+
+    def test_a_foreign_filer_is_still_unsupported(self):
+        self.facts = facts(filings=[(acc(7), "20-F", "2026-04-01")])
+        self.configure(lambda s: [{"form": "20-F", "date": "2026-04-01", "accession": acc(7)}])
+        r = SH.build("TSM")
+        self.assertEqual("unsupported", r["status"])
+        self.assertIn("foreign filer", r["reason"])

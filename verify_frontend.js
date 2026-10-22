@@ -28,7 +28,7 @@ const vm = require("vm");
 const parser = require("@babel/parser");
 const traverse = require("@babel/traverse").default;
 
-const ORDER = ["config.js", "data.js", "recommendation.js", "weather.js",
+const ORDER = ["config.js", "data.js", "recommendation.js", "weather.js", "market_cap.js",
                "journal.js", "strategies.js", "tweaks-panel.js", "tooltips.js",
                "charts.js", "app-lib.js", "timing.js", "app-cards.js", "app.js",
                // Lazy chunks (v3.64): loaded on demand AFTER everything else,
