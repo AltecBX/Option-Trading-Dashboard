@@ -3537,8 +3537,11 @@ class TheFrameStaysOnScreen(unittest.TestCase):
             self.assertAlmostEqual(math.log(up2 / spot), 2 * math.log(up1 / spot), places=9)
             self.assertAlmostEqual(math.log(dn1 / spot), -math.log(up1 / spot), places=9)
             self.assertAlmostEqual(math.log(dn2 / spot), -2 * math.log(up1 / spot), places=9)
-            # It widens with the square root of time, counted in days.
-            d0 = date.fromisoformat(got["lastBar"])
+            # It widens with the square root of time, counted in days from
+            # today in New York (on a weekend the last bar is Friday's).
+            d0 = date.fromisoformat(page.evaluate(
+                "new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })"))
+            d0 = max(d0, date.fromisoformat(got["lastBar"]))
             mid, end = cone["+1σ"][len(cone["+1σ"]) // 2], cone["+1σ"][-1]
             t_mid, t_end = ((date.fromisoformat(p[0]) - d0).days for p in (mid, end))
             self.assertAlmostEqual(math.log(mid[1] / spot) / math.log(end[1] / spot),

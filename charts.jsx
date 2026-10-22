@@ -499,8 +499,9 @@ function TVPriceChart({ daily, full = null, expHigh, expLow, emHigh, emLow, call
   }, [daily, full, showRSI, capMode]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // The probability cone (v5.49): ±1σ and ±2σ from the current price, out
-  // over the weekdays to the expiry, `t` calendar days from the last bar
-  // (the SVG chart's math, coneBand). In market cap, at today's share
+  // over the weekdays to the expiry, which is `dteToExp` calendar days from
+  // today, New York time: on a weekend the last bar is Friday's, and the
+  // cone is measured from today, not from it (the SVG chart's math, coneBand). In market cap, at today's share
   // count; without one, none. Turning it on fits the chart so its end is
   // in view, and turning it off fits it back.
   const coneFitRef = React.useRef("");
@@ -515,16 +516,18 @@ function TVPriceChart({ daily, full = null, expHigh, expLow, emHigh, emLow, call
       return;
     }
     const start = norm(daily[daily.length - 1].date), t0 = Date.parse(start + "T00:00:00Z");
-    const n = Math.max(1, Math.round(dteToExp)), dayAt = (t) => new Date(t0 + t * 86400000);
+    const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+    const lag = Math.max(0, Math.round((Date.parse(today + "T00:00:00Z") - t0) / 86400000));
+    const n = Math.max(1, Math.round(dteToExp)) + lag, dayAt = (t) => new Date(t0 + t * 86400000);
     const days = [];
-    for (let t = 1; t <= n; t++) { const wd = dayAt(t).getUTCDay(); if (wd !== 0 && wd !== 6) days.push(t); }
+    for (let t = lag + 1; t <= n; t++) { const wd = dayAt(t).getUTCDay(); if (wd !== 0 && wd !== 6) days.push(t); }
     if (!days.length) days.push(n);
     const fmtOpt = capMode ? { priceFormat: capPriceFormat() } : {};
     const line = (k, side, title, style) => {
       const s = chart.addLineSeries(Object.assign({ color: CONE_COLOR, lineWidth: 1, lineStyle: style, title,
         priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false }, fmtOpt));
       s.setData([{ time: start, value: spot * mult }].concat(days.map(t => ({
-        time: dayAt(t).toISOString().slice(0, 10), value: coneBand(spot, ivAnnualized, t, k)[side] * mult }))));
+        time: dayAt(t).toISOString().slice(0, 10), value: coneBand(spot, ivAnnualized, t - lag, k)[side] * mult }))));
       return s;
     };
     coneRef.current = [line(2, 1, "+2σ", LC.LineStyle.Dashed), line(1, 1, "+1σ", LC.LineStyle.Solid),
