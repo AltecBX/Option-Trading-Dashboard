@@ -6567,3 +6567,13 @@ Codex on #433, both right and fixed (the tests fail on the old code):
   read, which finishes in about a minute.
 
 Tests: `TestBuildUsesFiledCounts` (+2).
+
+Codex on #433, second review, right and fixed (the tests fail on the old
+code): **the card did not ask again when the server could answer.** It
+polls every 10 minutes (through a 5-minute shared cache), so "past model
+spreads appear in a few minutes" took up to 20. The answer now carries
+`merton.retry_after_s` (the time left until the credit cache gives way,
+while a history is being read or partial), and the card asks again then,
+past its cache. Tests: `test_credit_risk` (+1) and the browser test
+`test_the_credit_card_asks_again_when_told` (being read, then whole:
+exactly two asks).

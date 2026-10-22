@@ -280,6 +280,21 @@ class TestBuildUsesFiledCounts(unittest.TestCase):
         od.build_credit_risk("TEST")
         self.assertEqual(od._CREDIT_TTL, od._CREDIT_CACHE["TEST"][2], "whole: an hour")
 
+    # Codex, #433 (second review): the page is told when to ask again.
+    def test_the_page_is_told_when_to_ask_again(self):
+        od = self.od
+        self.hist = {"ok": True, "status": "building", "symbol": "TEST", "refreshing": True, "reason": "Reading."}
+        out = od.build_credit_risk("TEST")
+        self.assertTrue(0 < out["merton"]["retry_after_s"] <= od._CREDIT_RETRY_TTL)
+        hit = od._CREDIT_CACHE["TEST"]
+        od._CREDIT_CACHE["TEST"] = (hit[0] - 100,) + tuple(hit[1:])
+        self.assertLessEqual(od.build_credit_risk("TEST")["merton"]["retry_after_s"], od._CREDIT_RETRY_TTL - 100 + 1,
+                             "from the cache: the time left, not the whole wait")
+        self.assertNotIn("retry_after_s", od._CREDIT_CACHE["TEST"][1]["merton"], "the cached answer is not changed")
+        od._CREDIT_CACHE.clear()
+        self.hist = self.ok
+        self.assertIsNone(od.build_credit_risk("TEST")["merton"].get("retry_after_s"), "whole: nothing to wait for")
+
 
 if __name__ == "__main__":
     unittest.main()

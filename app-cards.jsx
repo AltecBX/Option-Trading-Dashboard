@@ -13989,15 +13989,26 @@ function CreditRiskCard({ apiFetch, ticker }) {
   const [err, setErr] = useState(null);
   useEffect(() => { setD(null); setErr(null); }, [ticker]);
   useEffect(() => {
-    let stop = false;
-    const load = () => {
-      sharedJson(apiFetch, `/api/credit_risk?symbol=${encodeURIComponent(ticker)}`, 5 * 60 * 1000)
-        .then(x => { if (!stop) { if (x && !x.error) setD(x); else setErr((x && x.error) || "no data"); } })
+    let stop = false, again = null;
+    const load = (fresh) => {
+      sharedJson(apiFetch, `/api/credit_risk?symbol=${encodeURIComponent(ticker)}`, fresh ? 0 : 5 * 60 * 1000)
+        .then(x => {
+          if (stop) return;
+          if (x && !x.error) {
+            setD(x);
+            // v5.48: share counts still being read, or partial: the server
+            // says when it will have more, and the card asks then rather
+            // than at its next 10-minute poll (Codex, #433).
+            const s = x.merton && x.merton.retry_after_s;
+            if (again) clearTimeout(again);
+            again = s ? setTimeout(() => load(true), (s + 5) * 1000) : null;
+          } else setErr((x && x.error) || "no data");
+        })
         .catch(e => { if (!stop) setErr(String(e && e.message || e)); });
     };
-    load();
-    const t = setInterval(skipWhenHidden(load), 10 * 60 * 1000);
-    return () => { stop = true; clearInterval(t); };
+    load(false);
+    const t = setInterval(skipWhenHidden(() => load(false)), 10 * 60 * 1000);
+    return () => { stop = true; clearInterval(t); if (again) clearTimeout(again); };
   }, [ticker]);
 
   if (err && !d) return (

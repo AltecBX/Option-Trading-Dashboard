@@ -4396,6 +4396,13 @@ def build_credit_risk(symbol: str) -> dict:
                 _CREDIT_CACHE.pop(oldest, None)
 
     out = dict(base)
+    # When to ask again (Codex, #433): a history still being read, or
+    # partial, is rebuilt when the cache gives way; the page is told how
+    # long that is from now, so it does not wait for its 10-minute poll.
+    with _CREDIT_LOCK:
+        cur = _CREDIT_CACHE.get(symbol)
+    if cur and len(cur) > 2 and cur[2] != _CREDIT_TTL and out.get("merton"):
+        out["merton"] = dict(out["merton"], retry_after_s=max(5, int(cur[2] - (time.time() - cur[0])) + 1))
     # Live crash-put skew gauge (fresh each request; chain TTL applies).
     skew = None
     sc = _schwab()

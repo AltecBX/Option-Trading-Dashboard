@@ -688,7 +688,7 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                  timezone=None, safe_area=None, starred=None, ytd_bases=None,
                  quotes=None, tab_order=None, setup_board=None, live=None, uw=None,
                  buyers=None, report_card=None, hotlist=None, debt=None, daily_history=None,
-                 share_history=None, swings=None, intraday=None):
+                 share_history=None, swings=None, intraday=None, credit_risk=None):
         """Open the app with a production-sized news feed and measure the
         frame. Returns (geometry, page errors)."""
         from playwright.sync_api import sync_playwright
@@ -729,6 +729,9 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         # v5.47: the Patterns swing chart's and the 1-minute chart's data.
         self._swings = swings
         self._intraday = intraday
+        # v5.48: the Credit Risk card's answers, in order (the last repeats).
+        self._credit_risk = list(credit_risk) if credit_risk is not None else None
+        self.credit_risk_calls = 0
         pw = sync_playwright().start()
         kw = {"executable_path": CHROMIUM} if Path(CHROMIUM).exists() else {}
         browser = pw.chromium.launch(**kw)
@@ -857,6 +860,11 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 body = ({"ok": False, "error": "No daily history for AAPL.", "daily": []}
                         if self._daily_history == "error" else daily_history_answer(yrs))
                 r.fulfill(status=200, content_type="application/json", body=json.dumps(body))
+                return
+            if self._credit_risk is not None and urllib.parse.urlsplit(url).path == "/api/credit_risk":
+                self.credit_risk_calls += 1
+                a = self._credit_risk.pop(0) if len(self._credit_risk) > 1 else self._credit_risk[0]
+                r.fulfill(status=200, content_type="application/json", body=json.dumps(a))
                 return
             if self._swings is not None and urllib.parse.urlsplit(url).path == "/api/swings":
                 r.fulfill(status=200, content_type="application/json", body=json.dumps(self._swings))
@@ -3521,6 +3529,36 @@ class TheFrameStaysOnScreen(unittest.TestCase):
             # Redrawing the candles clears the chart's crosshair, so the
             # readout falls back to the newest bar, in the new units.
             self.assertEqual(last.split()[0], ro.split()[0], "the newest bar")
+            self.assertEqual(errs, [], f"the page threw: {errs[:2]}")
+        finally:
+            self._close(handles)
+
+    def test_the_credit_card_asks_again_when_told(self):
+        # Codex, #433: while a company's share counts are still being read
+        # the card says past spreads will follow; the server says when to
+        # ask again, and the card does, rather than at its next 10-minute poll.
+        def answer(note, retry):
+            series = [{"date": f"2026-0{1 + i // 28}-{1 + i % 28:02d}", "spread_bps": 100.0 + i, "dd": 3.0,
+                       "pd_pct": 1.0, "leverage_pct": 30.0} for i in range(1 if note else 60)]
+            return {"symbol": "AAPL", "merton": {"series": series, "latest": series[-1],
+                                                 "interpretation": "Model 5Y spread ≈ 100 bps.",
+                                                 "inputs": {"shares_basis": "today_only" if note else "filed"},
+                                                 "unavailable_reason": None, "history_note": note,
+                                                 "retry_after_s": retry},
+                    "market": None, "skew": None, "notes": []}
+        reading = answer("This company's SEC filings are still being read for its share counts; past model "
+                         "spreads appear in a few minutes.", 120)
+        whole = answer(None, None)
+        retry = ("(() => { const st = window.setTimeout; window.setTimeout = (fn, ms, ...a) =>"
+                 " st(fn, ms === 125000 ? 8000 : ms, ...a); })()")
+        geo, errs, handles = self._measure(1440, 900, tab="analyze", init=retry, credit_risk=[reading, whole])
+        page = handles[2]
+        try:
+            page.wait_for_function("() => /still being read/.test(document.body.innerText)", timeout=20000)
+            page.wait_for_function("() => !/still being read/.test(document.body.innerText)", timeout=15000)
+            self.assertEqual(2, self.credit_risk_calls, "asked again when the server said, and only then")
+            page.wait_for_timeout(2500)
+            self.assertEqual(2, self.credit_risk_calls, "and not again once whole")
             self.assertEqual(errs, [], f"the page threw: {errs[:2]}")
         finally:
             self._close(handles)
