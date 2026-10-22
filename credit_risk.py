@@ -127,13 +127,24 @@ def equity_vol_series(closes: list, window: int = 60) -> list:
     return out
 
 
-def merton_series(bars: list, shares_out: float, debt_point: float,
+def merton_series(bars: list, shares_out, debt_point: float,
                   r: float, vol_window: int = 60) -> list:
     """Daily model-spread series over the given bars: market cap from
-    shares × close (CURRENT share count — labeled approximation), rolling
-    HV, constant most-recent default point (quarterly data barely moves
-    inside a year). → [{date, spread_bps, dd, pd, leverage}]"""
-    if not bars or not shares_out or shares_out <= 0 or debt_point is None:
+    close × shares, rolling HV, constant most-recent default point
+    (quarterly data barely moves inside a year).
+    → [{date, spread_bps, dd, pd, leverage}]
+
+    `shares_out` is what each day's close is multiplied by: a function of
+    the day (v5.48: the count the company filed for that day,
+    share_history.shares_on; None leaves the day out, never a guess) or
+    one number for every day."""
+    if not bars or debt_point is None:
+        return []
+    if callable(shares_out):
+        count = shares_out
+    elif shares_out and shares_out > 0:
+        count = lambda day: shares_out
+    else:
         return []
     closes = [b["close"] for b in bars]
     vols = equity_vol_series(closes, vol_window)
@@ -141,7 +152,10 @@ def merton_series(bars: list, shares_out: float, debt_point: float,
     for i, b in enumerate(bars):
         if vols[i] is None or not closes[i]:
             continue
-        E = closes[i] * shares_out
+        n = count(str(b["date"])[:10])
+        if not n or n <= 0:
+            continue
+        E = closes[i] * n
         m = merton_solve(E, vols[i], debt_point, r)
         if m is None:
             continue

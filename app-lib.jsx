@@ -262,6 +262,14 @@ function sharedJson(apiFetch, url, ttlMs = 15000) {
   }
   return _sjFetch(apiFetch, url);
 }
+// How old, in ms, the copy sharedJson(url, ttlMs) is about to hand back:
+// 0 when it will fetch. An answer that says "ask again in N seconds"
+// counted them from when it was fetched (v5.48, the credit card).
+function sharedJsonAge(url, ttlMs = 15000) {
+  const hit = _SJ_CACHE.get(url);
+  const age = hit ? Date.now() - hit.t : Infinity;
+  return age < ttlMs * 4 ? age : 0;
+}
 
 // ── Bounded board rendering (v3.64) ────────────────────────────────────────
 // The scanner boards (~600 names) used to render EVERY row into the DOM at
@@ -930,4 +938,4 @@ function fmtUSDate(s) {
   return `${+m[2]}-${+m[3]}-${m[1]}`;
 }
 
-Object.assign(window, { etNextFridayISO, useState, useEffect, useMemo, useRef, skipWhenHidden, ACCENT_PRESETS, fmt$M, fmtPct, fmtVol, fmt$, CardErrorBoundary, TABS, TAB_KEY, TAB_GROUPS, RootErrorBoundary, fmtUSDate, sharedJson, loadChunk, LazyTab, useBoundedList, FINVIZ, TVIEW, UWHALES, SWST, HELPER_LATEST, throttleHit, throttleWaiting, throttleClear, sectorSourceTip, PHONE_Q, PHONE_FRAME_Q, FOCUS_FRAME_Q, useMediaQuery, useIsPhone, useIsPhoneFrame, workspaceEl, workspaceScrollTop, scrollWorkspaceTo, DATA_STATUS, DataStatus, fmtStatusAt, SectionNav, PanelMethod, PanelVerdict });
+Object.assign(window, { etNextFridayISO, useState, useEffect, useMemo, useRef, skipWhenHidden, ACCENT_PRESETS, fmt$M, fmtPct, fmtVol, fmt$, CardErrorBoundary, TABS, TAB_KEY, TAB_GROUPS, RootErrorBoundary, fmtUSDate, sharedJson, sharedJsonAge, loadChunk, LazyTab, useBoundedList, FINVIZ, TVIEW, UWHALES, SWST, HELPER_LATEST, throttleHit, throttleWaiting, throttleClear, sectorSourceTip, PHONE_Q, PHONE_FRAME_Q, FOCUS_FRAME_Q, useMediaQuery, useIsPhone, useIsPhoneFrame, workspaceEl, workspaceScrollTop, scrollWorkspaceTo, DATA_STATUS, DataStatus, fmtStatusAt, SectionNav, PanelMethod, PanelVerdict });

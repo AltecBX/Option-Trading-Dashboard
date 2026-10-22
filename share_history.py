@@ -660,6 +660,18 @@ def get(symbol: str, wait: float = 3.0) -> dict:
     return out
 
 
+def expires_in(symbol: str) -> Optional[float]:
+    """Seconds until the history kept for `symbol` is rebuilt (v5.48): what
+    a caller holding a partial one should wait before asking again (Codex,
+    #433). None when nothing is kept; 0 when it is already due."""
+    sym = str(symbol or "").upper().strip()
+    hit = _cached(sym) if _SYMBOL.fullmatch(sym) else None
+    if not hit:
+        return None
+    ttl = PARTIAL_TTL_S if hit[1].get("partial") else RESULT_TTL_S
+    return max(0.0, ttl - (_clock() - hit[0]))
+
+
 def shares_on(history: Mapping, day: str) -> Optional[dict]:
     """The share count a chart multiplies `day`'s price by: the last count
     reported on or before it, with its age. None before the first count, or
@@ -681,6 +693,47 @@ def shares_on(history: Mapping, day: str) -> Optional[dict]:
         return None
     return {"shares": p["shares"], "as_of": p["as_of"], "age_days": age, "form": p.get("form"),
             "filed": p.get("filed")}
+
+
+CHECK_TOL_PCT = 1.0     # closes this far apart disagree...
+CHECK_TOL_ABS = 0.006   # ...unless it is only the rounding of a tiny price
+CHECK_SKIP_DAYS = 7     # the newest closes may still be revised: not compared
+
+
+def price_basis(history: Mapping, bars: Iterable[Mapping]) -> dict:
+    """A price series ({date, close}) against the history's unadjusted
+    closes (price_check), the rule market_cap.js applies on the page
+    (v5.48, for the credit monitor): "mismatch" when more than a tenth of
+    the months compared are over 1% (and a rounding cent) apart, as
+    dividend-adjusted prices or another split basis would be; "unchecked"
+    when no month could be compared."""
+    closes = ((history or {}).get("price_check") or {}).get("closes") or []
+    by_day, newest = {}, ""
+    for b in bars or []:
+        day = str((b or {}).get("date") or "")[:10]
+        if not day:
+            continue
+        newest = max(newest, day)
+        c = _f(b.get("close"))
+        if c is not None and not b.get("synthetic"):
+            by_day[day] = c
+    checked, bad = 0, []
+    for row in closes:
+        day, ref = str(row[0])[:10], _f(row[1])
+        if not ref or ref <= 0 or day not in by_day:
+            continue
+        if newest and (_d(newest) - _d(day)).days < CHECK_SKIP_DAYS:
+            continue
+        checked += 1
+        px = by_day[day]
+        diff = px / ref - 1.0
+        if abs(diff) * 100.0 > CHECK_TOL_PCT and abs(px - ref) > CHECK_TOL_ABS:
+            bad.append({"date": day, "price": px, "ref": ref, "diff_pct": round(diff * 100.0, 2)})
+    if not checked:
+        return {"status": "unchecked", "checked": 0, "bad": 0, "worst": None}
+    worst = max(bad, key=lambda x: abs(x["diff_pct"])) if bad else None
+    return {"status": "mismatch" if len(bad) > checked * 0.1 else "ok",
+            "checked": checked, "bad": len(bad), "worst": worst}
 
 
 def market_cap_bars(history: Mapping, bars: Iterable[Mapping]) -> list:

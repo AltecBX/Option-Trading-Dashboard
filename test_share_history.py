@@ -864,3 +864,66 @@ class Codex431(Base):
         r = SH.build("TSM")
         self.assertEqual("unsupported", r["status"])
         self.assertIn("foreign filer", r["reason"])
+
+
+class PriceBasis(unittest.TestCase):
+    """v5.48: the server's own check of a price series against the history's
+    unadjusted closes, the same rule the chart applies (market_cap.js), for
+    the credit monitor's past market caps."""
+
+    def bars(self, fn=lambda px, i: px):
+        out = []
+        for m in range(1, 13):
+            out.append({"date": f"2025-{m:02d}-02T12:00:00-04:00", "close": fn(100.0 + m, m)})
+        out.append({"date": "2025-12-20T12:00:00-04:00", "close": 120.0})
+        return out
+
+    def hist(self):
+        return {"price_check": {"closes": [[f"2025-{m:02d}-02", 100.0 + m] for m in range(1, 13)]}}
+
+    def test_the_same_closes_agree(self):
+        r = SH.price_basis(self.hist(), self.bars())
+        self.assertEqual(("ok", 12, 0), (r["status"], r["checked"], r["bad"]))
+
+    def test_dividend_adjusted_closes_do_not(self):
+        r = SH.price_basis(self.hist(), self.bars(lambda px, m: px * (1 - 0.003 * (12 - m))))
+        self.assertEqual("mismatch", r["status"])
+        self.assertEqual("2025-01-02", r["worst"]["date"])
+
+    def test_one_bad_print_in_a_dozen_is_not_a_basis(self):
+        r = SH.price_basis(self.hist(), self.bars(lambda px, m: px * 1.5 if m == 5 else px))
+        self.assertEqual(("ok", 1), (r["status"], r["bad"]))
+
+    def test_the_newest_week_is_not_compared(self):
+        bars = [{"date": "2025-12-10", "close": 50.0}, {"date": "2025-12-16", "close": 60.0}]
+        r = SH.price_basis({"price_check": {"closes": [["2025-12-10", 100.0]]}}, bars)
+        self.assertEqual("unchecked", r["status"])
+
+    def test_nothing_to_compare_is_unchecked(self):
+        self.assertEqual("unchecked", SH.price_basis({}, self.bars())["status"])
+
+
+class ExpiresIn(Base):
+    """v5.48 (Codex, #433): how long until a kept history is rebuilt, for a
+    caller holding a partial one."""
+
+    def setUp(self):
+        super().setUp()
+        self.facts = facts(dei=[("2026-07-17", 14.6e9, acc(1), "10-Q", "2026-08-01")],
+                           filings=[(acc(1), "10-Q", "2026-08-01")])
+        self.web.docs = {acc(1): instance([(None, "2026-07-17", int(14.6e9))])}
+
+    def test_nothing_kept_is_none(self):
+        self.assertIsNone(SH.expires_in("AAPL"))
+
+    def test_a_whole_history_has_its_twelve_hours(self):
+        SH.get("AAPL", wait=5)
+        self.assertAlmostEqual(SH.RESULT_TTL_S, SH.expires_in("AAPL"), delta=1)
+
+    def test_a_partial_one_has_what_is_left_of_its_ten_minutes(self):
+        SH.get("AAPL", wait=5)
+        ts, res = SH._RESULTS["AAPL"]
+        SH._RESULTS["AAPL"] = (ts - 590, dict(res, partial=True))
+        self.assertAlmostEqual(10, SH.expires_in("AAPL"), delta=1)
+        SH._RESULTS["AAPL"] = (ts - 900, dict(res, partial=True))
+        self.assertEqual(0, SH.expires_in("AAPL"), "overdue is now, not negative")

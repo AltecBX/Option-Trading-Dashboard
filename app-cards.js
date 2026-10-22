@@ -18392,21 +18392,43 @@ function CreditRiskCard({
     setErr(null);
   }, [ticker]);
   useEffect(() => {
-    let stop = false;
-    const load = () => {
-      sharedJson(apiFetch, `/api/credit_risk?symbol=${encodeURIComponent(ticker)}`, 5 * 60 * 1000).then(x => {
-        if (!stop) {
-          if (x && !x.error) setD(x);else setErr(x && x.error || "no data");
-        }
+    let stop = false,
+      again = null;
+    const load = fresh => {
+      const url = `/api/credit_risk?symbol=${encodeURIComponent(ticker)}`,
+        ttl = fresh ? 0 : 5 * 60 * 1000;
+      // A cached copy's retry_after_s was counted from when it was fetched:
+      // a card opened again on it waits only what is left (Codex, #433).
+      const age = sharedJsonAge(url, ttl);
+      sharedJson(apiFetch, url, ttl).then(x => {
+        if (stop) return;
+        if (x && !x.error) {
+          setD(x);
+          // v5.48: share counts still being read, or partial: the server
+          // says when it will have more, and the card asks then rather
+          // than at its next 10-minute poll (Codex, #433).
+          const s = x.merton && x.merton.retry_after_s;
+          // A fresh answer decides; the poll's cached copy only starts a
+          // retry when none is pending, and never puts a due one off
+          // (Codex, #433).
+          if (fresh || !again) {
+            if (again) clearTimeout(again);
+            again = s ? setTimeout(() => {
+              again = null;
+              load(true);
+            }, Math.max(0, s * 1000 - age) + 5000) : null;
+          }
+        } else setErr(x && x.error || "no data");
       }).catch(e => {
         if (!stop) setErr(String(e && e.message || e));
       });
     };
-    load();
-    const t = setInterval(skipWhenHidden(load), 10 * 60 * 1000);
+    load(false);
+    const t = setInterval(skipWhenHidden(() => load(false)), 10 * 60 * 1000);
     return () => {
       stop = true;
       clearInterval(t);
+      if (again) clearTimeout(again);
     };
   }, [ticker]);
   if (err && !d) return /*#__PURE__*/React.createElement("div", {
@@ -18444,7 +18466,9 @@ function CreditRiskCard({
     className: "tsy-sigd"
   }, "Model series unavailable: ", m.unavailable_reason, ".") : /*#__PURE__*/React.createElement(CRSeriesSvg, {
     series: m.series
-  }), latest && /*#__PURE__*/React.createElement("div", {
+  }), m.history_note && /*#__PURE__*/React.createElement("div", {
+    className: "tsy-sigd cr-history-note"
+  }, m.history_note), latest && /*#__PURE__*/React.createElement("div", {
     className: "cr-stats"
   }, /*#__PURE__*/React.createElement("span", {
     title: "Distance to default: how many standard deviations of asset value sit between the firm and its default point over 5 years. Higher = safer."
@@ -18455,7 +18479,7 @@ function CreditRiskCard({
   }, "PD\u2085\u1D67 ", /*#__PURE__*/React.createElement("b", {
     className: "num"
   }, latest.pd_pct, "%")), /*#__PURE__*/React.createElement("span", {
-    title: m.inputs ? `Default point ${fmt$M(m.inputs.default_point)} (${m.inputs.default_point_basis || "—"}) vs total debt ${fmt$M(m.inputs.debt_total)}. Risk-free: ${m.inputs.risk_free ? m.inputs.risk_free.source : "—"}. Equity vol: ${m.inputs ? m.inputs.equity_vol : ""}.` : ""
+    title: m.inputs ? `Default point ${fmt$M(m.inputs.default_point)} (${m.inputs.default_point_basis || "—"}) vs total debt ${fmt$M(m.inputs.debt_total)}. Risk-free: ${m.inputs.risk_free ? m.inputs.risk_free.source : "—"}. Equity vol: ${m.inputs ? m.inputs.equity_vol : ""}.` + (m.inputs.shares_basis === "filed" ? ` Market cap each day: that day's close × the share count filed for it (SEC; today ${m.inputs.shares_outstanding ? (m.inputs.shares_outstanding / 1e9).toFixed(2) + "B" : "—"}${m.inputs.shares_as_of ? `, as of ${m.inputs.shares_as_of}${m.inputs.shares_form ? ` (${m.inputs.shares_form})` : ""}` : ""}).` : m.inputs.shares_basis === "today_only" ? " Today's market cap uses Yahoo's current share count; no past days are shown." : "") : ""
   }, "leverage ", /*#__PURE__*/React.createElement("b", {
     className: "num"
   }, latest.leverage_pct, "%"))), skew && /*#__PURE__*/React.createElement("div", {

@@ -6509,3 +6509,120 @@ the 400-day run two), and the market-cap browser tests add about a minute;
 on top of that, npm install took 7 minutes instead of 4 seconds that time.
 `timeout-minutes` is 30 now: it is there to stop a hung job, not to time a
 healthy one.
+
+## v5.48 — The credit monitor's past market caps from filed share counts
+
+Jerry: "Fix the credit monitor's today-share-count shortcut next."
+
+The Merton model spread (Credit Risk card) is worked out each day from the
+market cap. That was each day's close × TODAY's share count (Yahoo's
+`sharesOutstanding`), so a company that has issued shares since looked
+less levered a year ago than it was, and one that has bought back looked
+more levered.
+
+- **Each day's own count.** `merton_series` takes the share count as a
+  function of the day; the endpoint passes the count the company filed for
+  that day (`share_history.shares_on`, SEC 10-Q/10-K cover pages, on
+  today's split basis). A day with no filed count (before the first one, or
+  past a count over 200 days old) is left out, never given today's count.
+- **The same price check as the charts**, now on the server too
+  (`share_history.price_basis`, the rule `market_cap.js` applies): prices
+  that disagree with Yahoo's unadjusted monthly closes (dividend-adjusted,
+  or on a split basis the counts aren't on yet) are not multiplied.
+- **No filed history** (a foreign filer, an ETF, SEC unreachable, prices
+  that fail the check, filings still being read): only TODAY's spread is
+  shown, from Yahoo's current count, and the card says why in a line under
+  it (`history_note`). The history is asked again in two minutes while the
+  share counts are still being read or partial, not in an hour.
+- The notes and the leverage tooltip say which count was used ("today
+  14.59B, as of Jul 17, 2026 (10-Q)").
+
+What it changes, on real data (Yahoo prices, the newest filed count
+standing for today's, round debt figures): Plug Power a year ago, before
+the shares it has issued since, was 66.8% levered and 1,489 bps, not
+54.3% and 1,393 bps; AT&T, which has bought back shares, was 36.8% not
+38.5%; Apple barely moves; today's value is unchanged everywhere.
+
+Still an approximation, and still labeled: the default point (debt) is
+the most recent quarterly balance sheet for every day.
+
+Tests: `test_credit_risk.TestFiledShareCounts` (2) and
+`TestBuildUsesFiledCounts` (4: the history on filed counts, today only
+without them, prices on another basis, asked again soon while being read),
+`test_share_history.PriceBasis` (5); all red first.
+
+Codex on #433, both right and fixed (the tests fail on the old code):
+
+- **A partial share history was shown as whole.** When a filing could not
+  be read (or the filing list or price check could not be had), the
+  counts it had were used without a word, though the unread filing may
+  hold a count that changed. The card now says the history is incomplete
+  and why, in the share history's own words; the counts it has are still
+  the filed ones.
+- **Retried every two minutes for nothing.** A partial or failed share
+  history is itself retried in ten minutes (`PARTIAL_TTL_S`), so the
+  credit monitor rebuilt from Schwab, Yahoo and FRED every two minutes
+  and got the same answer. It now waits as long as the share history
+  does; two minutes is kept for a company whose filings are still being
+  read, which finishes in about a minute.
+
+Tests: `TestBuildUsesFiledCounts` (+2).
+
+Codex on #433, second review, right and fixed (the tests fail on the old
+code): **the card did not ask again when the server could answer.** It
+polls every 10 minutes (through a 5-minute shared cache), so "past model
+spreads appear in a few minutes" took up to 20. The answer now carries
+`merton.retry_after_s` (the time left until the credit cache gives way,
+while a history is being read or partial), and the card asks again then,
+past its cache. Tests: `test_credit_risk` (+1) and the browser test
+`test_the_credit_card_asks_again_when_told` (being read, then whole:
+exactly two asks).
+
+Codex on #433, third review, right and fixed (the tests fail on the old
+code): **a partial history near its rebuild waited ten more minutes.** A
+partial share history another caller has held for most of its ten
+minutes is about to be rebuilt, but the credit monitor started a fresh ten
+minutes on it. `share_history.expires_in(symbol)` says how long the kept
+history has left, and the credit monitor (and so the card's
+`retry_after_s`) waits that long, plus a few seconds, at least fifteen.
+Tests: `test_share_history.ExpiresIn` (3), `test_credit_risk` (+1).
+
+Codex on #433, fourth review, right and fixed (the test fails on the old
+code): **the card's poll put its own retry off.** With "ask again in
+600s", the card's 10-minute poll came first, got the cached copy (with
+the old `retry_after_s`), and rescheduled the retry another 600s on, so a
+partial history could stay up 20 minutes. Now a fresh answer decides; the
+poll's cached copy only starts a retry when none is pending, never moves a
+due one. Test: `test_the_credit_cards_poll_does_not_push_back_its_retry`.
+
+Codex on #433, fifth review, both right and fixed (the tests fail on the
+old code):
+- **A card opened again waited the whole retry again.** Switch to another
+  symbol and back, and the card opened on the cached partial answer,
+  minutes old, and waited its full `retry_after_s` from then. Now
+  `sharedJsonAge` says how old the copy is, and the card waits only what is
+  left. Browser test:
+  `test_the_credit_card_reopened_on_a_cached_answer_waits_only_what_is_left`.
+- **"Balance-sheet debt unavailable" when it was the share counts.** With
+  no filed count recent enough for any day (and no current count from
+  Yahoo), the series was empty and the card blamed the debt. It now says
+  "no filed share count covers these days". Test:
+  `test_no_count_for_these_days_is_not_called_missing_debt`.
+
+Codex on #433, sixth review, right and fixed (the test fails on the old
+code): **a series that stopped weeks ago showed its last point as today's
+spread.** With the newest filed count over 200 days old and no current
+count from Yahoo, the history ends early, and its last point became the
+headline, the stats and "Model 5Y spread ≈ …". Now the newest point is the
+current spread only if it is the newest bar's. Otherwise there is no
+headline, and the line says "No current model spread: the newest, N bps,
+is from <date>." Test: `test_a_series_that_stops_early_has_no_current_spread`.
+
+Codex on #433, seventh review, right and fixed (the test fails on the old
+code): **a recent listing was told its share counts were missing.** With
+counts and debt but under 61 days of prices, the 60-day volatility never
+warms up and the series is empty; the card blamed the share counts. The
+reason now says which is short: "not enough price history yet: the model
+needs 60 trading days of volatility", "no filed share count covers these
+days" (checked day by day), or "the model could not be solved for these
+days". Test: `test_a_recent_listing_is_short_of_prices_not_counts`.

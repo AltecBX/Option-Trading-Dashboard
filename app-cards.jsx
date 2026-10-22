@@ -13989,15 +13989,35 @@ function CreditRiskCard({ apiFetch, ticker }) {
   const [err, setErr] = useState(null);
   useEffect(() => { setD(null); setErr(null); }, [ticker]);
   useEffect(() => {
-    let stop = false;
-    const load = () => {
-      sharedJson(apiFetch, `/api/credit_risk?symbol=${encodeURIComponent(ticker)}`, 5 * 60 * 1000)
-        .then(x => { if (!stop) { if (x && !x.error) setD(x); else setErr((x && x.error) || "no data"); } })
+    let stop = false, again = null;
+    const load = (fresh) => {
+      const url = `/api/credit_risk?symbol=${encodeURIComponent(ticker)}`, ttl = fresh ? 0 : 5 * 60 * 1000;
+      // A cached copy's retry_after_s was counted from when it was fetched:
+      // a card opened again on it waits only what is left (Codex, #433).
+      const age = sharedJsonAge(url, ttl);
+      sharedJson(apiFetch, url, ttl)
+        .then(x => {
+          if (stop) return;
+          if (x && !x.error) {
+            setD(x);
+            // v5.48: share counts still being read, or partial: the server
+            // says when it will have more, and the card asks then rather
+            // than at its next 10-minute poll (Codex, #433).
+            const s = x.merton && x.merton.retry_after_s;
+            // A fresh answer decides; the poll's cached copy only starts a
+            // retry when none is pending, and never puts a due one off
+            // (Codex, #433).
+            if (fresh || !again) {
+              if (again) clearTimeout(again);
+              again = s ? setTimeout(() => { again = null; load(true); }, Math.max(0, s * 1000 - age) + 5000) : null;
+            }
+          } else setErr((x && x.error) || "no data");
+        })
         .catch(e => { if (!stop) setErr(String(e && e.message || e)); });
     };
-    load();
-    const t = setInterval(skipWhenHidden(load), 10 * 60 * 1000);
-    return () => { stop = true; clearInterval(t); };
+    load(false);
+    const t = setInterval(skipWhenHidden(() => load(false)), 10 * 60 * 1000);
+    return () => { stop = true; clearInterval(t); if (again) clearTimeout(again); };
   }, [ticker]);
 
   if (err && !d) return (
@@ -14032,12 +14052,18 @@ function CreditRiskCard({ apiFetch, ticker }) {
       {m.unavailable_reason
         ? <div className="tsy-sigd">Model series unavailable: {m.unavailable_reason}.</div>
         : <CRSeriesSvg series={m.series} />}
+      {/* v5.48: why the history is short or missing (no filed share counts
+          to use, still being read, prices on another basis). */}
+      {m.history_note && <div className="tsy-sigd cr-history-note">{m.history_note}</div>}
 
       {latest && (
         <div className="cr-stats">
           <span title="Distance to default: how many standard deviations of asset value sit between the firm and its default point over 5 years. Higher = safer.">DD <b className="num">{latest.dd ?? "—"}σ</b></span>
           <span title="Risk-neutral probability of hitting the default point within 5 years — the model's raw output; real-world PDs are lower.">PD₅ᵧ <b className="num">{latest.pd_pct}%</b></span>
-          <span title={m.inputs ? `Default point ${fmt$M(m.inputs.default_point)} (${m.inputs.default_point_basis || "—"}) vs total debt ${fmt$M(m.inputs.debt_total)}. Risk-free: ${m.inputs.risk_free ? m.inputs.risk_free.source : "—"}. Equity vol: ${m.inputs ? m.inputs.equity_vol : ""}.` : ""}>leverage <b className="num">{latest.leverage_pct}%</b></span>
+          <span title={m.inputs ? `Default point ${fmt$M(m.inputs.default_point)} (${m.inputs.default_point_basis || "—"}) vs total debt ${fmt$M(m.inputs.debt_total)}. Risk-free: ${m.inputs.risk_free ? m.inputs.risk_free.source : "—"}. Equity vol: ${m.inputs ? m.inputs.equity_vol : ""}.`
+            + (m.inputs.shares_basis === "filed"
+              ? ` Market cap each day: that day's close × the share count filed for it (SEC; today ${m.inputs.shares_outstanding ? (m.inputs.shares_outstanding / 1e9).toFixed(2) + "B" : "—"}${m.inputs.shares_as_of ? `, as of ${m.inputs.shares_as_of}${m.inputs.shares_form ? ` (${m.inputs.shares_form})` : ""}` : ""}).`
+              : m.inputs.shares_basis === "today_only" ? " Today's market cap uses Yahoo's current share count; no past days are shown." : "") : ""}>leverage <b className="num">{latest.leverage_pct}%</b></span>
         </div>
       )}
 
