@@ -11091,6 +11091,9 @@ body.jt-embed .sb-version-pill, body.jt-embed .sb-weather-pill { display: none !
 .tsy-pill.down { color: var(--down); border-color: color-mix(in oklch, var(--down), transparent 55%);
   background: color-mix(in oklch, var(--down) 10%, transparent); }
 .tsy-pill.mut { color: var(--fg-2); }
+/* v5.50: the Earnings Whispers card's source pill is a link to the post. */
+a.ew-srcpill { text-decoration: none; }
+a.ew-srcpill:hover { color: var(--fg); }
 
 /* maturity cards */
 .tsy-cards { display: grid; grid-template-columns: repeat(11, 1fr); gap: 8px; }

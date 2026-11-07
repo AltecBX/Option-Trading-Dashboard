@@ -1,0 +1,165 @@
+{
+ "_capture": "GET https://api.stocktwits.com/api/2/streams/user/eWhispers.json on 2026-11-07, trimmed to the weekly calendar posts and a few other image posts; fields the code reads only",
+ "user": {
+  "id": 13621,
+  "username": "eWhispers",
+  "official": true
+ },
+ "messages": [
+  {
+   "id": 668451817,
+   "body": "#earnings before the open on Monday, November 9, 2026  \n \nhttps://www.earningswhispers.com/calendar  \n \n$CEG $MNDY $SBET $NRG $VRTS",
+   "created_at": "2026-11-06T19:18:11Z",
+   "user": {
+    "id": 13621,
+    "username": "eWhispers",
+    "official": true
+   },
+   "entities": {
+    "chart": {
+     "id": 15487533,
+     "type": "image",
+     "thumb": "https://media.stocktwits-cdn.com/api/3/media/15487533/thumb.webp",
+     "medium": "https://media.stocktwits-cdn.com/api/3/media/15487533/medium.webp",
+     "large": "https://media.stocktwits-cdn.com/api/3/media/15487533/large.webp",
+     "original": "https://media.stocktwits-cdn.com/api/3/media/15487533/original.png",
+     "url": "https://media.stocktwits-cdn.com/api/3/media/15487533/default.webp",
+     "height": 2160,
+     "width": 3840,
+     "ratio": 1.77778
+    }
+   }
+  },
+  {
+   "id": 668424745,
+   "body": "The Market Makes the News, Not the Other Way Around \n \nResearch published in the Journal of Financial Economics shows that identifying a bubble doesn&#39;t necessarily tell you which direction prices will go in the first three months. Some continue higher, while others begin the path toward a crash. \n \nBut by mid-October, the path for semiconductors was becoming clear. \n \nIn our Monday, October 19 Whisper Report, titled \u201cThe Wrong Path,\u201d we showed how SOXX was closely following the historical pattern of industries that ultimately crashed, pointing toward $128 on a split-adjusted basis. \n \nhttps://www.earningswhispers.com/wrs?a=WR1119st \n \nNow, we&#39;re mostly there. \n \nThe important point isn&#39;t just that semiconductors crashed. It&#39;s that the market was signaling the decline before the news caught up. \n \n$SOXX $NVDA $INTC $MU $MRVL",
+   "created_at": "2026-11-06T15:52:20Z",
+   "user": {
+    "id": 13621,
+    "username": "eWhispers",
+    "official": true
+   },
+   "entities": {
+    "chart": {
+     "id": 15481757,
+     "type": "image",
+     "thumb": "https://media.stocktwits-cdn.com/api/3/media/15481757/thumb.webp",
+     "medium": "https://media.stocktwits-cdn.com/api/3/media/15481757/medium.webp",
+     "large": "https://media.stocktwits-cdn.com/api/3/media/15481757/large.webp",
+     "original": "https://media.stocktwits-cdn.com/api/3/media/15481757/original.png",
+     "url": "https://media.stocktwits-cdn.com/api/3/media/15481757/default.webp",
+     "height": 1080,
+     "width": 1920,
+     "ratio": 1.77778
+    }
+   }
+  },
+  {
+   "id": 668405930,
+   "body": "#earnings for the week of November 9, 2026  \n \nhttps://www.earningswhispers.com/calendar  \n \n$NU $NBIS $RKLB $CRWV $TTWO",
+   "created_at": "2026-11-06T14:09:55Z",
+   "user": {
+    "id": 13621,
+    "username": "eWhispers",
+    "official": true
+   },
+   "entities": {
+    "chart": {
+     "id": 15478213,
+     "type": "image",
+     "thumb": "https://media.stocktwits-cdn.com/api/3/media/15478213/thumb.webp",
+     "medium": "https://media.stocktwits-cdn.com/api/3/media/15478213/medium.webp",
+     "large": "https://media.stocktwits-cdn.com/api/3/media/15478213/large.webp",
+     "original": "https://media.stocktwits-cdn.com/api/3/media/15478213/original.png",
+     "url": "https://media.stocktwits-cdn.com/api/3/media/15478213/default.webp",
+     "height": 2160,
+     "width": 3840,
+     "ratio": 1.77778
+    }
+   }
+  },
+  {
+   "id": 668351000,
+   "body": "After hours earnings moves $NET $ABNB $AXON $TEAM $NTRA  \n \nhttps://www.earningswhispers.com/initialreactions",
+   "created_at": "2026-11-05T21:37:41Z",
+   "user": {
+    "id": 13621,
+    "username": "eWhispers",
+    "official": true
+   },
+   "entities": {
+    "chart": {
+     "id": 15466935,
+     "type": "image",
+     "thumb": "https://media.stocktwits-cdn.com/api/3/media/15466935/thumb.webp",
+     "medium": "https://media.stocktwits-cdn.com/api/3/media/15466935/medium.webp",
+     "large": "https://media.stocktwits-cdn.com/api/3/media/15466935/large.webp",
+     "original": "https://media.stocktwits-cdn.com/api/3/media/15466935/original.png",
+     "url": "https://media.stocktwits-cdn.com/api/3/media/15466935/default.webp",
+     "height": 1904,
+     "width": 2400,
+     "ratio": 1.2605
+    }
+   }
+  },
+  {
+   "id": 668313135,
+   "body": "#earnings before the open on Friday, November 6, 2026  \n \nhttps://www.earningswhispers.com/calendar  \n \n$MRNA $OKLO $WULF $CHTR $HUM",
+   "created_at": "2026-11-05T18:02:02Z",
+   "user": {
+    "id": 13621,
+    "username": "eWhispers",
+    "official": true
+   },
+   "entities": {
+    "chart": {
+     "id": 15459425,
+     "type": "image",
+     "thumb": "https://media.stocktwits-cdn.com/api/3/media/15459425/thumb.webp",
+     "medium": "https://media.stocktwits-cdn.com/api/3/media/15459425/medium.webp",
+     "large": "https://media.stocktwits-cdn.com/api/3/media/15459425/large.webp",
+     "original": "https://media.stocktwits-cdn.com/api/3/media/15459425/original.png",
+     "url": "https://media.stocktwits-cdn.com/api/3/media/15459425/default.webp",
+     "height": 2160,
+     "width": 3840,
+     "ratio": 1.77778
+    }
+   }
+  },
+  {
+   "id": 667879279,
+   "body": "The Most Anticipated Earnings Releases for the Week of November 2, 2026 $AAPL $PLTR $AMD $DIBS $APP  \n \nhttps://www.earningswhispers.com/calweek",
+   "created_at": "2026-11-01T23:40:30Z",
+   "user": {
+    "id": 13621,
+    "username": "eWhispers",
+    "official": true
+   },
+   "entities": {}
+  },
+  {
+   "id": 667748701,
+   "body": "#earnings for the week of November 2, 2026  \n \nhttps://www.earningswhispers.com/calweek  \n \n$AAPL $PLTR $AMD $DIBS $APP",
+   "created_at": "2026-10-30T12:57:55Z",
+   "user": {
+    "id": 13621,
+    "username": "eWhispers",
+    "official": true
+   },
+   "entities": {
+    "chart": {
+     "id": 15343058,
+     "type": "image",
+     "thumb": "https://media.stocktwits-cdn.com/api/3/media/15343058/thumb.webp",
+     "medium": "https://media.stocktwits-cdn.com/api/3/media/15343058/medium.webp",
+     "large": "https://media.stocktwits-cdn.com/api/3/media/15343058/large.webp",
+     "original": "https://media.stocktwits-cdn.com/api/3/media/15343058/original.png",
+     "url": "https://media.stocktwits-cdn.com/api/3/media/15343058/default.webp",
+     "height": 2160,
+     "width": 3840,
+     "ratio": 1.77778
+    }
+   }
+  }
+ ]
+}

@@ -6894,3 +6894,83 @@ Codex on #434, two findings:
   before this change either. What was wrong is the README's quick-start,
   which still said to deploy the page to Vercel. It now describes the
   setup in use.
+
+## v5.50 — The Earnings Whispers calendar again finds the new week by itself
+
+Jerry, Saturday 2026-11-07: the card showed the week of September 28.
+"This should always show the latest earnings post. It should be showing the
+latest Pinned post."
+
+**Why it stuck.**
+- Without a paid X key, the card finds the pinned post through X's public
+  profile timeline (`syndication.twitter.com/srv/timeline-profile`).
+- X now answers that with `429 Rate limit exceeded` to anyone not signed in.
+  Measured today, on the first request.
+- So no new week was ever found. The card fell back to the last calendar it
+  had (one pasted by hand in September) and labelled it "LAST WEEK" six
+  weeks later.
+- X's per-post feed still answers. It does not help: it needs the post's
+  number, and the profile is what says which post is pinned.
+
+**StockTwits.**
+- Earnings Whispers' official StockTwits account (`eWhispers`, marked
+  official) posts the same weekly calendar picture: "#earnings for the week
+  of November 9, 2026" went out at 14:09 UTC on Friday, the X post at 14:14.
+- StockTwits serves an account's posts through a public API with no key
+  (`api.stocktwits.com/api/2/streams/user/eWhispers.json`).
+- `_stocktwits_weekly` reads it, after the X lookups, and puts every post
+  through the same `score_post` rules as an X post. In today's feed the daily
+  "#earnings before the open on Monday…" list scores below the bar; the two
+  weekly calendars (November 2 and 9) do not.
+- **What the card shows:**
+  - The picture is StockTwits' `default.webp`: the full 3840×2160 at about
+    270 KB. "large" is only 1280px.
+  - Enlarging opens the lossless PNG.
+  - Both come through the dashboard's own image cache, like X's.
+  - "View on X" opens the @eWhispers profile, where this calendar is the
+    pinned post.
+  - A "VIA STOCKTWITS ↗" pill links to the post and says why.
+  - No X embed is attempted for a StockTwits post.
+- **A post found on X itself is never replaced:** pinned, search, timeline
+  or pasted. It carries the X link.
+- StockTwits allows five cashtags a post, so its ticker chips are the first
+  five names. The picture has them all.
+
+**The newest calendar on Friday.**
+- Earnings Whispers posts next week's calendar on Friday morning and pins it.
+- From then on the card shows it, with a "NEXT WEEK" pill. This week's is
+  one click away (‹ or Current week).
+- Monday to Thursday, nothing changes. Saturday and Sunday already rolled
+  forward to the coming week.
+
+**An old calendar says how old.** The card called a six-week-old calendar
+"last week's". The answer now carries `weeks_old`:
+- the pill reads "6 WEEKS OLD";
+- the banner reads "This calendar is 6 weeks old, not this week's."
+
+Live check (this sandbox, 2026-11-07):
+- The X timeline answers `rate_limited`.
+- StockTwits gives the weeks of November 2 and 9.
+- The card shows "Week of November 9, 2026", the same picture as the
+  pinned X post.
+- Through the dashboard the card picture is 90 KB at 1280px. That measured
+  StockTwits' "large", so the card now uses the 3840px "default" (about
+  270 KB). The enlarged PNG is 1.4 MB.
+
+Tests (the new ones fail on the old code except the two guards):
+- **`test_ewhispers`:**
+  - `TestStockTwitsWhenXIsClosed` (5). It uses a real capture of the
+    StockTwits feed, trimmed (`fixtures/stocktwits_ewhispers.json`).
+  - `TestTheLatestCalendarIsShown` (3).
+- **Browser:**
+  - `test_the_earnings_calendar_from_stocktwits`
+  - `test_an_old_earnings_calendar_says_how_old`
+
+Codex on #435, right and fixed (the test fails on the old code): **with
+an X key, a StockTwits find stopped the X search.** If the pinned lookup
+came up empty, StockTwits' copy of this week's calendar ended the refresh
+before the search that can bring back the X post itself. With a key, the
+search now still runs. An X post, whether from search or the public
+timeline, always replaces StockTwits' copy of the same week, because it
+carries the X link. Test:
+`TestWithAKeyXSearchStillRuns.test_search_runs_and_the_x_post_replaces_stocktwits`.

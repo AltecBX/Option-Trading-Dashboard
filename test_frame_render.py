@@ -534,6 +534,51 @@ def daily_history_answer(years: int) -> dict:
     return {"ok": True, "symbol": "AAPL", "years": years, "daily": rows, "first": rows[0]["date"][:10]}
 
 
+# A 1x1 PNG: the Earnings Whispers card's picture, served by the dashboard.
+EW_PNG = bytes.fromhex("89504e470d0a1a0a0000000d4948445200000001000000010806000000"
+                       "1f15c4890000000d49444154789c6360000002000154a24f5d0000000049454e44ae426082")
+
+
+def ew_answer(kind):
+    """/api/ewhispers/weekly as the server answers it (v5.50): this week's
+    calendar from StockTwits, or a six-week-old one in place of this week's."""
+    if kind == "stocktwits":
+        post = {"post_id": "668405930", "post_url": "https://x.com/eWhispers",
+                "stocktwits_url": "https://stocktwits.com/eWhispers/message/668405930",
+                "text": "#earnings for the week of November 9, 2026 $NU $NBIS $RKLB $CRWV $TTWO",
+                "published_at": "2026-11-06T14:09:55", "week_start": "2026-11-09", "week_end": "2026-11-13",
+                "image_url": "https://media.stocktwits-cdn.com/api/3/media/15478213/large.webp",
+                "image_url_full": "https://media.stocktwits-cdn.com/api/3/media/15478213/original.png",
+                "image_width": 3840, "image_height": 2160, "images": [],
+                "tickers": ["NU", "NBIS", "RKLB", "CRWV", "TTWO"], "source": "stocktwits",
+                "image_proxy": "/api/ewhispers/image?id=668405930&size=large",
+                "image_proxy_full": "/api/ewhispers/image?id=668405930&size=full"}
+        return {"available": True, "post": post, "week_start": "2026-11-09", "week_end": "2026-11-13",
+                "week_label": "Week of November 9, 2026", "current_week": "2026-11-09",
+                "requested_week": "2026-11-09", "is_current_week": True, "showing": "current",
+                "weeks_old": 0, "post_source": "stocktwits", "week_assumed": False,
+                "weeks": ["2026-11-02", "2026-11-09"], "prev_week": "2026-11-02", "next_week": None,
+                "last_checked": None, "last_status": "ok", "checking": False, "credentials": False,
+                "manual_url": None, "attribution": "Calendar and post © Earnings Whispers (@eWhispers) on X",
+                "note": None}
+    post = {"post_id": "2081000000000000001", "post_url": "https://x.com/eWhispers/status/2081000000000000001",
+            "text": "#earnings for the week of September 28, 2026 $NKE $MU", "published_at": "2026-09-25T12:00:00",
+            "week_start": "2026-09-28", "week_end": "2026-10-02",
+            "image_url": "https://pbs.twimg.com/media/old?format=jpg&name=large", "images": [],
+            "tickers": ["NKE", "MU"], "source": "manual",
+            "image_proxy": "/api/ewhispers/image?id=2081000000000000001&size=large",
+            "image_proxy_full": "/api/ewhispers/image?id=2081000000000000001&size=full"}
+    return {"available": True, "post": post, "week_start": "2026-09-28", "week_end": "2026-10-02",
+            "week_label": "Week of September 28, 2026", "current_week": "2026-11-09",
+            "requested_week": "2026-11-09", "is_current_week": False, "showing": "previous",
+            "weeks_old": 6, "post_source": "manual", "week_assumed": False,
+            "weeks": ["2026-09-28"], "prev_week": None, "next_week": None,
+            "last_checked": None, "last_status": "no_credentials (X http_429; stocktwits http_403)",
+            "checking": False, "credentials": False, "manual_url": None,
+            "attribution": "Calendar and post © Earnings Whispers (@eWhispers) on X",
+            "note": "This week's calendar hasn't been detected yet — showing Week of September 28, 2026, 6 weeks old."}
+
+
 def share_history_answer(first_after_days: int = 200, bars=None) -> dict:
     """/api/share_history for AAPL, against daily_history_answer(10) (or
     `bars`): a 10-Q count each quarter from about seven months in (a
@@ -689,7 +734,8 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                  timezone=None, safe_area=None, starred=None, ytd_bases=None,
                  quotes=None, tab_order=None, setup_board=None, live=None, uw=None,
                  buyers=None, report_card=None, hotlist=None, debt=None, daily_history=None,
-                 share_history=None, swings=None, intraday=None, credit_risk=None):
+                 share_history=None, swings=None, intraday=None, credit_risk=None,
+                 ewhispers=None):
         """Open the app with a production-sized news feed and measure the
         frame. Returns (geometry, page errors)."""
         from playwright.sync_api import sync_playwright
@@ -733,6 +779,10 @@ class TheFrameStaysOnScreen(unittest.TestCase):
         # v5.48: the Credit Risk card's answers, in order (the last repeats).
         self._credit_risk = list(credit_risk) if credit_risk is not None else None
         self.credit_risk_calls = 0
+        # v5.50: the Earnings Whispers card's weekly answer, and the URLs it
+        # asked for (the calendar picture comes through the dashboard).
+        self._ewhispers = ewhispers
+        self.ewhispers_urls = []
         pw = sync_playwright().start()
         kw = {"executable_path": CHROMIUM} if Path(CHROMIUM).exists() else {}
         browser = pw.chromium.launch(**kw)
@@ -861,6 +911,14 @@ class TheFrameStaysOnScreen(unittest.TestCase):
                 body = ({"ok": False, "error": "No daily history for AAPL.", "daily": []}
                         if self._daily_history == "error" else daily_history_answer(yrs))
                 r.fulfill(status=200, content_type="application/json", body=json.dumps(body))
+                return
+            if self._ewhispers is not None and urllib.parse.urlsplit(url).path.startswith("/api/ewhispers/"):
+                self.ewhispers_urls.append(url)
+                path = urllib.parse.urlsplit(url).path
+                if path == "/api/ewhispers/image":
+                    r.fulfill(status=200, content_type="image/png", body=EW_PNG)
+                else:
+                    r.fulfill(status=200, content_type="application/json", body=json.dumps(self._ewhispers))
                 return
             if self._credit_risk is not None and urllib.parse.urlsplit(url).path == "/api/credit_risk":
                 self.credit_risk_calls += 1
@@ -3925,6 +3983,43 @@ class TheFrameStaysOnScreen(unittest.TestCase):
             self.assertIn("Yahoo's latest balance sheet", page.inner_text(".cr-debt-note"))
             tip = page.evaluate("[...document.querySelectorAll('.cr-stats span')].map(s => s.title).join(' ')")
             self.assertIn("Yahoo's latest balance sheet, for every day", tip)
+            self.assertEqual(errs, [], f"the page threw: {errs[:2]}")
+        finally:
+            self._close(handles)
+
+    def test_the_earnings_calendar_from_stocktwits(self):
+        # v5.50: X no longer shows an anonymous caller the pinned post, so
+        # the calendar comes from Earnings Whispers' StockTwits account. The
+        # card shows the picture through the dashboard, says where it came
+        # from, sends "View on X" to the profile, and does not try to embed
+        # an X post that is not one.
+        geo, errs, handles = self._measure(1440, 900, tab="earnops", ewhispers=ew_answer("stocktwits"))
+        page = handles[2]
+        try:
+            page.wait_for_selector(".ew-card .ew-img", timeout=30000)
+            pills = page.inner_text(".ew-weekline")
+            self.assertIn("Week of November 9, 2026", pills)
+            self.assertIn("VIA STOCKTWITS", pills)
+            self.assertEqual("https://x.com/eWhispers", page.get_attribute(".ew-xbtn", "href"))
+            self.assertIn("stocktwits.com/eWhispers/message/668405930",
+                          page.get_attribute(".ew-srcpill", "href"))
+            self.assertTrue(any("/api/ewhispers/image" in u for u in self.ewhispers_urls))
+            self.assertEqual(0, page.locator(".ew-embed").count(), "no X embed for a StockTwits post")
+            self.assertEqual(0, page.locator(".ew-stale").count())
+            self.assertEqual(errs, [], f"the page threw: {errs[:2]}")
+        finally:
+            self._close(handles)
+
+    def test_an_old_earnings_calendar_says_how_old(self):
+        # The card called a six-week-old calendar "last week's".
+        geo, errs, handles = self._measure(1440, 900, tab="earnops", ewhispers=ew_answer("old"))
+        page = handles[2]
+        try:
+            page.wait_for_selector(".ew-card .ew-stale", timeout=30000)
+            self.assertIn("6 WEEKS OLD", page.inner_text(".ew-weekline"))
+            stale = page.inner_text(".ew-stale")
+            self.assertIn("This calendar is 6 weeks old", stale)
+            self.assertNotIn("last week", stale.lower())
             self.assertEqual(errs, [], f"the page threw: {errs[:2]}")
         finally:
             self._close(handles)

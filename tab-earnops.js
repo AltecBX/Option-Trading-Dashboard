@@ -53,6 +53,10 @@ function eopPct(v, d = 1) {
 // X). Display: the calendar image straight from X's media CDN when the
 // server has API credentials, otherwise the official X embed. Tickers come
 // from the post's cashtags and click through to the global ticker.
+// v5.50: X no longer shows an anonymous caller which post is pinned, so the
+// calendar often comes from Earnings Whispers' official StockTwits account
+// (the same picture); "View on X" then opens their profile, where it is the
+// pinned post.
 // ═══════════════════════════════════════════════════════════════════════════
 
 // The official X embed script, loaded ONCE and only when a card actually
@@ -294,7 +298,8 @@ function EarningsWhispersCard({
   }, [zoom]);
   const post = data && data.post;
   const hasImage = !!(post && post.image_url) && !imgBroken;
-  const canEmbed = !!(post && post.post_id) && !hasImage;
+  // A StockTwits post has no X post to embed (v5.50).
+  const canEmbed = !!(post && post.post_id) && !hasImage && post.source !== "stocktwits";
   const imgSrc = useEwImageSrc(apiFetch, hasImage ? post : null, "card");
   const fullSrc = useEwImageSrc(apiFetch, zoom && hasImage ? post : null, "full");
   // The post text minus link clutter; cashtags already render as chips.
@@ -324,7 +329,7 @@ function EarningsWhispersCard({
     href: post.post_url,
     target: "_blank",
     rel: "noopener noreferrer",
-    title: "Open the original post on X in a new tab."
+    title: post.source === "stocktwits" ? "Opens @eWhispers on X in a new tab: this calendar is their pinned post." : "Open the original post on X in a new tab."
   }, "View on X \u2197"), /*#__PURE__*/React.createElement("button", {
     className: "scan-run-btn",
     onClick: refresh,
@@ -337,7 +342,16 @@ function EarningsWhispersCard({
   }, data.week_label), data.showing === "previous" && /*#__PURE__*/React.createElement("span", {
     className: "tsy-pill warn",
     title: data.note || ""
-  }, "LAST WEEK"), data.post_source === "pinned" && /*#__PURE__*/React.createElement("span", {
+  }, data.weeks_old > 1 ? `${data.weeks_old} WEEKS OLD` : "LAST WEEK"), data.showing === "upcoming" && /*#__PURE__*/React.createElement("span", {
+    className: "tsy-pill mut",
+    title: "Earnings Whispers posts next week's calendar on Friday morning. This week's is under \u2039 or Current week."
+  }, "NEXT WEEK"), data.post_source === "stocktwits" && post && post.stocktwits_url && /*#__PURE__*/React.createElement("a", {
+    className: "tsy-pill mut ew-srcpill",
+    href: post.stocktwits_url,
+    target: "_blank",
+    rel: "noopener noreferrer",
+    title: "X no longer shows the dashboard @eWhispers' pinned post without a paid key, so this comes from Earnings Whispers' official StockTwits account, which posts the same calendar picture."
+  }, "VIA STOCKTWITS \u2197"), data.post_source === "pinned" && /*#__PURE__*/React.createElement("span", {
     className: "tsy-pill mut",
     title: "Taken from the post @eWhispers currently has pinned, which is always the current week."
   }, "PINNED"), data.showing === "manual" && /*#__PURE__*/React.createElement("span", {
@@ -350,7 +364,7 @@ function EarningsWhispersCard({
   }, "posted ", fmtUSDate(post.published_at))), data && data.showing === "previous" && /*#__PURE__*/React.createElement("div", {
     className: "ew-stale",
     title: data.note || ""
-  }, /*#__PURE__*/React.createElement("b", null, "This is last week\u2019s calendar, not this week\u2019s."), " ", data.note || "This week's post has not been detected yet.", " ", String(data.last_status || "").startsWith("no_credentials") ? "The automatic lookup could not reach X. Paste this week's " + "pinned @eWhispers post link below — no API key needed." : "Press Refresh to look again, or paste this week's pinned " + "@eWhispers post link below."), data && data.week_assumed && data.showing === "current" && /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("b", null, data.weeks_old > 1 ? `This calendar is ${data.weeks_old} weeks old, not this week’s.` : "This is last week’s calendar, not this week’s."), " ", data.note || "This week's post has not been detected yet.", " ", String(data.last_status || "").startsWith("no_credentials") ? "The automatic lookup could not reach X or StockTwits. Paste this week's " + "pinned @eWhispers post link below — no API key needed." : "Press Refresh to look again, or paste this week's pinned " + "@eWhispers post link below."), data && data.week_assumed && data.showing === "current" && /*#__PURE__*/React.createElement("div", {
     className: "ew-assumed",
     title: data.note || ""
   }, data.note), err && !data && /*#__PURE__*/React.createElement("div", {

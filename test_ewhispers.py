@@ -1102,3 +1102,160 @@ class TestTheKeylessPath(unittest.TestCase):
         self.assertNotIn("needs an X API key", note)
         self.assertIn("no API key needed", note)
         self.assertIn("rate_limited", note)
+
+
+# ── StockTwits, when X will not answer (v5.50) ─────────────────────────────
+#
+# X answers its public profile timeline with "Rate limit exceeded" to anyone
+# not signed in, so the keyless X path finds nothing and the card sat on the
+# week of September 28 into November. Earnings Whispers posts the same
+# weekly calendar to its official StockTwits account (minutes before X),
+# through a public API with no key. The fixture is a real capture of that
+# feed on Saturday 2026-11-07: the calendar for the week of November 9 and
+# the one for November 2, a daily "before the open" list (which must not
+# become the weekly card), and other image posts.
+
+ST_FIX = FIX / "stocktwits_ewhispers.json"
+ST_IMAGE = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64 + b"calendar-png"
+
+
+class _StockTwitsSession:
+    def __init__(self, status=200):
+        self.status, self.urls = status, []
+
+    def get(self, url, **kw):
+        self.urls.append(url)
+        if url.startswith("https://api.stocktwits.com/"):
+            return _FakeResp(self.status, ST_FIX.read_text() if self.status == 200 else "blocked")
+        if url.startswith("https://media.stocktwits-cdn.com/"):
+            return _FakeResp(200, content=ST_IMAGE)
+        if url.startswith(ew.PROFILE_TIMELINE_URL.split("{")[0]):
+            return _FakeResp(429, "Rate limit exceeded")        # what X says today
+        return _FakeResp(404, "{}")
+
+
+class TestStockTwitsWhenXIsClosed(Base):
+    SAT = date(2026, 11, 7)
+
+    def setUp(self):
+        super().setUp()
+        ew._today = lambda: self.SAT
+
+    def run_refresh(self, status=200):
+        fake = _StockTwitsSession(status)
+        ew.configure(self._tmp.name, session_factory=lambda: fake)
+        ew._refresh_from_x()
+        return fake
+
+    def test_the_weekly_calendar_comes_from_stocktwits(self):
+        self.run_refresh()
+        out = ew.get_weekly()
+        self.assertTrue(out["available"])
+        self.assertEqual("2026-11-09", out["week_start"])
+        self.assertEqual("current", out["showing"])
+        self.assertEqual("stocktwits", out["post_source"])
+        post = out["post"]
+        self.assertEqual("https://media.stocktwits-cdn.com/api/3/media/15478213/default.webp", post["image_url"],
+                         "the full-size WebP, not the 1280px 'large'")
+        self.assertTrue(post["image_url_full"].endswith("/original.png"))
+        self.assertEqual((3840, 2160), (post["image_width"], post["image_height"]))
+        self.assertEqual("https://x.com/eWhispers", post["post_url"],
+                         "the X profile, where this calendar is the pinned post")
+        self.assertIn("stocktwits.com/eWhispers/message/668405930", post["stocktwits_url"])
+        self.assertIn("NU", post["tickers"])
+        self.assertEqual("ok", ew._load_state()["last_status"])
+
+    def test_every_weekly_calendar_in_the_feed_is_kept_and_no_daily_list(self):
+        self.run_refresh()
+        weeks = ew._load_state()["weeks"]
+        self.assertEqual(["2026-11-02", "2026-11-09"], sorted(weeks))
+        self.assertTrue(all("week of" in r["text"] for r in weeks.values()),
+                        "a daily 'before the open' list became a weekly card")
+
+    def test_a_post_found_on_x_is_kept(self):
+        st = ew._load_state()
+        st["weeks"]["2026-11-09"] = {"post_id": "2118708606816145430", "week_start": "2026-11-09",
+                                     "week_end": "2026-11-13", "image_url": None, "text": "pinned",
+                                     "tickers": [], "confidence": 0.9, "source": "pinned"}
+        ew._save_state()
+        self.run_refresh()
+        self.assertEqual("pinned", ew._load_state()["weeks"]["2026-11-09"]["source"],
+                         "a post from X carries the X link: StockTwits does not replace it")
+
+    def test_the_picture_is_served_through_the_dashboard(self):
+        self.run_refresh()
+        pid = ew.get_weekly()["post"]["post_id"]
+        b, ct = ew.get_image(pid, "large")
+        self.assertEqual("image/png", ct)
+        self.assertEqual(ST_IMAGE, b)
+
+    def test_stocktwits_refusing_is_said(self):
+        self.run_refresh(status=403)
+        self.assertFalse(ew.get_weekly()["available"])
+        self.assertIn("stocktwits", ew._load_state()["last_status"])
+
+
+class TestWithAKeyXSearchStillRuns(Base):
+    """Codex, #435: with an X key, a StockTwits find must not stop the
+    search that can bring back the X post itself (and its link)."""
+
+    def test_search_runs_and_the_x_post_replaces_stocktwits(self):
+        self.with_token()
+        ew._today = lambda: date(2026, 11, 7)
+        fake = _StockTwitsSession()
+        ew.configure(self._tmp.name, session_factory=lambda: fake)
+        ew._x_pinned_candidate = lambda: ("no_pinned_post", None)
+        x_post = {"data": [{"id": "2118708606816145430", "created_at": "2026-11-06T14:14:30.000Z",
+                            "text": "#earnings for the week of November 9, 2026 $NU $NBIS $RKLB $CRWV $TTWO $CSCO",
+                            "attachments": {"media_keys": ["3_1"]}}],
+                  "includes": {"media": [{"media_key": "3_1", "type": "photo", "width": 3840, "height": 2160,
+                                          "url": "https://pbs.twimg.com/media/HWcpUwKWAAAunh7.jpg"}]}}
+        calls = self.stub_search(body=json.dumps(x_post))
+        try:
+            ew._refresh_from_x()
+        finally:
+            ew._x_pinned_candidate = TestWithAKeyXSearchStillRuns._real_pinned
+        self.assertEqual(1, len(calls), "the X search ran")
+        rec = ew._load_state()["weeks"]["2026-11-09"]
+        self.assertEqual("x", rec["source"])
+        self.assertEqual("https://x.com/eWhispers/status/2118708606816145430", rec["post_url"])
+
+
+TestWithAKeyXSearchStillRuns._real_pinned = ew._x_pinned_candidate
+
+
+class TestTheLatestCalendarIsShown(Base):
+    def seed_two_weeks(self):
+        fake = _StockTwitsSession()
+        ew.configure(self._tmp.name, session_factory=lambda: fake)
+        ew._today = lambda: date(2026, 11, 7)
+        ew._refresh_from_x()
+
+    def test_on_friday_next_weeks_calendar_shows_once_it_is_out(self):
+        # They post next week's calendar on Friday morning; the card shows
+        # the newest post, as @eWhispers pins it.
+        self.seed_two_weeks()
+        ew._today = lambda: date(2026, 11, 6)
+        out = ew.get_weekly()
+        self.assertEqual("2026-11-09", out["week_start"])
+        self.assertEqual("upcoming", out["showing"])
+        self.assertEqual("2026-11-02", out["current_week"])
+        self.assertEqual("2026-11-02", ew.get_weekly(week="2026-11-02")["week_start"],
+                         "this week's is still a click away")
+
+    def test_midweek_shows_this_week(self):
+        self.seed_two_weeks()
+        ew._today = lambda: date(2026, 11, 4)
+        self.assertEqual("2026-11-02", ew.get_weekly()["week_start"])
+
+    def test_an_old_calendar_says_how_old_it_is(self):
+        st = ew._load_state()
+        st["weeks"]["2026-09-28"] = {"post_id": "1", "week_start": "2026-09-28", "week_end": "2026-10-02",
+                                     "image_url": None, "text": "old", "tickers": [],
+                                     "confidence": 0.9, "source": "manual"}
+        ew._save_state()
+        ew._today = lambda: date(2026, 11, 7)
+        out = ew.get_weekly()
+        self.assertEqual("previous", out["showing"])
+        self.assertEqual(6, out["weeks_old"])
+        self.assertIn("6 weeks", out["note"])
