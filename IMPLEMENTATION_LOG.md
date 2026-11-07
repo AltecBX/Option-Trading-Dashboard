@@ -6965,3 +6965,12 @@ Tests (the new ones fail on the old code except the two guards):
 - **Browser:**
   - `test_the_earnings_calendar_from_stocktwits`
   - `test_an_old_earnings_calendar_says_how_old`
+
+Codex on #435, right and fixed (the test fails on the old code): **with
+an X key, a StockTwits find stopped the X search.** If the pinned lookup
+came up empty, StockTwits' copy of this week's calendar ended the refresh
+before the search that can bring back the X post itself. With a key, the
+search now still runs. An X post, whether from search or the public
+timeline, always replaces StockTwits' copy of the same week, because it
+carries the X link. Test:
+`TestWithAKeyXSearchStillRuns.test_search_runs_and_the_x_post_replaces_stocktwits`.

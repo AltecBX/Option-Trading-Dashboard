@@ -1195,6 +1195,35 @@ class TestStockTwitsWhenXIsClosed(Base):
         self.assertIn("stocktwits", ew._load_state()["last_status"])
 
 
+class TestWithAKeyXSearchStillRuns(Base):
+    """Codex, #435: with an X key, a StockTwits find must not stop the
+    search that can bring back the X post itself (and its link)."""
+
+    def test_search_runs_and_the_x_post_replaces_stocktwits(self):
+        self.with_token()
+        ew._today = lambda: date(2026, 11, 7)
+        fake = _StockTwitsSession()
+        ew.configure(self._tmp.name, session_factory=lambda: fake)
+        ew._x_pinned_candidate = lambda: ("no_pinned_post", None)
+        x_post = {"data": [{"id": "2118708606816145430", "created_at": "2026-11-06T14:14:30.000Z",
+                            "text": "#earnings for the week of November 9, 2026 $NU $NBIS $RKLB $CRWV $TTWO $CSCO",
+                            "attachments": {"media_keys": ["3_1"]}}],
+                  "includes": {"media": [{"media_key": "3_1", "type": "photo", "width": 3840, "height": 2160,
+                                          "url": "https://pbs.twimg.com/media/HWcpUwKWAAAunh7.jpg"}]}}
+        calls = self.stub_search(body=json.dumps(x_post))
+        try:
+            ew._refresh_from_x()
+        finally:
+            ew._x_pinned_candidate = TestWithAKeyXSearchStillRuns._real_pinned
+        self.assertEqual(1, len(calls), "the X search ran")
+        rec = ew._load_state()["weeks"]["2026-11-09"]
+        self.assertEqual("x", rec["source"])
+        self.assertEqual("https://x.com/eWhispers/status/2118708606816145430", rec["post_url"])
+
+
+TestWithAKeyXSearchStillRuns._real_pinned = ew._x_pinned_candidate
+
+
 class TestTheLatestCalendarIsShown(Base):
     def seed_two_weeks(self):
         fake = _StockTwitsSession()

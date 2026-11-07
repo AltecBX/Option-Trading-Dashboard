@@ -557,7 +557,7 @@ def _refresh_from_x() -> None:
         rec["source"] = "public-timeline"
         with _LOCK:
             cur = st["weeks"].get(kl_wk)
-            if cur is None or kl_conf >= (cur.get("confidence") or 0):
+            if cur is None or cur.get("source") == "stocktwits" or kl_conf >= (cur.get("confidence") or 0):
                 st["weeks"][kl_wk] = rec
             st["last_checked"] = _now_iso()
             st["last_status"] = "ok"
@@ -587,7 +587,9 @@ def _refresh_from_x() -> None:
             _prune_weeks(st)
         _save_state()
         _log(f"refresh: StockTwits has weeks {sorted(r['week_start'] for r in st_recs)}")
-        if any(r["week_start"] == ref_week for r in st_recs):
+        # With an X key the search below still runs: it can bring back the
+        # X post itself, with its link, which then replaces this (Codex, #435).
+        if not _bearer_token() and any(r["week_start"] == ref_week for r in st_recs):
             return
     else:
         _log(f"refresh: StockTwits {st_status}")
@@ -628,8 +630,10 @@ def _refresh_from_x() -> None:
         with _LOCK:
             cur = st["weeks"].get(wk)
             # Duplicate weekly posts: keep the strongest; on a tie keep the
-            # newer (a re-post usually supersedes a deleted original).
-            if (cur is None or conf > (cur.get("confidence") or 0)
+            # newer (a re-post usually supersedes a deleted original). The X
+            # post always replaces StockTwits' copy: it carries the X link.
+            if (cur is None or cur.get("source") == "stocktwits"
+                    or conf > (cur.get("confidence") or 0)
                     or (conf == (cur.get("confidence") or 0)
                         and (rec.get("published_at") or "") >= (cur.get("published_at") or ""))):
                 st["weeks"][wk] = rec
