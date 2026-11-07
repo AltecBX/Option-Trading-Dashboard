@@ -16,6 +16,12 @@ Sources, in fallback order (never a broken card):
      comes from the API's own media metadata (pbs.twimg.com) — the
      supported way to display it natively.
   2. The last successfully verified weekly post, from the on-disk cache.
+  2b. Earnings Whispers' official StockTwits account (v5.50), through
+     StockTwits' public API, no key. X answers its public profile timeline
+     with "Rate limit exceeded" to anyone not signed in, so the keyless X
+     lookup finds nothing; Earnings Whispers posts the same weekly calendar
+     picture to StockTwits, minutes before X. A post found on X itself
+     always wins: it carries the X link.
   3. A manually supplied post URL (set in the UI or EWHISPERS_MANUAL_URL).
      Hydrated through X's public oEmbed endpoint (publish.x.com/oembed —
      official, unauthenticated, returns the post text + author), so even
@@ -304,9 +310,14 @@ def _validate_post_url(url: str) -> tuple[bool, str | None, str | None]:
     return True, f"https://x.com/{ACCOUNT}/status/{pid}", pid
 
 
-def _safe_image_url(url: str | None) -> str | None:
-    """Only X's own media host is ever handed to the frontend."""
-    if isinstance(url, str) and url.startswith("https://pbs.twimg.com/"):
+STOCKTWITS_MEDIA = "https://media.stocktwits-cdn.com/"
+
+
+def _safe_image_url(url: str | None, stocktwits: bool = False) -> str | None:
+    """Only X's own media host is ever handed to the frontend, and
+    StockTwits' for a post that came from StockTwits (v5.50)."""
+    if isinstance(url, str) and (url.startswith("https://pbs.twimg.com/")
+                                 or (stocktwits and url.startswith(STOCKTWITS_MEDIA))):
         return url
     return None
 
@@ -560,13 +571,34 @@ def _refresh_from_x() -> None:
     else:
         _log(f"refresh: keyless lookup {kl_status}")
 
+    # StockTwits (v5.50): the same weekly calendar, from Earnings Whispers'
+    # official account there, when X will not answer without a key.
+    st_status, st_recs = _stocktwits_weekly(ref_week)
+    if st_recs:
+        with _LOCK:
+            for rec in st_recs:
+                cur = st["weeks"].get(rec["week_start"])
+                # A post found on X itself is kept: it carries the X link.
+                if cur is None or cur.get("source") == "stocktwits":
+                    st["weeks"][rec["week_start"]] = rec
+            st["last_checked"] = _now_iso()
+            st["last_status"] = "ok"
+            st["last_error"] = None
+            _prune_weeks(st)
+        _save_state()
+        _log(f"refresh: StockTwits has weeks {sorted(r['week_start'] for r in st_recs)}")
+        if any(r["week_start"] == ref_week for r in st_recs):
+            return
+    else:
+        _log(f"refresh: StockTwits {st_status}")
+
     if not _bearer_token():
         # Nothing further is possible without a key. Record why, rather
         # than leaving last_status reading like a healthy check.
         with _LOCK:
             st["last_checked"] = _now_iso()
-            st["last_status"] = ("ok" if kl is not None
-                                 else f"no_credentials ({kl_status})")
+            st["last_status"] = ("ok" if (kl is not None or st_recs)
+                                 else f"no_credentials (X {kl_status}; stocktwits {st_status})")
         _save_state()
         return
 
@@ -766,6 +798,81 @@ def _keyless_weekly_candidate(ref_week: str) -> tuple[str, dict | None, float, s
     if best[1] is not None:
         return "ok", best[1], best[0], best[2]
     return "no_weekly_post", None, 0.0, None
+
+
+# ── StockTwits (v5.50) ──────────────────────────────────────────────────────
+# X answers the public profile timeline above with "Rate limit exceeded" to
+# anyone not signed in (measured 2026-11-07, and the reason the card sat on
+# the week of September 28 into November). Earnings Whispers posts the same
+# weekly calendar picture to its official StockTwits account, minutes before
+# X, and StockTwits serves an account's posts through a public API with no
+# key. Every post goes through the same score_post rules as an X post, so a
+# daily "before the open" list cannot become the weekly card.
+
+STOCKTWITS_URL = "https://api.stocktwits.com/api/2/streams/user/{account}.json"
+
+
+def _stocktwits_weekly(ref_week: str) -> tuple[str, list[dict]]:
+    """(status, records): one record per weekly calendar in @eWhispers'
+    recent StockTwits posts, each under the week it announces."""
+    try:
+        r = _session().get(STOCKTWITS_URL.format(account=ACCOUNT),
+                           headers={"User-Agent": UA, "Accept": "application/json"},
+                           timeout=TIMEOUT)
+    except Exception as exc:  # noqa: BLE001
+        return f"unreachable: {str(exc)[:80]}", []
+    if r.status_code == 429:
+        return "rate_limited", []
+    if r.status_code != 200:
+        return f"http_{r.status_code}", []
+    try:
+        msgs = (json.loads(r.text) or {}).get("messages") or []
+    except Exception as exc:  # noqa: BLE001
+        return f"bad_payload: {str(exc)[:80]}", []
+    out = {}
+    for m in msgs:
+        if not isinstance(m, dict) or str(((m.get("user") or {}).get("username")) or "").lower() != ACCOUNT.lower():
+            continue
+        chart = (m.get("entities") or {}).get("chart") or {}
+        full = _safe_image_url(chart.get("original"), stocktwits=True) \
+            or _safe_image_url(chart.get("url"), stocktwits=True)
+        text = m.get("body") or ""
+        created = str(m.get("created_at") or "")[:19] or None
+        try:
+            pub = date.fromisoformat((created or "")[:10])
+        except ValueError:
+            pub = None
+        conf, wk, _reasons = score_post(text, has_image=bool(full), published=pub,
+                                        ref_week=ref_week)
+        if not wk or conf < MIN_CONFIDENCE or (wk in out and out[wk]["confidence"] >= conf):
+            continue
+        pid = str(m.get("id") or "")
+        if not re.fullmatch(r"\d{5,25}", pid):
+            continue
+        out[wk] = {
+            "post_id": pid,
+            # The X profile, where this calendar is the pinned post: X will
+            # not tell an anonymous caller which post that is.
+            "post_url": f"https://x.com/{ACCOUNT}",
+            "stocktwits_url": f"https://stocktwits.com/{ACCOUNT}/message/{pid}",
+            "author": ACCOUNT,
+            "text": text,
+            "published_at": created,
+            "week_start": wk,
+            "week_end": (date.fromisoformat(wk) + timedelta(days=4)).isoformat(),
+            # "default" is the full 3840px picture as a ~270KB WebP; "large"
+            # is only 1280px, soft on a wide card. The PNG is for enlarging.
+            "image_url": _safe_image_url(chart.get("url"), stocktwits=True) or full,
+            "image_url_full": full,
+            "image_width": chart.get("width"),
+            "image_height": chart.get("height"),
+            "images": [],
+            "tickers": extract_tickers(text),
+            "confidence": conf,
+            "source": "stocktwits",
+            "detected_at": _now_iso(),
+        }
+    return ("ok" if out else "no_weekly_post"), list(out.values())
 
 
 def _fetch_oembed(post_url: str) -> dict | None:
@@ -978,7 +1085,8 @@ def get_image(post_id: str, size: str = "large") -> tuple[bytes | None, str]:
     if not rec:
         return None, "unknown post"
     url = rec.get("image_url_full") if size == "full" else rec.get("image_url")
-    url = _safe_image_url(url or rec.get("image_url"))
+    url = _safe_image_url(url or rec.get("image_url"),
+                          stocktwits=rec.get("source") == "stocktwits")
     if not url:
         return None, "post has no image"
     key = f"{post_id}.{size}"
@@ -1115,10 +1223,18 @@ def get_weekly(week: str | None = None) -> dict:
         last_status = st.get("last_status")
         checking = _REFRESHING
 
+    # The newest calendar (v5.50). Earnings Whispers posts next week's on
+    # Friday morning and pins it; from then on the card shows it, as their
+    # X profile does. This week's stays a click away.
+    upcoming = (date.fromisoformat(ref_week) + timedelta(days=7)).isoformat()
+    if not week and _today().weekday() == 4 and upcoming in weeks_map:
+        target = upcoming
+
     post, showing = None, None
     if target in weeks_map:
         post = weeks_map[target]
-        showing = "current" if target == ref_week else "history"
+        showing = ("current" if target == ref_week
+                   else "upcoming" if target == upcoming and not week else "history")
     elif target == ref_week:
         # Current week not verified yet → manual post (even week-unknown),
         # then the most recent verified past week, clearly labeled.
@@ -1148,6 +1264,10 @@ def get_weekly(week: str | None = None) -> dict:
     next_week = weeks[idx + 1] if 0 <= idx < len(weeks) - 1 else None
 
     creds = bool(_bearer_token())
+    # How old a calendar shown in place of this week's is (v5.50): the card
+    # said "last week's" of one six weeks old.
+    weeks_old = ((date.fromisoformat(ref_week) - date.fromisoformat(week_start)).days // 7
+                 if showing == "previous" else 0)
     note = None
     if post is None:
         if last_status and str(last_status).startswith("no_credentials"):
@@ -1155,9 +1275,9 @@ def get_weekly(week: str | None = None) -> dict:
             # Saying "needs an API key" here would send Jerry off to buy one
             # for a problem a key would not fix.
             why = str(last_status).split("(", 1)[-1].rstrip(")")
-            note = (f"The automatic lookup could not reach X ({why}). Paste "
-                    f"this week's pinned @eWhispers post link below and the "
-                    f"calendar will load — no API key needed.")
+            note = (f"The automatic lookup could not reach X or StockTwits "
+                    f"({why}). Paste this week's pinned @eWhispers post link "
+                    f"below and the calendar will load — no API key needed.")
         elif not creds and not manual_url:
             note = ("Nothing has been detected for this week yet. Paste the "
                     "pinned @eWhispers post link below to load it now.")
@@ -1167,7 +1287,8 @@ def get_weekly(week: str | None = None) -> dict:
             note = "No weekly calendar post found yet for this week."
     elif showing == "previous":
         note = (f"This week's calendar hasn't been detected yet — showing "
-                f"{week_label(week_start)}.")
+                f"{week_label(week_start)}, "
+                + ("last week's." if weeks_old <= 1 else f"{weeks_old} weeks old."))
     elif showing == "manual":
         note = "Showing the manually supplied post."
     elif (post or {}).get("week_assumed"):
@@ -1185,6 +1306,7 @@ def get_weekly(week: str | None = None) -> dict:
         "requested_week": target,
         "is_current_week": week_start == ref_week,
         "showing": showing,
+        "weeks_old": weeks_old,
         "post_source": (post or {}).get("source"),
         "week_assumed": bool((post or {}).get("week_assumed")),
         "weeks": weeks,
